@@ -1,0 +1,236 @@
+// Prisma schema - BHM CRM
+// Montants monétaires stockés en centimes (Int) - jamais de float sur de l'argent.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum Role {
+  ADMIN
+  COMMERCIAL
+  COMPTA
+}
+
+enum TypeDossier {
+  RENOVATION_AMPLEUR_ANAH
+  RENOVATION_AMPLEUR_CEE
+  MONOGESTE
+}
+
+enum StatutDossier {
+  DEVIS_SIGNE
+  AUDIT_FAIT
+  DOSSIER_DEPOSE
+  EN_INSTRUCTION
+  ACCEPTE
+  REFUSE
+  TRAVAUX_PLANIFIES
+  TRAVAUX_EN_COURS
+  TRAVAUX_TERMINES
+  CONTROLE_EN_COURS
+  SOLDE_DEMANDE
+  SOLDE_RECU
+  CLOTURE
+}
+
+enum ModePaiementAide {
+  CLIENT_AVANCE
+  AVANCE_30_ANAH
+  FINANCEMENT_PARTENAIRE
+  MANDATAIRE_FINANCIER_BHM
+  MANDATAIRE_FINANCIER_ANAH
+}
+
+enum Precarite {
+  TRES_MODESTE
+  MODESTE
+  INTERMEDIAIRE
+  SUPERIEUR
+}
+
+enum ZoneClimatique {
+  H1
+  H2
+  H3
+}
+
+enum TypeTravaux {
+  ITE
+  COMBLES
+  PAC_AIR_EAU
+  BALLON_THERMODYNAMIQUE
+  VMC
+  AUTRE
+}
+
+enum TypeTache {
+  RELANCE_CLIENT
+  RELANCE_CEE
+  RELANCE_ANAH
+  RELANCE_FOURNISSEUR
+  RELANCE_SOUS_TRAITANT
+  AUTRE
+}
+
+enum StatutTache {
+  A_FAIRE
+  FAIT
+  ANNULE
+}
+
+enum StatutCommande {
+  COMMANDEE
+  LIVREE
+  RETIREE
+  ANNULEE
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(COMMERCIAL)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tachesAssignees Tache[]
+}
+
+model Client {
+  id             String          @id @default(cuid())
+  prenom         String
+  nom            String
+  email          String?
+  telephone      String?
+  adresse        String?
+  codePostal     String?
+  ville          String?
+  precarite      Precarite?
+  zoneClimatique ZoneClimatique?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  dossiers Dossier[]
+}
+
+model Dossier {
+  id        String        @id @default(cuid())
+  reference String        @unique
+  clientId  String
+  client    Client        @relation(fields: [clientId], references: [id])
+
+  type   TypeDossier
+  statut StatutDossier @default(DEVIS_SIGNE)
+
+  // Montants en centimes
+  montantDevisTTC  Int
+  montantAideMPR   Int @default(0)
+  montantAideCEE   Int @default(0)
+
+  montantEncaisseClient Int @default(0)
+  montantEncaisseMPR    Int @default(0)
+  montantEncaisseCEE    Int @default(0)
+
+  modePaiementAide ModePaiementAide?
+  mar              String? // Accompagnateur Rénov (nom)
+  delegataireCEE   String?
+
+  dateSignatureDevis DateTime?
+  dateDebutTravaux   DateTime?
+  dateFinTravaux     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postesTravaux DossierPosteTravaux[]
+  taches        Tache[]
+  commandes     Commande[]
+
+  @@index([statut])
+  @@index([clientId])
+}
+
+model DossierPosteTravaux {
+  id                    String      @id @default(cuid())
+  dossierId             String
+  dossier               Dossier     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  type                  TypeTravaux
+  surfaceM2             Float?
+  montantCumac          Int? // en kWh cumac
+  montantPrimeCalculeCts Int? // prime CEE calculée, en centimes
+
+  @@index([dossierId])
+}
+
+model SousTraitant {
+  id             String   @id @default(cuid())
+  nom            String
+  typeTravaux    TypeTravaux?
+  tarifM2Cts     Int? // tarif au m2, en centimes
+  tarifFixeCts   Int? // tarif fixe, en centimes
+  fourniPose     Boolean  @default(false)
+  telephone      String?
+  email          String?
+  delaiPaiementJours Int? // délai de paiement après fin de travaux
+  createdAt      DateTime @default(now())
+
+  commandes Commande[]
+}
+
+model Fournisseur {
+  id                 String   @id @default(cuid())
+  nom                String
+  delaiPaiementJours Int?
+  telephone          String?
+  email              String?
+  createdAt          DateTime @default(now())
+
+  commandes Commande[]
+}
+
+model Commande {
+  id                   String          @id @default(cuid())
+  dossierId            String
+  dossier              Dossier         @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  fournisseurId        String?
+  fournisseur          Fournisseur?    @relation(fields: [fournisseurId], references: [id])
+  sousTraitantId       String?
+  sousTraitant         SousTraitant?   @relation(fields: [sousTraitantId], references: [id])
+
+  numeroBL             String?
+  montantCts           Int // en centimes
+  statut               StatutCommande  @default(COMMANDEE)
+  dateCommande         DateTime        @default(now())
+  dateLivraisonPrevue  DateTime?
+  dateLivraisonReelle  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([dossierId])
+  @@index([fournisseurId])
+}
+
+model Tache {
+  id           String      @id @default(cuid())
+  dossierId    String
+  dossier      Dossier     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  type         TypeTache
+  titre        String
+  description  String?
+  dateEcheance DateTime
+  statut       StatutTache @default(A_FAIRE)
+  assigneAId   String?
+  assigneA     User?       @relation(fields: [assigneAId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dossierId])
+  @@index([statut, dateEcheance])
+}
