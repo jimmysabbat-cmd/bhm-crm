@@ -43,8 +43,14 @@ export async function createDossier(formData: FormData) {
       montantAideMPR: eurosToCents(Number(formData.get("montantAideMPR") || 0)),
       montantAideCEE: eurosToCents(Number(formData.get("montantAideCEE") || 0)),
       modePaiementAideId: (formData.get("modePaiementAideId") as string) || null,
-      mar: (formData.get("mar") as string) || null,
+      marId: (formData.get("marId") as string) || null,
       delegataireCEE: (formData.get("delegataireCEE") as string) || null,
+      dateDepotAnah: formData.get("dateDepotAnah")
+        ? new Date(String(formData.get("dateDepotAnah")))
+        : null,
+      dateOctroiAnah: formData.get("dateOctroiAnah")
+        ? new Date(String(formData.get("dateOctroiAnah")))
+        : null,
       dateSignatureDevis: formData.get("dateSignatureDevis")
         ? new Date(String(formData.get("dateSignatureDevis")))
         : null,
@@ -60,6 +66,24 @@ export async function updateStatut(dossierId: string, statutId: string) {
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/dossiers");
   revalidatePath("/");
+}
+
+export async function updateAnahInfo(formData: FormData) {
+  const dossierId = String(formData.get("dossierId"));
+  await prisma.dossier.update({
+    where: { id: dossierId },
+    data: {
+      marId: (formData.get("marId") as string) || null,
+      statutAnahId: (formData.get("statutAnahId") as string) || null,
+      dateDepotAnah: formData.get("dateDepotAnah")
+        ? new Date(String(formData.get("dateDepotAnah")))
+        : null,
+      dateOctroiAnah: formData.get("dateOctroiAnah")
+        ? new Date(String(formData.get("dateOctroiAnah")))
+        : null,
+    },
+  });
+  revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function updateEncaissements(formData: FormData) {

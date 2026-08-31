@@ -103,10 +103,62 @@ export async function toggleModePaiement(id: string, actif: boolean) {
   revalidatePath("/parametrage/modes-paiement");
 }
 
-// --- Ordre (générique, réutilisé par les 3 listes via le nom du modèle) ---
+// --- MAR (accompagnateurs Rénov) ---
+
+export async function createMar(formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  const count = await prisma.mar.count();
+  await prisma.mar.create({ data: { nom, ordre: count } });
+  revalidatePath("/parametrage/mar");
+}
+
+export async function updateMar(id: string, formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  await prisma.mar.update({ where: { id }, data: { nom } });
+  revalidatePath("/parametrage/mar");
+}
+
+export async function toggleMar(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.mar.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/mar");
+}
+
+// --- Statuts ANAH ---
+
+export async function createStatutAnah(formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  const count = await prisma.statutAnah.count();
+  await prisma.statutAnah.create({
+    data: { key: slugify(label) || `STATUT_ANAH_${count + 1}`, label, ordre: count },
+  });
+  revalidatePath("/parametrage/statuts-anah");
+}
+
+export async function updateStatutAnah(id: string, formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  await prisma.statutAnah.update({ where: { id }, data: { label } });
+  revalidatePath("/parametrage/statuts-anah");
+}
+
+export async function toggleStatutAnah(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.statutAnah.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/statuts-anah");
+}
+
+// --- Ordre (générique, réutilisé par les listes via le nom du modèle) ---
 
 export async function reorder(
-  model: "dossierType" | "dossierStatus" | "modePaiement",
+  model: "dossierType" | "dossierStatus" | "modePaiement" | "mar" | "statutAnah",
   id: string,
   direction: "up" | "down"
 ) {
@@ -129,6 +181,8 @@ export async function reorder(
     dossierType: "/parametrage/types-dossier",
     dossierStatus: "/parametrage/statuts",
     modePaiement: "/parametrage/modes-paiement",
+    mar: "/parametrage/mar",
+    statutAnah: "/parametrage/statuts-anah",
   };
   revalidatePath(paths[model]);
 }

@@ -37,6 +37,17 @@ const MODES_PAIEMENT = [
   { key: "MANDATAIRE_FINANCIER_ANAH", label: "Mandataire financier ANAH" },
 ];
 
+const STATUTS_ANAH = [
+  { key: "EN_COURS", label: "En cours" },
+  { key: "DEPOSE_PAR_DEMANDEUR", label: "Déposé par le demandeur" },
+  { key: "EN_COURS_INSTRUCTION", label: "En cours d'instruction" },
+  { key: "ACCEPTE", label: "Accepté" },
+  { key: "DEMANDE_AVANCE_DEPOSEE", label: "Demande avance déposée" },
+  { key: "DEMANDE_AVANCE_PAYEE", label: "Demande avance payée" },
+  { key: "DEMANDE_SOLDE_DEPOSEE", label: "Demande solde déposée" },
+  { key: "DEMANDE_SOLDE_PAYEE", label: "Demande de solde payée" },
+];
+
 async function main() {
   for (let i = 0; i < DOSSIER_TYPES.length; i++) {
     const item = DOSSIER_TYPES[i];
@@ -62,7 +73,16 @@ async function main() {
       create: { key: item.key, label: item.label, ordre: i },
     });
   }
-  console.log("Listes de paramétrage prêtes (types, statuts, modes de paiement).");
+  for (let i = 0; i < STATUTS_ANAH.length; i++) {
+    const item = STATUTS_ANAH[i];
+    await prisma.statutAnah.upsert({
+      where: { key: item.key },
+      update: { label: item.label },
+      create: { key: item.key, label: item.label, ordre: i },
+    });
+  }
+
+  console.log("Listes de paramétrage prêtes (types, statuts, modes de paiement, statuts ANAH).");
 
   const email = process.env.SEED_ADMIN_EMAIL ?? "horizonhabitatenergie@gmail.com";
   const password = process.env.SEED_ADMIN_PASSWORD ?? "changeme123";

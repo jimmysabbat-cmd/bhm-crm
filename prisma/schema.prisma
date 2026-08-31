@@ -108,6 +108,31 @@ model ModePaiement {
   dossiers Dossier[]
 }
 
+// Accompagnateurs Rénov (MAR) - gérés depuis /parametrage, choisis sur les
+// dossiers de rénovation d'ampleur.
+model Mar {
+  id        String   @id @default(cuid())
+  nom       String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
+}
+
+// Statuts du suivi administratif ANAH (spécifique rénovation d'ampleur),
+// distincts du statut général du dossier.
+model StatutAnah {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
+}
+
 model Client {
   id             String          @id @default(cuid())
   prenom         String
@@ -148,8 +173,15 @@ model Dossier {
 
   modePaiementAideId String?
   modePaiementAide   ModePaiement? @relation(fields: [modePaiementAideId], references: [id])
-  mar                String? // Accompagnateur Rénov (nom)
+  marId              String?
+  mar                Mar? @relation(fields: [marId], references: [id])
   delegataireCEE     String?
+
+  // Suivi administratif ANAH (rénovation d'ampleur uniquement)
+  statutAnahId   String?
+  statutAnah     StatutAnah? @relation(fields: [statutAnahId], references: [id])
+  dateDepotAnah  DateTime?
+  dateOctroiAnah DateTime?
 
   dateSignatureDevis DateTime?
   dateDebutTravaux   DateTime?

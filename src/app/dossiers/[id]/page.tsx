@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
 import { precariteLabels, resteAChargeCents, typeTacheLabels } from "@/lib/dossier-labels";
-import { createTache, updateEncaissements, updateStatut, toggleTache } from "../actions";
+import { createTache, updateEncaissements, updateStatut, updateAnahInfo, toggleTache } from "../actions";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
@@ -20,7 +20,7 @@ export default async function DossierDetailPage({
 }) {
   const { id } = await params;
 
-  const [dossier, statuts] = await Promise.all([
+  const [dossier, statuts, mars, statutsAnah] = await Promise.all([
     prisma.dossier.findUnique({
       where: { id },
       include: {
@@ -28,15 +28,20 @@ export default async function DossierDetailPage({
         type: true,
         statut: true,
         modePaiementAide: true,
+        mar: true,
+        statutAnah: true,
         taches: { orderBy: { dateEcheance: "asc" } },
       },
     }),
     prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.statutAnah.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
   ]);
 
   if (!dossier) notFound();
 
   const resteACharge = resteAChargeCents(dossier);
+  const isRenoAmpleur = dossier.type.key.startsWith("RENOVATION_AMPLEUR");
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
@@ -83,7 +88,7 @@ export default async function DossierDetailPage({
             {dossier.mar && (
               <div className="flex justify-between">
                 <dt>MAR</dt>
-                <dd>{dossier.mar}</dd>
+                <dd>{dossier.mar.nom}</dd>
               </div>
             )}
             {dossier.delegataireCEE && (
@@ -174,6 +179,63 @@ export default async function DossierDetailPage({
           </div>
         </form>
       </section>
+
+      {isRenoAmpleur && (
+        <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
+          <h2 className="text-sm font-medium text-neutral-900">Suivi ANAH</h2>
+          <form action={updateAnahInfo} className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <input type="hidden" name="dossierId" value={dossier.id} />
+            <div className="space-y-1">
+              <label className={labelClass}>MAR</label>
+              <select name="marId" defaultValue={dossier.marId ?? ""} className={inputClass}>
+                <option value="">—</option>
+                {mars.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nom}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className={labelClass}>Statut ANAH</label>
+              <select name="statutAnahId" defaultValue={dossier.statutAnahId ?? ""} className={inputClass}>
+                <option value="">—</option>
+                {statutsAnah.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className={labelClass}>Date de dépôt ANAH</label>
+              <input
+                name="dateDepotAnah"
+                type="date"
+                defaultValue={dateInputValue(dossier.dateDepotAnah)}
+                className={inputClass}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={labelClass}>Date d&apos;octroi ANAH</label>
+              <input
+                name="dateOctroiAnah"
+                type="date"
+                defaultValue={dateInputValue(dossier.dateOctroiAnah)}
+                className={inputClass}
+              />
+            </div>
+            <div className="col-span-2 flex items-end sm:col-span-4">
+              <button
+                type="submit"
+                className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+              >
+                Enregistrer
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="text-sm font-medium text-neutral-900">Tâches & relances</h2>

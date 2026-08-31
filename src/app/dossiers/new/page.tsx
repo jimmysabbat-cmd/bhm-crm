@@ -1,15 +1,17 @@
 import { createDossier } from "../actions";
 import { precariteLabels } from "@/lib/dossier-labels";
 import { prisma } from "@/lib/prisma";
+import { TypeFields } from "./type-fields";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
 const labelClass = "text-sm font-medium text-neutral-700";
 
 export default async function NewDossierPage() {
-  const [types, modesPaiement] = await Promise.all([
+  const [types, modesPaiement, mars] = await Promise.all([
     prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
   ]);
 
   return (
@@ -74,19 +76,7 @@ export default async function NewDossierPage() {
         <fieldset className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
           <legend className="px-1 text-sm font-medium text-neutral-900">Dossier</legend>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className={labelClass}>Type de dossier</label>
-              <select name="typeId" required className={inputClass} defaultValue="">
-                <option value="" disabled>
-                  Choisir...
-                </option>
-                {types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <TypeFields types={types} mars={mars} />
             <div className="space-y-1">
               <label className={labelClass}>Mode de paiement de l&apos;aide</label>
               <select name="modePaiementAideId" className={inputClass} defaultValue="">
@@ -113,10 +103,6 @@ export default async function NewDossierPage() {
             <div className="space-y-1">
               <label className={labelClass}>Aide CEE (€)</label>
               <input name="montantAideCEE" type="number" step="0.01" defaultValue={0} className={inputClass} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>MAR (accompagnateur rénov)</label>
-              <input name="mar" className={inputClass} />
             </div>
             <div className="space-y-1">
               <label className={labelClass}>Délégataire CEE</label>
