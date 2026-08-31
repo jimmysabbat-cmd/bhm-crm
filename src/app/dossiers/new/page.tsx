@@ -8,10 +8,11 @@ const inputClass =
 const labelClass = "text-sm font-medium text-neutral-700";
 
 export default async function NewDossierPage() {
-  const [types, modesPaiement, mars] = await Promise.all([
+  const [types, modesPaiement, mars, delegatairesCee] = await Promise.all([
     prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
   ]);
 
   return (
@@ -106,7 +107,14 @@ export default async function NewDossierPage() {
             </div>
             <div className="space-y-1">
               <label className={labelClass}>Délégataire CEE</label>
-              <input name="delegataireCEE" className={inputClass} />
+              <select name="delegataireCeeId" className={inputClass} defaultValue="">
+                <option value="">—</option>
+                {delegatairesCee.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </fieldset>

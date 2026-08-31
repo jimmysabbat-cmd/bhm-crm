@@ -15,6 +15,17 @@ export default async function DashboardPage() {
       montantEncaisseClient: true,
       montantEncaisseMPR: true,
       montantEncaisseCEE: true,
+      dateFinTravaux: true,
+      delegataireCee: { select: { id: true, nom: true } },
+      postesTravaux: {
+        select: {
+          montantMaterielHTCts: true,
+          montantMaterielTTCCts: true,
+          montantPoseSousTraitanceCts: true,
+          montantRegieCts: true,
+          sousTraitant: { select: { id: true, nom: true, delaiPaiementJours: true } },
+        },
+      },
     },
   });
 
@@ -28,6 +39,47 @@ export default async function DashboardPage() {
     },
     { restantDuClient: 0, restantDuMPR: 0, restantDuCEE: 0 }
   );
+
+  let margeNetteTotale = 0;
+  const dusParSousTraitant = new Map<
+    string,
+    { nom: string; montant: number; delaiPaiementJours: number | null }
+  >();
+  for (const d of dossiers) {
+    const totalCouts = d.postesTravaux.reduce(
+      (sum, p) =>
+        sum +
+        (p.montantMaterielTTCCts ?? p.montantMaterielHTCts ?? 0) +
+        (p.montantPoseSousTraitanceCts ?? 0) +
+        (p.montantRegieCts ?? 0),
+      0
+    );
+    margeNetteTotale += d.montantDevisTTC - totalCouts;
+
+    for (const p of d.postesTravaux) {
+      if (p.sousTraitant && p.montantPoseSousTraitanceCts) {
+        const existing = dusParSousTraitant.get(p.sousTraitant.id);
+        if (existing) existing.montant += p.montantPoseSousTraitanceCts;
+        else
+          dusParSousTraitant.set(p.sousTraitant.id, {
+            nom: p.sousTraitant.nom,
+            montant: p.montantPoseSousTraitanceCts,
+            delaiPaiementJours: p.sousTraitant.delaiPaiementJours,
+          });
+      }
+    }
+  }
+
+  const resteAPercevoirCEEParDelegataire = new Map<string, { nom: string; montant: number }>();
+  for (const d of dossiers) {
+    const resteCEE = d.montantAideCEE - d.montantEncaisseCEE;
+    if (resteCEE <= 0) continue;
+    const key = d.delegataireCee?.id ?? "sans-delegataire";
+    const nom = d.delegataireCee?.nom ?? "Sans délégataire renseigné";
+    const existing = resteAPercevoirCEEParDelegataire.get(key);
+    if (existing) existing.montant += resteCEE;
+    else resteAPercevoirCEEParDelegataire.set(key, { nom, montant: resteCEE });
+  }
 
   const parStatut = dossiers.reduce<Record<string, { label: string; count: number }>>((acc, d) => {
     if (!acc[d.statutId]) acc[d.statutId] = { label: d.statut.label, count: 0 };
@@ -46,11 +98,53 @@ export default async function DashboardPage() {
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-8">
       <h1 className="text-2xl font-semibold text-neutral-900">Trésorerie</h1>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <TresorerieCard label="Restant dû par les clients" value={totaux.restantDuClient} />
         <TresorerieCard label="Restant dû MPR / ANAH" value={totaux.restantDuMPR} />
         <TresorerieCard label="Restant dû CEE" value={totaux.restantDuCEE} />
+        <TresorerieCard label="Marge nette (tous dossiers)" value={margeNetteTotale} />
       </div>
+
+      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <div className="space-y-3 rounded-lg border border-neutral-200 bg-white p-5">
+          <h2 className="text-sm font-medium text-neutral-900">Montant dû aux sous-traitants</h2>
+          {dusParSousTraitant.size === 0 ? (
+            <p className="text-sm text-neutral-400">Rien dû actuellement.</p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {Array.from(dusParSousTraitant.values())
+                .sort((a, b) => b.montant - a.montant)
+                .map((d) => (
+                  <li key={d.nom} className="flex justify-between text-neutral-700">
+                    <span>
+                      {d.nom}
+                      {d.delaiPaiementJours ? ` (délai ${d.delaiPaiementJours} j)` : ""}
+                    </span>
+                    <span className="font-medium">{formatCents(d.montant)}</span>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-neutral-200 bg-white p-5">
+          <h2 className="text-sm font-medium text-neutral-900">Reste à percevoir CEE par délégataire</h2>
+          {resteAPercevoirCEEParDelegataire.size === 0 ? (
+            <p className="text-sm text-neutral-400">Rien à percevoir actuellement.</p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {Array.from(resteAPercevoirCEEParDelegataire.values())
+                .sort((a, b) => b.montant - a.montant)
+                .map((d) => (
+                  <li key={d.nom} className="flex justify-between text-neutral-700">
+                    <span>{d.nom}</span>
+                    <span className="font-medium">{formatCents(d.montant)}</span>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium text-neutral-900">Dossiers par statut</h2>

@@ -50,7 +50,7 @@ export async function createDossier(formData: FormData) {
       montantAideCEE: eurosToCents(Number(formData.get("montantAideCEE") || 0)),
       modePaiementAideId: (formData.get("modePaiementAideId") as string) || null,
       marId: (formData.get("marId") as string) || null,
-      delegataireCEE: (formData.get("delegataireCEE") as string) || null,
+      delegataireCeeId: (formData.get("delegataireCeeId") as string) || null,
       dateDepotAnah: formData.get("dateDepotAnah")
         ? new Date(String(formData.get("dateDepotAnah")))
         : null,
@@ -65,6 +65,20 @@ export async function createDossier(formData: FormData) {
 
   revalidatePath("/dossiers");
   redirect(`/dossiers/${dossier.id}`);
+}
+
+export async function updateMontage(formData: FormData) {
+  const dossierId = String(formData.get("dossierId"));
+  await prisma.dossier.update({
+    where: { id: dossierId },
+    data: {
+      montantDevisTTC: eurosToCents(Number(formData.get("montantDevisTTC") || 0)),
+      montantAideMPR: eurosToCents(Number(formData.get("montantAideMPR") || 0)),
+      montantAideCEE: eurosToCents(Number(formData.get("montantAideCEE") || 0)),
+    },
+  });
+  revalidatePath(`/dossiers/${dossierId}`);
+  revalidatePath("/");
 }
 
 export async function updateStatut(dossierId: string, statutId: string) {
@@ -100,6 +114,7 @@ export async function updateEncaissements(formData: FormData) {
       montantEncaisseClient: eurosToCents(Number(formData.get("montantEncaisseClient") || 0)),
       montantEncaisseMPR: eurosToCents(Number(formData.get("montantEncaisseMPR") || 0)),
       montantEncaisseCEE: eurosToCents(Number(formData.get("montantEncaisseCEE") || 0)),
+      delegataireCeeId: (formData.get("delegataireCeeId") as string) || null,
       dateDebutTravaux: formData.get("dateDebutTravaux")
         ? new Date(String(formData.get("dateDebutTravaux")))
         : null,

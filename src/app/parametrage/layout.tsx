@@ -10,6 +10,7 @@ const tabs = [
   { href: "/parametrage/statuts-anah", label: "Statuts ANAH" },
   { href: "/parametrage/regie", label: "Régie" },
   { href: "/parametrage/sous-traitants", label: "Sous-traitants" },
+  { href: "/parametrage/delegataires-cee", label: "Délégataires CEE" },
   { href: "/parametrage/equipe", label: "Équipe" },
 ];
 

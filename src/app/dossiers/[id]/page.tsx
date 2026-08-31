@@ -11,6 +11,7 @@ import {
 import {
   createTache,
   updateEncaissements,
+  updateMontage,
   updateStatut,
   updateAnahInfo,
   toggleTache,
@@ -43,30 +44,33 @@ export default async function DossierDetailPage({
 }) {
   const { id } = await params;
 
-  const [dossier, statuts, mars, statutsAnah, sousTraitants, regies] = await Promise.all([
-    prisma.dossier.findUnique({
-      where: { id },
-      include: {
-        client: true,
-        type: true,
-        statut: true,
-        modePaiementAide: true,
-        mar: true,
-        statutAnah: true,
-        taches: { orderBy: { dateEcheance: "asc" } },
-        postesTravaux: {
-          orderBy: { createdAt: "asc" },
-          include: { sousTraitant: true, regie: true },
+  const [dossier, statuts, mars, statutsAnah, sousTraitants, regies, delegatairesCee] =
+    await Promise.all([
+      prisma.dossier.findUnique({
+        where: { id },
+        include: {
+          client: true,
+          type: true,
+          statut: true,
+          modePaiementAide: true,
+          mar: true,
+          statutAnah: true,
+          delegataireCee: true,
+          taches: { orderBy: { dateEcheance: "asc" } },
+          postesTravaux: {
+            orderBy: { createdAt: "asc" },
+            include: { sousTraitant: true, regie: true },
+          },
+          documents: { orderBy: { createdAt: "desc" } },
         },
-        documents: { orderBy: { createdAt: "desc" } },
-      },
-    }),
-    prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    prisma.statutAnah.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    prisma.sousTraitant.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
-    prisma.regie.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-  ]);
+      }),
+      prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+      prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+      prisma.statutAnah.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+      prisma.sousTraitant.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
+      prisma.regie.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+      prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    ]);
 
   if (!dossier) notFound();
 
@@ -155,10 +159,10 @@ export default async function DossierDetailPage({
                 <dd>{dossier.mar.nom}</dd>
               </div>
             )}
-            {dossier.delegataireCEE && (
+            {dossier.delegataireCee && (
               <div className="flex justify-between">
                 <dt>Délégataire CEE</dt>
-                <dd>{dossier.delegataireCEE}</dd>
+                <dd>{dossier.delegataireCee.nom}</dd>
               </div>
             )}
             {dossier.client.precarite && (
@@ -170,14 +174,51 @@ export default async function DossierDetailPage({
           </dl>
         </div>
 
-        <div className="space-y-2 rounded-lg border border-neutral-200 bg-white p-5">
+        <div className="space-y-3 rounded-lg border border-neutral-200 bg-white p-5">
           <h2 className="text-sm font-medium text-neutral-900">Montage financier</h2>
-          <dl className="space-y-1 text-sm">
-            <Row label="Devis TTC" value={formatCents(dossier.montantDevisTTC)} />
-            <Row label="Aide MPR / ANAH" value={formatCents(dossier.montantAideMPR)} />
-            <Row label="Aide CEE" value={formatCents(dossier.montantAideCEE)} />
-            <Row label="Reste à charge client" value={formatCents(resteACharge)} strong />
-          </dl>
+          <form action={updateMontage} className="space-y-2">
+            <input type="hidden" name="dossierId" value={dossier.id} />
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <label className="text-neutral-500">Devis TTC</label>
+              <input
+                name="montantDevisTTC"
+                type="number"
+                step="0.01"
+                defaultValue={dossier.montantDevisTTC / 100}
+                className="w-32 rounded-md border border-neutral-300 px-2 py-1 text-right text-sm focus:border-neutral-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <label className="text-neutral-500">Aide MPR / ANAH</label>
+              <input
+                name="montantAideMPR"
+                type="number"
+                step="0.01"
+                defaultValue={dossier.montantAideMPR / 100}
+                className="w-32 rounded-md border border-neutral-300 px-2 py-1 text-right text-sm focus:border-neutral-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <label className="text-neutral-500">Aide CEE</label>
+              <input
+                name="montantAideCEE"
+                type="number"
+                step="0.01"
+                defaultValue={dossier.montantAideCEE / 100}
+                className="w-32 rounded-md border border-neutral-300 px-2 py-1 text-right text-sm focus:border-neutral-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex justify-between border-t border-neutral-100 pt-2 text-sm font-semibold text-neutral-900">
+              <span>Reste à charge client</span>
+              <span>{formatCents(resteACharge)}</span>
+            </div>
+            <button
+              type="submit"
+              className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800"
+            >
+              Enregistrer
+            </button>
+          </form>
         </div>
       </section>
 
@@ -232,6 +273,17 @@ export default async function DossierDetailPage({
               defaultValue={dateInputValue(dossier.dateFinTravaux)}
               className={inputClass}
             />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Délégataire CEE</label>
+            <select name="delegataireCeeId" defaultValue={dossier.delegataireCeeId ?? ""} className={inputClass}>
+              <option value="">—</option>
+              {delegatairesCee.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nom}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="flex items-end">
             <button

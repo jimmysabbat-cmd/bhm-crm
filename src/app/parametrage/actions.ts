@@ -206,10 +206,42 @@ export async function toggleSousTraitant(id: string, actif: boolean) {
   revalidatePath("/parametrage/sous-traitants");
 }
 
+// --- Délégataires CEE ---
+
+export async function createDelegataireCee(formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  const count = await prisma.delegataireCee.count();
+  await prisma.delegataireCee.create({ data: { nom, ordre: count } });
+  revalidatePath("/parametrage/delegataires-cee");
+}
+
+export async function updateDelegataireCee(id: string, formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  await prisma.delegataireCee.update({ where: { id }, data: { nom } });
+  revalidatePath("/parametrage/delegataires-cee");
+}
+
+export async function toggleDelegataireCee(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.delegataireCee.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/delegataires-cee");
+}
+
 // --- Ordre (générique, réutilisé par les listes via le nom du modèle) ---
 
 export async function reorder(
-  model: "dossierType" | "dossierStatus" | "modePaiement" | "mar" | "statutAnah" | "regie",
+  model:
+    | "dossierType"
+    | "dossierStatus"
+    | "modePaiement"
+    | "mar"
+    | "statutAnah"
+    | "regie"
+    | "delegataireCee",
   id: string,
   direction: "up" | "down"
 ) {
@@ -235,6 +267,7 @@ export async function reorder(
     mar: "/parametrage/mar",
     statutAnah: "/parametrage/statuts-anah",
     regie: "/parametrage/regie",
+    delegataireCee: "/parametrage/delegataires-cee",
   };
   revalidatePath(paths[model]);
 }

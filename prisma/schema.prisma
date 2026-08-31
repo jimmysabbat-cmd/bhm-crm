@@ -140,6 +140,18 @@ model Regie {
   postesTravaux DossierPosteTravaux[]
 }
 
+// Délégataires CEE - gérés depuis /parametrage, chaque dossier avec de la
+// prime CEE en a un (obligatoire pour percevoir la prime).
+model DelegataireCee {
+  id        String   @id @default(cuid())
+  nom       String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
+}
+
 // Statuts du suivi administratif ANAH (spécifique rénovation d'ampleur),
 // distincts du statut général du dossier.
 model StatutAnah {
@@ -195,7 +207,8 @@ model Dossier {
   modePaiementAide   ModePaiement? @relation(fields: [modePaiementAideId], references: [id])
   marId              String?
   mar                Mar? @relation(fields: [marId], references: [id])
-  delegataireCEE     String?
+  delegataireCeeId   String?
+  delegataireCee     DelegataireCee? @relation(fields: [delegataireCeeId], references: [id])
 
   // Suivi administratif ANAH (rénovation d'ampleur uniquement)
   statutAnahId   String?
