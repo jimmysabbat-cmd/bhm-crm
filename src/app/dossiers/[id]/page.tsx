@@ -1,14 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
-import {
-  modePaiementLabels,
-  precariteLabels,
-  resteAChargeCents,
-  statutDossierLabels,
-  typeDossierLabels,
-  typeTacheLabels,
-} from "@/lib/dossier-labels";
+import { precariteLabels, resteAChargeCents, typeTacheLabels } from "@/lib/dossier-labels";
 import { createTache, updateEncaissements, updateStatut, toggleTache } from "../actions";
 
 const inputClass =
@@ -27,10 +20,19 @@ export default async function DossierDetailPage({
 }) {
   const { id } = await params;
 
-  const dossier = await prisma.dossier.findUnique({
-    where: { id },
-    include: { client: true, taches: { orderBy: { dateEcheance: "asc" } } },
-  });
+  const [dossier, statuts] = await Promise.all([
+    prisma.dossier.findUnique({
+      where: { id },
+      include: {
+        client: true,
+        type: true,
+        statut: true,
+        modePaiementAide: true,
+        taches: { orderBy: { dateEcheance: "asc" } },
+      },
+    }),
+    prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+  ]);
 
   if (!dossier) notFound();
 
@@ -43,7 +45,7 @@ export default async function DossierDetailPage({
         <h1 className="text-2xl font-semibold text-neutral-900">
           {dossier.client.prenom} {dossier.client.nom}
         </h1>
-        <p className="text-sm text-neutral-500">{typeDossierLabels[dossier.type]}</p>
+        <p className="text-sm text-neutral-500">{dossier.type.label}</p>
       </div>
 
       <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -52,14 +54,14 @@ export default async function DossierDetailPage({
           <form
             action={async (formData: FormData) => {
               "use server";
-              await updateStatut(dossier.id, formData.get("statut") as never);
+              await updateStatut(dossier.id, String(formData.get("statutId")));
             }}
             className="flex gap-2"
           >
-            <select name="statut" defaultValue={dossier.statut} className={inputClass}>
-              {Object.entries(statutDossierLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
+            <select name="statutId" defaultValue={dossier.statutId} className={inputClass}>
+              {statuts.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
                 </option>
               ))}
             </select>
@@ -75,7 +77,7 @@ export default async function DossierDetailPage({
             {dossier.modePaiementAide && (
               <div className="flex justify-between">
                 <dt>Mode paiement aide</dt>
-                <dd>{modePaiementLabels[dossier.modePaiementAide]}</dd>
+                <dd>{dossier.modePaiementAide.label}</dd>
               </div>
             )}
             {dossier.mar && (

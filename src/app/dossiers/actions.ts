@@ -4,13 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { eurosToCents } from "@/lib/money";
-import type {
-  ModePaiementAide,
-  Precarite,
-  StatutDossier,
-  TypeDossier,
-  ZoneClimatique,
-} from "@/generated/prisma/enums";
+import type { Precarite, ZoneClimatique } from "@/generated/prisma/enums";
 
 function generateReference(): string {
   const now = new Date();
@@ -34,16 +28,21 @@ export async function createDossier(formData: FormData) {
     },
   });
 
+  const statutInitial = await prisma.dossierStatus.findUnique({
+    where: { key: "DEVIS_SIGNE" },
+  });
+  if (!statutInitial) throw new Error("Statut initial 'DEVIS_SIGNE' introuvable - lancez le seed.");
+
   const dossier = await prisma.dossier.create({
     data: {
       reference: generateReference(),
       clientId: client.id,
-      type: formData.get("type") as TypeDossier,
-      statut: "DEVIS_SIGNE",
+      typeId: String(formData.get("typeId")),
+      statutId: statutInitial.id,
       montantDevisTTC: eurosToCents(Number(formData.get("montantDevisTTC") || 0)),
       montantAideMPR: eurosToCents(Number(formData.get("montantAideMPR") || 0)),
       montantAideCEE: eurosToCents(Number(formData.get("montantAideCEE") || 0)),
-      modePaiementAide: (formData.get("modePaiementAide") as ModePaiementAide) || null,
+      modePaiementAideId: (formData.get("modePaiementAideId") as string) || null,
       mar: (formData.get("mar") as string) || null,
       delegataireCEE: (formData.get("delegataireCEE") as string) || null,
       dateSignatureDevis: formData.get("dateSignatureDevis")
@@ -56,8 +55,8 @@ export async function createDossier(formData: FormData) {
   redirect(`/dossiers/${dossier.id}`);
 }
 
-export async function updateStatut(dossierId: string, statut: StatutDossier) {
-  await prisma.dossier.update({ where: { id: dossierId }, data: { statut } });
+export async function updateStatut(dossierId: string, statutId: string) {
+  await prisma.dossier.update({ where: { id: dossierId }, data: { statutId } });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/dossiers");
   revalidatePath("/");

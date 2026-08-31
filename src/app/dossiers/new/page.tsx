@@ -1,15 +1,17 @@
 import { createDossier } from "../actions";
-import {
-  modePaiementLabels,
-  precariteLabels,
-  typeDossierLabels,
-} from "@/lib/dossier-labels";
+import { precariteLabels } from "@/lib/dossier-labels";
+import { prisma } from "@/lib/prisma";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
 const labelClass = "text-sm font-medium text-neutral-700";
 
-export default function NewDossierPage() {
+export default async function NewDossierPage() {
+  const [types, modesPaiement] = await Promise.all([
+    prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+  ]);
+
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-6 py-8">
       <h1 className="text-2xl font-semibold text-neutral-900">Nouveau dossier</h1>
@@ -74,24 +76,24 @@ export default function NewDossierPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className={labelClass}>Type de dossier</label>
-              <select name="type" required className={inputClass} defaultValue="">
+              <select name="typeId" required className={inputClass} defaultValue="">
                 <option value="" disabled>
                   Choisir...
                 </option>
-                {Object.entries(typeDossierLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                {types.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
                   </option>
                 ))}
               </select>
             </div>
             <div className="space-y-1">
               <label className={labelClass}>Mode de paiement de l&apos;aide</label>
-              <select name="modePaiementAide" className={inputClass} defaultValue="">
+              <select name="modePaiementAideId" className={inputClass} defaultValue="">
                 <option value="">—</option>
-                {Object.entries(modePaiementLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                {modesPaiement.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
                   </option>
                 ))}
               </select>

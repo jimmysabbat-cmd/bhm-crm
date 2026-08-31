@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
-import {
-  resteAChargeCents,
-  statutDossierLabels,
-  typeDossierLabels,
-} from "@/lib/dossier-labels";
-import type { StatutDossier } from "@/generated/prisma/enums";
+import { resteAChargeCents } from "@/lib/dossier-labels";
 
 export default async function DossiersPage({
   searchParams,
@@ -15,11 +10,14 @@ export default async function DossiersPage({
 }) {
   const { statut } = await searchParams;
 
-  const dossiers = await prisma.dossier.findMany({
-    where: statut ? { statut: statut as StatutDossier } : undefined,
-    include: { client: true },
-    orderBy: { createdAt: "desc" },
-  });
+  const [dossiers, statutFiltre] = await Promise.all([
+    prisma.dossier.findMany({
+      where: statut ? { statutId: statut } : undefined,
+      include: { client: true, type: true, statut: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    statut ? prisma.dossierStatus.findUnique({ where: { id: statut } }) : null,
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
@@ -33,9 +31,9 @@ export default async function DossiersPage({
         </Link>
       </div>
 
-      {statut && (
+      {statutFiltre && (
         <Link href="/dossiers" className="text-sm text-neutral-500 hover:text-neutral-900">
-          ← Retirer le filtre « {statutDossierLabels[statut as StatutDossier]} »
+          ← Retirer le filtre « {statutFiltre.label} »
         </Link>
       )}
 
@@ -59,10 +57,10 @@ export default async function DossiersPage({
                   </Link>
                   <p className="text-xs text-neutral-400">{d.reference}</p>
                 </td>
-                <td className="px-4 py-3 text-neutral-600">{typeDossierLabels[d.type]}</td>
+                <td className="px-4 py-3 text-neutral-600">{d.type.label}</td>
                 <td className="px-4 py-3">
                   <span className="rounded-full bg-neutral-100 px-2 py-1 text-xs text-neutral-700">
-                    {statutDossierLabels[d.statut]}
+                    {d.statut.label}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-neutral-600">{formatCents(d.montantDevisTTC)}</td>

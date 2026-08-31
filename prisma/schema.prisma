@@ -16,36 +16,6 @@ enum Role {
   COMPTA
 }
 
-enum TypeDossier {
-  RENOVATION_AMPLEUR_ANAH
-  RENOVATION_AMPLEUR_CEE
-  MONOGESTE
-}
-
-enum StatutDossier {
-  DEVIS_SIGNE
-  AUDIT_FAIT
-  DOSSIER_DEPOSE
-  EN_INSTRUCTION
-  ACCEPTE
-  REFUSE
-  TRAVAUX_PLANIFIES
-  TRAVAUX_EN_COURS
-  TRAVAUX_TERMINES
-  CONTROLE_EN_COURS
-  SOLDE_DEMANDE
-  SOLDE_RECU
-  CLOTURE
-}
-
-enum ModePaiementAide {
-  CLIENT_AVANCE
-  AVANCE_30_ANAH
-  FINANCEMENT_PARTENAIRE
-  MANDATAIRE_FINANCIER_BHM
-  MANDATAIRE_FINANCIER_ANAH
-}
-
 enum Precarite {
   TRES_MODESTE
   MODESTE
@@ -96,10 +66,46 @@ model User {
   email     String   @unique
   password  String
   role      Role     @default(COMMERCIAL)
+  actif     Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   tachesAssignees Tache[]
+}
+
+// Listes paramétrables depuis /parametrage - remplacent d'anciens enums figés
+// pour permettre à l'admin d'ajouter/renommer/désactiver sans déploiement.
+model DossierType {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
+}
+
+model DossierStatus {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
+}
+
+model ModePaiement {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
 }
 
 model Client {
@@ -120,26 +126,30 @@ model Client {
 }
 
 model Dossier {
-  id        String        @id @default(cuid())
-  reference String        @unique
+  id        String @id @default(cuid())
+  reference String @unique
   clientId  String
-  client    Client        @relation(fields: [clientId], references: [id])
+  client    Client @relation(fields: [clientId], references: [id])
 
-  type   TypeDossier
-  statut StatutDossier @default(DEVIS_SIGNE)
+  typeId String
+  type   DossierType @relation(fields: [typeId], references: [id])
+
+  statutId String
+  statut   DossierStatus @relation(fields: [statutId], references: [id])
 
   // Montants en centimes
-  montantDevisTTC  Int
-  montantAideMPR   Int @default(0)
-  montantAideCEE   Int @default(0)
+  montantDevisTTC Int
+  montantAideMPR  Int @default(0)
+  montantAideCEE  Int @default(0)
 
   montantEncaisseClient Int @default(0)
   montantEncaisseMPR    Int @default(0)
   montantEncaisseCEE    Int @default(0)
 
-  modePaiementAide ModePaiementAide?
-  mar              String? // Accompagnateur Rénov (nom)
-  delegataireCEE   String?
+  modePaiementAideId String?
+  modePaiementAide   ModePaiement? @relation(fields: [modePaiementAideId], references: [id])
+  mar                String? // Accompagnateur Rénov (nom)
+  delegataireCEE     String?
 
   dateSignatureDevis DateTime?
   dateDebutTravaux   DateTime?
@@ -152,33 +162,34 @@ model Dossier {
   taches        Tache[]
   commandes     Commande[]
 
-  @@index([statut])
+  @@index([statutId])
+  @@index([typeId])
   @@index([clientId])
 }
 
 model DossierPosteTravaux {
-  id                    String      @id @default(cuid())
-  dossierId             String
-  dossier               Dossier     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  type                  TypeTravaux
-  surfaceM2             Float?
-  montantCumac          Int? // en kWh cumac
+  id                     String      @id @default(cuid())
+  dossierId              String
+  dossier                Dossier     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  type                   TypeTravaux
+  surfaceM2              Float?
+  montantCumac           Int? // en kWh cumac
   montantPrimeCalculeCts Int? // prime CEE calculée, en centimes
 
   @@index([dossierId])
 }
 
 model SousTraitant {
-  id             String   @id @default(cuid())
-  nom            String
-  typeTravaux    TypeTravaux?
-  tarifM2Cts     Int? // tarif au m2, en centimes
-  tarifFixeCts   Int? // tarif fixe, en centimes
-  fourniPose     Boolean  @default(false)
-  telephone      String?
-  email          String?
+  id                 String       @id @default(cuid())
+  nom                String
+  typeTravaux        TypeTravaux?
+  tarifM2Cts         Int? // tarif au m2, en centimes
+  tarifFixeCts       Int? // tarif fixe, en centimes
+  fourniPose         Boolean      @default(false)
+  telephone          String?
+  email              String?
   delaiPaiementJours Int? // délai de paiement après fin de travaux
-  createdAt      DateTime @default(now())
+  createdAt          DateTime     @default(now())
 
   commandes Commande[]
 }
@@ -195,20 +206,20 @@ model Fournisseur {
 }
 
 model Commande {
-  id                   String          @id @default(cuid())
-  dossierId            String
-  dossier              Dossier         @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  fournisseurId        String?
-  fournisseur          Fournisseur?    @relation(fields: [fournisseurId], references: [id])
-  sousTraitantId       String?
-  sousTraitant         SousTraitant?   @relation(fields: [sousTraitantId], references: [id])
+  id             String        @id @default(cuid())
+  dossierId      String
+  dossier        Dossier       @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  fournisseurId  String?
+  fournisseur    Fournisseur?  @relation(fields: [fournisseurId], references: [id])
+  sousTraitantId String?
+  sousTraitant   SousTraitant? @relation(fields: [sousTraitantId], references: [id])
 
-  numeroBL             String?
-  montantCts           Int // en centimes
-  statut               StatutCommande  @default(COMMANDEE)
-  dateCommande         DateTime        @default(now())
-  dateLivraisonPrevue  DateTime?
-  dateLivraisonReelle  DateTime?
+  numeroBL            String?
+  montantCts          Int // en centimes
+  statut              StatutCommande @default(COMMANDEE)
+  dateCommande        DateTime       @default(now())
+  dateLivraisonPrevue DateTime?
+  dateLivraisonReelle DateTime?
 
   createdAt DateTime @default(now())
 

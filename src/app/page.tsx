@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
-import { statutDossierLabels, typeTacheLabels } from "@/lib/dossier-labels";
+import { typeTacheLabels } from "@/lib/dossier-labels";
 
 export default async function DashboardPage() {
   const dossiers = await prisma.dossier.findMany({
-    where: { statut: { not: "CLOTURE" } },
+    where: { statut: { key: { not: "CLOTURE" } } },
     select: {
-      statut: true,
+      statutId: true,
+      statut: { select: { label: true } },
       montantDevisTTC: true,
       montantAideMPR: true,
       montantAideCEE: true,
@@ -28,8 +29,9 @@ export default async function DashboardPage() {
     { restantDuClient: 0, restantDuMPR: 0, restantDuCEE: 0 }
   );
 
-  const parStatut = dossiers.reduce<Record<string, number>>((acc, d) => {
-    acc[d.statut] = (acc[d.statut] ?? 0) + 1;
+  const parStatut = dossiers.reduce<Record<string, { label: string; count: number }>>((acc, d) => {
+    if (!acc[d.statutId]) acc[d.statutId] = { label: d.statut.label, count: 0 };
+    acc[d.statutId].count += 1;
     return acc;
   }, {});
 
@@ -53,16 +55,14 @@ export default async function DashboardPage() {
       <section className="space-y-3">
         <h2 className="text-lg font-medium text-neutral-900">Dossiers par statut</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {Object.entries(parStatut).map(([statut, count]) => (
+          {Object.entries(parStatut).map(([statutId, { label, count }]) => (
             <Link
-              key={statut}
-              href={`/dossiers?statut=${statut}`}
+              key={statutId}
+              href={`/dossiers?statut=${statutId}`}
               className="rounded-lg border border-neutral-200 bg-white p-4 hover:border-neutral-400"
             >
               <p className="text-2xl font-semibold text-neutral-900">{count}</p>
-              <p className="text-sm text-neutral-500">
-                {statutDossierLabels[statut as keyof typeof statutDossierLabels]}
-              </p>
+              <p className="text-sm text-neutral-500">{label}</p>
             </Link>
           ))}
         </div>

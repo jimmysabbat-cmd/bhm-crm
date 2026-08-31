@@ -1,41 +1,4 @@
-import type {
-  TypeDossier,
-  StatutDossier,
-  ModePaiementAide,
-  Precarite,
-  TypeTache,
-  StatutTache,
-} from "@/generated/prisma/enums";
-
-export const typeDossierLabels: Record<TypeDossier, string> = {
-  RENOVATION_AMPLEUR_ANAH: "Rénovation d'ampleur (ANAH)",
-  RENOVATION_AMPLEUR_CEE: "Rénovation d'ampleur (CEE seul)",
-  MONOGESTE: "Monogeste",
-};
-
-export const statutDossierLabels: Record<StatutDossier, string> = {
-  DEVIS_SIGNE: "Devis signé",
-  AUDIT_FAIT: "Audit fait",
-  DOSSIER_DEPOSE: "Dossier déposé",
-  EN_INSTRUCTION: "En instruction",
-  ACCEPTE: "Accepté",
-  REFUSE: "Refusé",
-  TRAVAUX_PLANIFIES: "Travaux planifiés",
-  TRAVAUX_EN_COURS: "Travaux en cours",
-  TRAVAUX_TERMINES: "Travaux terminés",
-  CONTROLE_EN_COURS: "Contrôle en cours",
-  SOLDE_DEMANDE: "Solde demandé",
-  SOLDE_RECU: "Solde reçu",
-  CLOTURE: "Clôturé",
-};
-
-export const modePaiementLabels: Record<ModePaiementAide, string> = {
-  CLIENT_AVANCE: "Client avance",
-  AVANCE_30_ANAH: "Avance 30% ANAH",
-  FINANCEMENT_PARTENAIRE: "Financement partenaire",
-  MANDATAIRE_FINANCIER_BHM: "Mandataire BHM",
-  MANDATAIRE_FINANCIER_ANAH: "Mandataire financier ANAH",
-};
+import type { Precarite, TypeTache, StatutTache } from "@/generated/prisma/enums";
 
 export const precariteLabels: Record<Precarite, string> = {
   TRES_MODESTE: "Très modeste",
