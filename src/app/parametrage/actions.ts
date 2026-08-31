@@ -155,10 +155,61 @@ export async function toggleStatutAnah(id: string, actif: boolean) {
   revalidatePath("/parametrage/statuts-anah");
 }
 
+// --- Régie (équipes internes) ---
+
+export async function createRegie(formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  const count = await prisma.regie.count();
+  await prisma.regie.create({ data: { nom, ordre: count } });
+  revalidatePath("/parametrage/regie");
+}
+
+export async function updateRegie(id: string, formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  await prisma.regie.update({ where: { id }, data: { nom } });
+  revalidatePath("/parametrage/regie");
+}
+
+export async function toggleRegie(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.regie.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/regie");
+}
+
+// --- Sous-traitants ---
+
+export async function createSousTraitant(formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  await prisma.sousTraitant.create({
+    data: {
+      nom,
+      typeTravaux: (formData.get("typeTravaux") as never) || null,
+      telephone: (formData.get("telephone") as string) || null,
+      email: (formData.get("email") as string) || null,
+      delaiPaiementJours: formData.get("delaiPaiementJours")
+        ? Number(formData.get("delaiPaiementJours"))
+        : null,
+    },
+  });
+  revalidatePath("/parametrage/sous-traitants");
+}
+
+export async function toggleSousTraitant(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.sousTraitant.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/sous-traitants");
+}
+
 // --- Ordre (générique, réutilisé par les listes via le nom du modèle) ---
 
 export async function reorder(
-  model: "dossierType" | "dossierStatus" | "modePaiement" | "mar" | "statutAnah",
+  model: "dossierType" | "dossierStatus" | "modePaiement" | "mar" | "statutAnah" | "regie",
   id: string,
   direction: "up" | "down"
 ) {
@@ -183,6 +234,7 @@ export async function reorder(
     modePaiement: "/parametrage/modes-paiement",
     mar: "/parametrage/mar",
     statutAnah: "/parametrage/statuts-anah",
+    regie: "/parametrage/regie",
   };
   revalidatePath(paths[model]);
 }

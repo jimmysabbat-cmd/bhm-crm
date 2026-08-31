@@ -60,6 +60,14 @@ enum StatutCommande {
   ANNULEE
 }
 
+enum TypeDocument {
+  DEVIS
+  AUDIT
+  PHOTO_VISITE
+  PHOTO_CHANTIER
+  AUTRE
+}
+
 model User {
   id        String   @id @default(cuid())
   name      String
@@ -118,6 +126,18 @@ model Mar {
   createdAt DateTime @default(now())
 
   dossiers Dossier[]
+}
+
+// Équipes internes ("régie") - alternative à la sous-traitance pour la pose
+// d'un poste de travaux, gérées depuis /parametrage.
+model Regie {
+  id        String   @id @default(cuid())
+  nom       String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  postesTravaux DossierPosteTravaux[]
 }
 
 // Statuts du suivi administratif ANAH (spécifique rénovation d'ampleur),
@@ -191,6 +211,7 @@ model Dossier {
   updatedAt DateTime @updatedAt
 
   postesTravaux DossierPosteTravaux[]
+  documents     DossierDocument[]
   taches        Tache[]
   commandes     Commande[]
 
@@ -208,6 +229,20 @@ model DossierPosteTravaux {
   montantCumac           Int? // en kWh cumac
   montantPrimeCalculeCts Int? // prime CEE calculée, en centimes
 
+  // Qui pose ce poste : sous-traitant OU régie (équipe interne), pas les deux
+  sousTraitantId              String?
+  sousTraitant                SousTraitant? @relation(fields: [sousTraitantId], references: [id])
+  montantPoseSousTraitanceCts Int? // montant confié au sous-traitant, en centimes
+
+  regieId         String?
+  regie           Regie? @relation(fields: [regieId], references: [id])
+  montantRegieCts Int? // montant de la pose en régie, en centimes
+
+  montantMaterielHTCts  Int? // en centimes
+  montantMaterielTTCCts Int? // en centimes
+
+  createdAt DateTime @default(now())
+
   @@index([dossierId])
 }
 
@@ -221,9 +256,28 @@ model SousTraitant {
   telephone          String?
   email              String?
   delaiPaiementJours Int? // délai de paiement après fin de travaux
+  actif              Boolean      @default(true)
   createdAt          DateTime     @default(now())
 
-  commandes Commande[]
+  commandes     Commande[]
+  postesTravaux DossierPosteTravaux[]
+}
+
+// Documents et photos attachés à un dossier (devis, audit, photos de visite
+// ou de chantier). Fichiers stockés sur disque, servis via une route API
+// protégée par authentification.
+model DossierDocument {
+  id            String       @id @default(cuid())
+  dossierId     String
+  dossier       Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  type          TypeDocument
+  nomFichier    String
+  cheminFichier String
+  mimeType      String
+  tailleOctets  Int
+  createdAt     DateTime     @default(now())
+
+  @@index([dossierId])
 }
 
 model Fournisseur {

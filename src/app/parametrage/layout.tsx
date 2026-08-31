@@ -8,6 +8,8 @@ const tabs = [
   { href: "/parametrage/modes-paiement", label: "Modes de paiement" },
   { href: "/parametrage/mar", label: "MAR" },
   { href: "/parametrage/statuts-anah", label: "Statuts ANAH" },
+  { href: "/parametrage/regie", label: "Régie" },
+  { href: "/parametrage/sous-traitants", label: "Sous-traitants" },
   { href: "/parametrage/equipe", label: "Équipe" },
 ];
 

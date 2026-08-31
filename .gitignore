@@ -43,3 +43,6 @@ next-env.d.ts
 
 /src/generated/prisma
 deploy/
+
+# fichiers uploadés (devis, audit, photos) - jamais versionnés
+/uploads/

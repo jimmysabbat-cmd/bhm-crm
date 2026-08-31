@@ -4,7 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { eurosToCents } from "@/lib/money";
-import type { Precarite, ZoneClimatique } from "@/generated/prisma/enums";
+import { saveDocumentFile, deleteDocumentFile } from "@/lib/documents";
+import type { Precarite, ZoneClimatique, TypeTravaux, TypeDocument } from "@/generated/prisma/enums";
+
+function optionalEurosToCents(value: FormDataEntryValue | null): number | null {
+  if (!value || String(value).trim() === "") return null;
+  return eurosToCents(Number(value));
+}
 
 function generateReference(): string {
   const now = new Date();
@@ -104,6 +110,74 @@ export async function updateEncaissements(formData: FormData) {
   });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/");
+}
+
+export async function createPosteTravaux(formData: FormData) {
+  const dossierId = String(formData.get("dossierId"));
+  await prisma.dossierPosteTravaux.create({
+    data: {
+      dossierId,
+      type: formData.get("type") as TypeTravaux,
+      surfaceM2: formData.get("surfaceM2") ? Number(formData.get("surfaceM2")) : null,
+      montantCumac: formData.get("montantCumac") ? Number(formData.get("montantCumac")) : null,
+      montantPrimeCalculeCts: optionalEurosToCents(formData.get("montantPrimeCalcule")),
+      sousTraitantId: (formData.get("sousTraitantId") as string) || null,
+      montantPoseSousTraitanceCts: optionalEurosToCents(formData.get("montantPoseSousTraitance")),
+      regieId: (formData.get("regieId") as string) || null,
+      montantRegieCts: optionalEurosToCents(formData.get("montantRegie")),
+      montantMaterielHTCts: optionalEurosToCents(formData.get("montantMaterielHT")),
+      montantMaterielTTCCts: optionalEurosToCents(formData.get("montantMaterielTTC")),
+    },
+  });
+  revalidatePath(`/dossiers/${dossierId}`);
+}
+
+export async function updatePosteTravaux(posteId: string, formData: FormData) {
+  const poste = await prisma.dossierPosteTravaux.update({
+    where: { id: posteId },
+    data: {
+      type: formData.get("type") as TypeTravaux,
+      surfaceM2: formData.get("surfaceM2") ? Number(formData.get("surfaceM2")) : null,
+      montantCumac: formData.get("montantCumac") ? Number(formData.get("montantCumac")) : null,
+      montantPrimeCalculeCts: optionalEurosToCents(formData.get("montantPrimeCalcule")),
+      sousTraitantId: (formData.get("sousTraitantId") as string) || null,
+      montantPoseSousTraitanceCts: optionalEurosToCents(formData.get("montantPoseSousTraitance")),
+      regieId: (formData.get("regieId") as string) || null,
+      montantRegieCts: optionalEurosToCents(formData.get("montantRegie")),
+      montantMaterielHTCts: optionalEurosToCents(formData.get("montantMaterielHT")),
+      montantMaterielTTCCts: optionalEurosToCents(formData.get("montantMaterielTTC")),
+    },
+  });
+  revalidatePath(`/dossiers/${poste.dossierId}`);
+}
+
+export async function deletePosteTravaux(posteId: string, dossierId: string) {
+  await prisma.dossierPosteTravaux.delete({ where: { id: posteId } });
+  revalidatePath(`/dossiers/${dossierId}`);
+}
+
+export async function uploadDocument(formData: FormData) {
+  const dossierId = String(formData.get("dossierId"));
+  const file = formData.get("file") as File;
+  if (!file || file.size === 0) return;
+
+  const saved = await saveDocumentFile(dossierId, file);
+  await prisma.dossierDocument.create({
+    data: {
+      dossierId,
+      type: formData.get("type") as TypeDocument,
+      ...saved,
+    },
+  });
+  revalidatePath(`/dossiers/${dossierId}`);
+}
+
+export async function deleteDocument(docId: string, dossierId: string) {
+  const doc = await prisma.dossierDocument.findUnique({ where: { id: docId } });
+  if (!doc) return;
+  await deleteDocumentFile(doc.cheminFichier);
+  await prisma.dossierDocument.delete({ where: { id: docId } });
+  revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function createTache(formData: FormData) {
