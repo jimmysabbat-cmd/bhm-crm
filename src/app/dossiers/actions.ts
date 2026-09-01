@@ -106,6 +106,7 @@ export async function updateMontage(formData: FormData) {
       montantDevisTTC: eurosToCents(Number(formData.get("montantDevisTTC") || 0)),
       montantAideMPR: eurosToCents(Number(formData.get("montantAideMPR") || 0)),
       montantAideCEE: eurosToCents(Number(formData.get("montantAideCEE") || 0)),
+      modePaiementAideId: (formData.get("modePaiementAideId") as string) || null,
     },
   });
   revalidatePath(`/dossiers/${dossierId}`);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Users, Landmark, Zap, TrendingUp, AlertTriangle, ArrowRight, Plus } from "lucide-react";
+import { Users, Landmark, Zap, TrendingUp, AlertTriangle, ArrowRight, Plus, HandCoins } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
@@ -20,6 +20,8 @@ export default async function DashboardPage() {
       montantEncaisseMPR: true,
       montantEncaisseCEE: true,
       dateFinTravaux: true,
+      type: { select: { key: true } },
+      modePaiementAide: { select: { key: true, label: true } },
       delegataireCee: { select: { id: true, nom: true } },
       postesTravaux: {
         select: {
@@ -73,6 +75,26 @@ export default async function DashboardPage() {
       }
     }
   }
+
+  // Dossiers où BHM avance l'intégralité de l'installation en tant que
+  // mandataire : ce que l'ANAH (et le CEE) doit encore verser à BHM, pas au
+  // client — vue séparée du "Restant dû" général, et scindée ampleur/monogeste
+  // car ce sont deux guichets ANAH différents.
+  const MANDATAIRE_KEYS = new Set(["MANDATAIRE_FINANCIER_BHM", "MANDATAIRE_FINANCIER_ANAH"]);
+  const mandataire = dossiers.reduce(
+    (acc, d) => {
+      if (!d.modePaiementAide || !MANDATAIRE_KEYS.has(d.modePaiementAide.key)) return acc;
+      const resteMPR = Math.max(d.montantAideMPR - d.montantEncaisseMPR, 0);
+      const resteCEE = Math.max(d.montantAideCEE - d.montantEncaisseCEE, 0);
+      const isAmpleur = d.type.key.startsWith("RENOVATION_AMPLEUR");
+      if (isAmpleur) acc.ampleurMPR += resteMPR;
+      else acc.monogesteMPR += resteMPR;
+      acc.cee += resteCEE;
+      acc.count += 1;
+      return acc;
+    },
+    { ampleurMPR: 0, monogesteMPR: 0, cee: 0, count: 0 }
+  );
 
   const resteAPercevoirCEEParDelegataire = new Map<string, { nom: string; montant: number }>();
   for (const d of dossiers) {
@@ -139,6 +161,41 @@ export default async function DashboardPage() {
           tone="emerald"
         />
       </div>
+
+      {mandataire.count > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <HandCoins className="h-4 w-4 text-emerald-600" />
+            <h2 className="text-sm font-semibold text-slate-900">
+              Mandataire — ce qui reste à me verser
+            </h2>
+            <span className="text-xs text-slate-400">
+              {mandataire.count} dossier{mandataire.count > 1 ? "s" : ""} où j&apos;ai avancé
+              l&apos;installation
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <StatCard
+              label="ANAH me doit (rénovation d'ampleur)"
+              value={mandataire.ampleurMPR}
+              icon={Landmark}
+              tone="blue"
+            />
+            <StatCard
+              label="ANAH me doit (monogeste)"
+              value={mandataire.monogesteMPR}
+              icon={Landmark}
+              tone="violet"
+            />
+            <StatCard
+              label="CEE me doit (mandataire)"
+              value={mandataire.cee}
+              icon={Zap}
+              tone="amber"
+            />
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
@@ -273,6 +330,7 @@ const tones = {
   blue: "bg-blue-100 text-blue-600",
   amber: "bg-amber-100 text-amber-600",
   emerald: "bg-emerald-100 text-emerald-600",
+  violet: "bg-violet-100 text-violet-600",
 };
 
 const barColors: Record<string, string> = {

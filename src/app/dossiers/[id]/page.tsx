@@ -62,7 +62,7 @@ export default async function DossierDetailPage({
 }) {
   const { id } = await params;
 
-  const [dossier, statuts, mars, statutsAnah, sousTraitants, regies, delegatairesCee, types] =
+  const [dossier, statuts, mars, statutsAnah, sousTraitants, regies, delegatairesCee, types, modesPaiement] =
     await Promise.all([
       prisma.dossier.findUnique({
         where: { id },
@@ -89,6 +89,7 @@ export default async function DossierDetailPage({
       prisma.regie.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
       prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
       prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+      prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     ]);
 
   if (!dossier) notFound();
@@ -294,6 +295,21 @@ export default async function DossierDetailPage({
           </CardHeader>
           <form action={updateMontage} className="space-y-2.5 p-5">
             <input type="hidden" name="dossierId" value={dossier.id} />
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <label className="text-slate-500">Mode de paiement</label>
+              <select
+                name="modePaiementAideId"
+                defaultValue={dossier.modePaiementAideId ?? ""}
+                className={`w-40 ${smallInputClass}`}
+              >
+                <option value="">—</option>
+                {modesPaiement.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="flex items-center justify-between gap-2 text-sm">
               <label className="text-slate-500">Devis TTC</label>
               <input
