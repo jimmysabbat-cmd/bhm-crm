@@ -42,6 +42,7 @@ import { Badge, statutColor } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { MprAmpleurCalculator } from "@/components/ui/MprAmpleurCalculator";
 import { MonogesteCalculator } from "@/components/ui/MonogesteCalculator";
+import { CeeCumacCalculator } from "@/components/ui/CeeCumacCalculator";
 import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
 
 function dateInputValue(d: Date | null): string {
@@ -757,12 +758,19 @@ export default async function DossierDetailPage({
               </div>
               <div className="space-y-1">
                 <label className={labelClass}>CUMAC (kWh)</label>
-                <input name="montantCumac" type="number" className={inputClass} />
+                <input id="createPosteCumac" name="montantCumac" type="number" className={inputClass} />
               </div>
               <div className="space-y-1">
                 <label className={labelClass}>Prime calculée (€)</label>
-                <input name="montantPrimeCalcule" type="number" step="0.01" className={inputClass} />
+                <input
+                  id="createPostePrime"
+                  name="montantPrimeCalcule"
+                  type="number"
+                  step="0.01"
+                  className={inputClass}
+                />
               </div>
+              <CeeCumacCalculator cumacTargetId="createPosteCumac" primeTargetId="createPostePrime" />
               <div className="space-y-1">
                 <label className={labelClass}>Sous-traitant</label>
                 <select name="sousTraitantId" className={inputClass} defaultValue="">
