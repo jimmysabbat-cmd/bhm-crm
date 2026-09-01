@@ -278,6 +278,8 @@ model DossierPosteTravaux {
   type                   TypeTravaux
   surfaceM2              Float?
   quantite               Int? // ex. nombre de splits pour une PAC air/air, nombre de fenêtres...
+  montantDevisHTCts      Int? // montant HT de ce geste sur le devis (base éligible aux aides)
+  montantDevisTTCCts     Int?
   montantCumac           Int? // en kWh cumac
   montantPrimeCalculeCts Int? // prime CEE calculée, en centimes
 

@@ -64,6 +64,7 @@ export async function createDossier(formData: FormData) {
       modePaiementAideId: (formData.get("modePaiementAideId") as string) || null,
       marId: (formData.get("marId") as string) || null,
       delegataireCeeId: (formData.get("delegataireCeeId") as string) || null,
+      statutAnahId: (formData.get("statutAnahId") as string) || null,
       dateDepotAnah: formData.get("dateDepotAnah")
         ? new Date(String(formData.get("dateDepotAnah")))
         : null,
@@ -77,12 +78,19 @@ export async function createDossier(formData: FormData) {
   });
 
   // Travaux prévus, saisis à la création (champs indexés travaux.N.champ)
-  const travauxParLigne = new Map<number, { type?: string; quantite?: string; surfaceM2?: string }>();
+  type LigneTravaux = {
+    type?: string;
+    quantite?: string;
+    surfaceM2?: string;
+    montantHT?: string;
+    montantTTC?: string;
+  };
+  const travauxParLigne = new Map<number, LigneTravaux>();
   for (const [key, value] of formData.entries()) {
-    const match = key.match(/^travaux\.(\d+)\.(type|quantite|surfaceM2)$/);
+    const match = key.match(/^travaux\.(\d+)\.(type|quantite|surfaceM2|montantHT|montantTTC)$/);
     if (!match) continue;
     const index = Number(match[1]);
-    const champ = match[2] as "type" | "quantite" | "surfaceM2";
+    const champ = match[2] as keyof LigneTravaux;
     if (!travauxParLigne.has(index)) travauxParLigne.set(index, {});
     travauxParLigne.get(index)![champ] = String(value);
   }
@@ -94,6 +102,8 @@ export async function createDossier(formData: FormData) {
         type: ligne.type as TypeTravaux,
         quantite: ligne.quantite ? Number(ligne.quantite) : null,
         surfaceM2: ligne.surfaceM2 ? Number(ligne.surfaceM2) : null,
+        montantDevisHTCts: optionalEurosToCents(ligne.montantHT ?? null),
+        montantDevisTTCCts: optionalEurosToCents(ligne.montantTTC ?? null),
       },
     });
   }

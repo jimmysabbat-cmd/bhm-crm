@@ -61,15 +61,24 @@ export function MprAmpleurCalculator({
   defaultPrecarite,
   defaultDateDepot,
   defaultOpen,
+  prefilMontantHTCts,
 }: {
   targetInputId: string;
   defaultPrecarite?: Precarite | null;
   /** Date de dépôt du dossier ANAH au format "yyyy-mm-dd", pour choisir le bon barème. */
   defaultDateDepot?: string | null;
   defaultOpen?: boolean;
+  /** Somme HT des postes de travaux saisis ailleurs — pré-remplit le champ tant que l'utilisateur ne l'a pas modifié lui-même. */
+  prefilMontantHTCts?: number;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
-  const [montantHT, setMontantHT] = useState("");
+  const [montantHTManual, setMontantHTManual] = useState("");
+  const [touchedHT, setTouchedHT] = useState(false);
+  const montantHT = touchedHT
+    ? montantHTManual
+    : prefilMontantHTCts
+      ? (prefilMontantHTCts / 100).toFixed(2)
+      : "";
   const [gain, setGain] = useState<Gain>("3");
   const [precarite, setPrecarite] = useState<Precarite>(defaultPrecarite ?? "TRES_MODESTE");
   const [dateDepot, setDateDepot] = useState(defaultDateDepot ?? "");
@@ -140,12 +149,20 @@ export function MprAmpleurCalculator({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1">
-          <label className={labelClass}>Montant HT travaux éligibles (€)</label>
+          <label className={labelClass}>
+            Montant HT travaux éligibles (€)
+            {prefilMontantHTCts !== undefined && !touchedHT && (
+              <span className="ml-1 normal-case text-emerald-600">(auto, depuis les postes)</span>
+            )}
+          </label>
           <input
             type="number"
             step="0.01"
             value={montantHT}
-            onChange={(e) => setMontantHT(e.target.value)}
+            onChange={(e) => {
+              setTouchedHT(true);
+              setMontantHTManual(e.target.value);
+            }}
             className={inputClass}
           />
         </div>
