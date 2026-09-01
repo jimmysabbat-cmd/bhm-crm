@@ -1,6 +1,20 @@
+import fs from "fs";
+import path from "path";
 import { LogOut, Zap } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { SidebarNav, type SidebarLink } from "./sidebar-nav";
+
+// Dès qu'un fichier public/logo-bhm.(png|svg|jpg) est ajouté, il remplace
+// automatiquement l'icône par défaut — aucune autre modification requise.
+function findLogo(): { src: string; isSvg: boolean } | null {
+  for (const ext of ["svg", "png", "jpg", "jpeg", "webp"]) {
+    const file = `logo-bhm.${ext}`;
+    if (fs.existsSync(path.join(process.cwd(), "public", file))) {
+      return { src: `/${file}`, isSvg: ext === "svg" };
+    }
+  }
+  return null;
+}
 
 const links: SidebarLink[] = [
   { href: "/", label: "Trésorerie", icon: "tresorerie" },
@@ -18,13 +32,19 @@ export async function Nav() {
     : links;
 
   const initial = session.user.name?.[0]?.toUpperCase() ?? "?";
+  const logo = findLogo();
 
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col bg-slate-900">
       <div className="flex items-center gap-2.5 px-5 py-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500">
-          <Zap className="h-4.5 w-4.5 text-white" strokeWidth={2.5} />
-        </div>
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element -- format inconnu à l'avance (svg/png/jpg)
+          <img src={logo.src} alt="BHM" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+        ) : (
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500">
+            <Zap className="h-4.5 w-4.5 text-white" strokeWidth={2.5} />
+          </div>
+        )}
         <div>
           <p className="text-sm font-semibold text-white">BHM CRM</p>
           <p className="text-[11px] text-slate-500">Le Bonheur d&apos;Habiter Mieux</p>

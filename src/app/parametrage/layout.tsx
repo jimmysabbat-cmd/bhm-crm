@@ -9,13 +9,15 @@ export default async function ParametrageLayout({ children }: { children: React.
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-8 py-10">
-      <div>
+    <div className="mx-auto max-w-5xl px-8 py-10">
+      <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Paramétrage</h1>
         <p className="mt-1 text-sm text-slate-500">Listes, équipe et accès de l&apos;application</p>
       </div>
-      <ParamTabs />
-      {children}
+      <div className="flex gap-8">
+        <ParamTabs />
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
     </div>
   );
 }
