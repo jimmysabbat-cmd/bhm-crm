@@ -1,4 +1,15 @@
 import { notFound } from "next/navigation";
+import {
+  Wallet,
+  ClipboardCheck,
+  TrendingUp,
+  Wrench,
+  Paperclip,
+  CheckSquare,
+  Plus,
+  Trash2,
+  Download,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
 import {
@@ -21,10 +32,10 @@ import {
   uploadDocument,
   deleteDocument,
 } from "../actions";
-
-const inputClass =
-  "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
-const labelClass = "text-sm font-medium text-neutral-700";
+import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Badge, statutColor } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
 
 function dateInputValue(d: Date | null): string {
   if (!d) return "";
@@ -112,119 +123,127 @@ export default async function DossierDetailPage({
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
-      <div>
-        <p className="text-sm text-neutral-400">{dossier.reference}</p>
-        <h1 className="text-2xl font-semibold text-neutral-900">
-          {dossier.client.prenom} {dossier.client.nom}
-        </h1>
-        <p className="text-sm text-neutral-500">{dossier.type.label}</p>
+    <div className="mx-auto max-w-4xl space-y-6 px-8 py-10">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-slate-400">{dossier.reference}</p>
+          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-slate-900">
+            {dossier.client.prenom} {dossier.client.nom}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">{dossier.type.label}</p>
+        </div>
+        <Badge color={statutColor(dossier.statut.key)}>{dossier.statut.label}</Badge>
       </div>
 
       <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-          <h2 className="text-sm font-medium text-neutral-900">Statut</h2>
-          <form
-            action={async (formData: FormData) => {
-              "use server";
-              await updateStatut(dossier.id, String(formData.get("statutId")));
-            }}
-            className="flex gap-2"
-          >
-            <select name="statutId" defaultValue={dossier.statutId} className={inputClass}>
-              {statuts.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+        <Card>
+          <CardHeader>
+            <CardTitle>Statut</CardTitle>
+          </CardHeader>
+          <div className="space-y-4 p-5">
+            <form
+              action={async (formData: FormData) => {
+                "use server";
+                await updateStatut(dossier.id, String(formData.get("statutId")));
+              }}
+              className="flex gap-2"
             >
-              OK
-            </button>
-          </form>
+              <select name="statutId" defaultValue={dossier.statutId} className={inputClass}>
+                {statuts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <Button type="submit" className="shrink-0">
+                OK
+              </Button>
+            </form>
 
-          <dl className="space-y-1 text-sm text-neutral-600">
-            {dossier.modePaiementAide && (
-              <div className="flex justify-between">
-                <dt>Mode paiement aide</dt>
-                <dd>{dossier.modePaiementAide.label}</dd>
-              </div>
-            )}
-            {dossier.mar && (
-              <div className="flex justify-between">
-                <dt>MAR</dt>
-                <dd>{dossier.mar.nom}</dd>
-              </div>
-            )}
-            {dossier.delegataireCee && (
-              <div className="flex justify-between">
-                <dt>Délégataire CEE</dt>
-                <dd>{dossier.delegataireCee.nom}</dd>
-              </div>
-            )}
-            {dossier.client.precarite && (
-              <div className="flex justify-between">
-                <dt>Précarité</dt>
-                <dd>{precariteLabels[dossier.client.precarite]}</dd>
-              </div>
-            )}
-          </dl>
-        </div>
+            <dl className="space-y-1.5 text-sm">
+              {dossier.modePaiementAide && (
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Mode paiement aide</dt>
+                  <dd className="text-slate-700">{dossier.modePaiementAide.label}</dd>
+                </div>
+              )}
+              {dossier.mar && (
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">MAR</dt>
+                  <dd className="text-slate-700">{dossier.mar.nom}</dd>
+                </div>
+              )}
+              {dossier.delegataireCee && (
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Délégataire CEE</dt>
+                  <dd className="text-slate-700">{dossier.delegataireCee.nom}</dd>
+                </div>
+              )}
+              {dossier.client.precarite && (
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Précarité</dt>
+                  <dd className="text-slate-700">{precariteLabels[dossier.client.precarite]}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        </Card>
 
-        <div className="space-y-3 rounded-lg border border-neutral-200 bg-white p-5">
-          <h2 className="text-sm font-medium text-neutral-900">Montage financier</h2>
-          <form action={updateMontage} className="space-y-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Montage financier</CardTitle>
+          </CardHeader>
+          <form action={updateMontage} className="space-y-2.5 p-5">
             <input type="hidden" name="dossierId" value={dossier.id} />
             <div className="flex items-center justify-between gap-2 text-sm">
-              <label className="text-neutral-500">Devis TTC</label>
+              <label className="text-slate-500">Devis TTC</label>
               <input
                 name="montantDevisTTC"
                 type="number"
                 step="0.01"
                 defaultValue={dossier.montantDevisTTC / 100}
-                className="w-32 rounded-md border border-neutral-300 px-2 py-1 text-right text-sm focus:border-neutral-500 focus:outline-none"
+                className={`w-32 text-right ${smallInputClass}`}
               />
             </div>
             <div className="flex items-center justify-between gap-2 text-sm">
-              <label className="text-neutral-500">Aide MPR / ANAH</label>
+              <label className="text-slate-500">Aide MPR / ANAH</label>
               <input
                 name="montantAideMPR"
                 type="number"
                 step="0.01"
                 defaultValue={dossier.montantAideMPR / 100}
-                className="w-32 rounded-md border border-neutral-300 px-2 py-1 text-right text-sm focus:border-neutral-500 focus:outline-none"
+                className={`w-32 text-right ${smallInputClass}`}
               />
             </div>
             <div className="flex items-center justify-between gap-2 text-sm">
-              <label className="text-neutral-500">Aide CEE</label>
+              <label className="text-slate-500">Aide CEE</label>
               <input
                 name="montantAideCEE"
                 type="number"
                 step="0.01"
                 defaultValue={dossier.montantAideCEE / 100}
-                className="w-32 rounded-md border border-neutral-300 px-2 py-1 text-right text-sm focus:border-neutral-500 focus:outline-none"
+                className={`w-32 text-right ${smallInputClass}`}
               />
             </div>
-            <div className="flex justify-between border-t border-neutral-100 pt-2 text-sm font-semibold text-neutral-900">
+            <div className="flex justify-between border-t border-slate-100 pt-2.5 text-sm font-semibold text-slate-900">
               <span>Reste à charge client</span>
               <span>{formatCents(resteACharge)}</span>
             </div>
-            <button
-              type="submit"
-              className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800"
-            >
+            <Button type="submit" variant="secondary" className="mt-1 text-xs">
               Enregistrer
-            </button>
+            </Button>
           </form>
-        </div>
+        </Card>
       </section>
 
-      <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-sm font-medium text-neutral-900">Encaissements & dates chantier</h2>
-        <form action={updateEncaissements} className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Wallet className="h-4 w-4 text-emerald-600" />
+            <CardTitle>Encaissements & dates chantier</CardTitle>
+          </div>
+        </CardHeader>
+        <form action={updateEncaissements} className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-3">
           <input type="hidden" name="dossierId" value={dossier.id} />
           <div className="space-y-1">
             <label className={labelClass}>Encaissé client (€)</label>
@@ -286,20 +305,22 @@ export default async function DossierDetailPage({
             </select>
           </div>
           <div className="flex items-end">
-            <button
-              type="submit"
-              className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-            >
+            <Button type="submit" className="w-full">
               Enregistrer
-            </button>
+            </Button>
           </div>
         </form>
-      </section>
+      </Card>
 
       {isRenoAmpleur && (
-        <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-          <h2 className="text-sm font-medium text-neutral-900">Suivi ANAH</h2>
-          <form action={updateAnahInfo} className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ClipboardCheck className="h-4 w-4 text-emerald-600" />
+              <CardTitle>Suivi ANAH</CardTitle>
+            </div>
+          </CardHeader>
+          <form action={updateAnahInfo} className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
             <input type="hidden" name="dossierId" value={dossier.id} />
             <div className="space-y-1">
               <label className={labelClass}>MAR</label>
@@ -342,221 +363,357 @@ export default async function DossierDetailPage({
               />
             </div>
             <div className="col-span-2 flex items-end sm:col-span-4">
-              <button
-                type="submit"
-                className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-              >
-                Enregistrer
-              </button>
+              <Button type="submit">Enregistrer</Button>
             </div>
           </form>
-        </section>
+        </Card>
       )}
 
-      <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-sm font-medium text-neutral-900">Finances du dossier</h2>
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-          <dl className="space-y-1 text-sm">
-            <p className="mb-1 text-xs font-medium uppercase text-neutral-400">Reste à percevoir</p>
-            <Row label="Côté client" value={formatCents(resteAPercevoirClient)} />
-            <Row label="Côté MPR" value={formatCents(resteAPercevoirMPR)} />
-            <Row label="Côté CEE" value={formatCents(resteAPercevoirCEE)} />
-            <Row label="Total aides prévues" value={formatCents(totalAides)} />
-          </dl>
-          <dl className="space-y-1 text-sm">
-            <p className="mb-1 text-xs font-medium uppercase text-neutral-400">Coûts chantier</p>
-            <Row label="Matériel" value={formatCents(totalMateriel)} />
-            <Row label="Sous-traitance" value={formatCents(totalSousTraitance)} />
-            <Row label="Régie" value={formatCents(totalRegie)} />
-            <Row label="Total coûts" value={formatCents(totalCoutsChantier)} />
-          </dl>
-          <dl className="space-y-1 text-sm">
-            <p className="mb-1 text-xs font-medium uppercase text-neutral-400">Rentabilité</p>
-            <Row label="Devis TTC" value={formatCents(dossier.montantDevisTTC)} />
-            <Row label="Total coûts" value={formatCents(totalCoutsChantier)} />
-            <Row label="Marge nette" value={formatCents(margeNette)} strong />
-          </dl>
-        </div>
-
-        {dusParSousTraitant.size > 0 && (
-          <div className="border-t border-neutral-100 pt-4">
-            <p className="mb-2 text-xs font-medium uppercase text-neutral-400">
-              Montant dû aux sous-traitants
-            </p>
-            <ul className="space-y-1 text-sm">
-              {Array.from(dusParSousTraitant.values()).map((d) => {
-                const echeance =
-                  dossier.dateFinTravaux && d.delaiPaiementJours
-                    ? addDays(dossier.dateFinTravaux, d.delaiPaiementJours)
-                    : null;
-                return (
-                  <li key={d.nom} className="flex justify-between text-neutral-700">
-                    <span>
-                      {d.nom}
-                      {d.delaiPaiementJours ? ` (délai ${d.delaiPaiementJours} j${echeance ? `, échéance ${echeance.toLocaleDateString("fr-FR")}` : ""})` : ""}
-                    </span>
-                    <span className="font-medium">{formatCents(d.montant)}</span>
-                  </li>
-                );
-              })}
-            </ul>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            <CardTitle>Finances du dossier</CardTitle>
           </div>
-        )}
-      </section>
+        </CardHeader>
+        <div className="space-y-5 p-5">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+            <dl className="space-y-1.5 text-sm">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                Reste à percevoir
+              </p>
+              <Row label="Côté client" value={formatCents(resteAPercevoirClient)} />
+              <Row label="Côté MPR" value={formatCents(resteAPercevoirMPR)} />
+              <Row label="Côté CEE" value={formatCents(resteAPercevoirCEE)} />
+              <Row label="Total aides prévues" value={formatCents(totalAides)} />
+            </dl>
+            <dl className="space-y-1.5 text-sm">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                Coûts chantier
+              </p>
+              <Row label="Matériel" value={formatCents(totalMateriel)} />
+              <Row label="Sous-traitance" value={formatCents(totalSousTraitance)} />
+              <Row label="Régie" value={formatCents(totalRegie)} />
+              <Row label="Total coûts" value={formatCents(totalCoutsChantier)} />
+            </dl>
+            <dl className="space-y-1.5 text-sm">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                Rentabilité
+              </p>
+              <Row label="Devis TTC" value={formatCents(dossier.montantDevisTTC)} />
+              <Row label="Total coûts" value={formatCents(totalCoutsChantier)} />
+              <Row label="Marge nette" value={formatCents(margeNette)} strong />
+            </dl>
+          </div>
 
-      <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-sm font-medium text-neutral-900">Postes de travaux</h2>
-
-        <div className="space-y-4">
-          {dossier.postesTravaux.map((poste) => (
-            <form
-              key={poste.id}
-              action={updatePosteTravaux.bind(null, poste.id)}
-              className="space-y-3 rounded-md border border-neutral-100 p-4"
-            >
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="space-y-1">
-                  <label className={labelClass}>Type de travaux</label>
-                  <select name="type" defaultValue={poste.type} className={inputClass}>
-                    {Object.entries(typeTravauxLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Surface (m²)</label>
-                  <input
-                    name="surfaceM2"
-                    type="number"
-                    step="0.01"
-                    defaultValue={poste.surfaceM2 ?? ""}
-                    className={inputClass}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>CUMAC (kWh)</label>
-                  <input
-                    name="montantCumac"
-                    type="number"
-                    defaultValue={poste.montantCumac ?? ""}
-                    className={inputClass}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Prime calculée (€)</label>
-                  <input
-                    name="montantPrimeCalcule"
-                    type="number"
-                    step="0.01"
-                    defaultValue={poste.montantPrimeCalculeCts ? poste.montantPrimeCalculeCts / 100 : ""}
-                    className={inputClass}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Sous-traitant</label>
-                  <select name="sousTraitantId" defaultValue={poste.sousTraitantId ?? ""} className={inputClass}>
-                    <option value="">—</option>
-                    {sousTraitants.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.nom}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Montant pose sous-traitance (€)</label>
-                  <input
-                    name="montantPoseSousTraitance"
-                    type="number"
-                    step="0.01"
-                    defaultValue={
-                      poste.montantPoseSousTraitanceCts ? poste.montantPoseSousTraitanceCts / 100 : ""
-                    }
-                    className={inputClass}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Régie</label>
-                  <select name="regieId" defaultValue={poste.regieId ?? ""} className={inputClass}>
-                    <option value="">—</option>
-                    {regies.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.nom}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Montant pose régie (€)</label>
-                  <input
-                    name="montantRegie"
-                    type="number"
-                    step="0.01"
-                    defaultValue={poste.montantRegieCts ? poste.montantRegieCts / 100 : ""}
-                    className={inputClass}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Matériel HT (€)</label>
-                  <input
-                    name="montantMaterielHT"
-                    type="number"
-                    step="0.01"
-                    defaultValue={poste.montantMaterielHTCts ? poste.montantMaterielHTCts / 100 : ""}
-                    className={inputClass}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className={labelClass}>Matériel TTC (€)</label>
-                  <input
-                    name="montantMaterielTTC"
-                    type="number"
-                    step="0.01"
-                    defaultValue={poste.montantMaterielTTCCts ? poste.montantMaterielTTCCts / 100 : ""}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  className="rounded-md bg-neutral-900 px-3 py-2 text-xs font-medium text-white hover:bg-neutral-800"
-                >
-                  Enregistrer
-                </button>
-                <button
-                  type="submit"
-                  formAction={async () => {
-                    "use server";
-                    await deletePosteTravaux(poste.id, dossier.id);
-                  }}
-                  className="rounded-md px-3 py-2 text-xs font-medium text-neutral-500 hover:text-red-600"
-                >
-                  Supprimer
-                </button>
-              </div>
-            </form>
-          ))}
-          {dossier.postesTravaux.length === 0 && (
-            <p className="text-sm text-neutral-400">Aucun poste de travaux.</p>
+          {dusParSousTraitant.size > 0 && (
+            <div className="border-t border-slate-100 pt-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                Montant dû aux sous-traitants
+              </p>
+              <ul className="space-y-1.5 text-sm">
+                {Array.from(dusParSousTraitant.values()).map((d) => {
+                  const echeance =
+                    dossier.dateFinTravaux && d.delaiPaiementJours
+                      ? addDays(dossier.dateFinTravaux, d.delaiPaiementJours)
+                      : null;
+                  return (
+                    <li key={d.nom} className="flex justify-between">
+                      <span className="text-slate-600">
+                        {d.nom}
+                        {d.delaiPaiementJours && (
+                          <span className="ml-1.5 text-xs text-slate-400">
+                            (délai {d.delaiPaiementJours} j
+                            {echeance ? `, échéance ${echeance.toLocaleDateString("fr-FR")}` : ""})
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-medium text-slate-900">{formatCents(d.montant)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           )}
         </div>
+      </Card>
 
-        <form
-          action={createPosteTravaux}
-          className="space-y-3 border-t border-neutral-100 pt-4"
-        >
-          <input type="hidden" name="dossierId" value={dossier.id} />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-emerald-600" />
+            <CardTitle>Postes de travaux</CardTitle>
+          </div>
+        </CardHeader>
+
+        <div className="space-y-4 p-5">
+          <div className="space-y-4">
+            {dossier.postesTravaux.map((poste) => (
+              <form
+                key={poste.id}
+                action={updatePosteTravaux.bind(null, poste.id)}
+                className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4"
+              >
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="space-y-1">
+                    <label className={labelClass}>Type de travaux</label>
+                    <select name="type" defaultValue={poste.type} className={inputClass}>
+                      {Object.entries(typeTravauxLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Surface (m²)</label>
+                    <input
+                      name="surfaceM2"
+                      type="number"
+                      step="0.01"
+                      defaultValue={poste.surfaceM2 ?? ""}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>CUMAC (kWh)</label>
+                    <input
+                      name="montantCumac"
+                      type="number"
+                      defaultValue={poste.montantCumac ?? ""}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Prime calculée (€)</label>
+                    <input
+                      name="montantPrimeCalcule"
+                      type="number"
+                      step="0.01"
+                      defaultValue={poste.montantPrimeCalculeCts ? poste.montantPrimeCalculeCts / 100 : ""}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Sous-traitant</label>
+                    <select name="sousTraitantId" defaultValue={poste.sousTraitantId ?? ""} className={inputClass}>
+                      <option value="">—</option>
+                      {sousTraitants.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nom}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Montant pose sous-traitance (€)</label>
+                    <input
+                      name="montantPoseSousTraitance"
+                      type="number"
+                      step="0.01"
+                      defaultValue={
+                        poste.montantPoseSousTraitanceCts ? poste.montantPoseSousTraitanceCts / 100 : ""
+                      }
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Régie</label>
+                    <select name="regieId" defaultValue={poste.regieId ?? ""} className={inputClass}>
+                      <option value="">—</option>
+                      {regies.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.nom}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Montant pose régie (€)</label>
+                    <input
+                      name="montantRegie"
+                      type="number"
+                      step="0.01"
+                      defaultValue={poste.montantRegieCts ? poste.montantRegieCts / 100 : ""}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Matériel HT (€)</label>
+                    <input
+                      name="montantMaterielHT"
+                      type="number"
+                      step="0.01"
+                      defaultValue={poste.montantMaterielHTCts ? poste.montantMaterielHTCts / 100 : ""}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Matériel TTC (€)</label>
+                    <input
+                      name="montantMaterielTTC"
+                      type="number"
+                      step="0.01"
+                      defaultValue={poste.montantMaterielTTCCts ? poste.montantMaterielTTCCts / 100 : ""}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" variant="secondary" className="text-xs">
+                    Enregistrer
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    className="text-xs"
+                    formAction={async () => {
+                      "use server";
+                      await deletePosteTravaux(poste.id, dossier.id);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Supprimer
+                  </Button>
+                </div>
+              </form>
+            ))}
+            {dossier.postesTravaux.length === 0 && (
+              <p className="text-sm text-slate-400">Aucun poste de travaux.</p>
+            )}
+          </div>
+
+          <form action={createPosteTravaux} className="space-y-3 border-t border-slate-100 pt-4">
+            <input type="hidden" name="dossierId" value={dossier.id} />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="space-y-1">
+                <label className={labelClass}>Type de travaux</label>
+                <select name="type" required className={inputClass} defaultValue="">
+                  <option value="" disabled>
+                    Choisir...
+                  </option>
+                  {Object.entries(typeTravauxLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Surface (m²)</label>
+                <input name="surfaceM2" type="number" step="0.01" className={inputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>CUMAC (kWh)</label>
+                <input name="montantCumac" type="number" className={inputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Prime calculée (€)</label>
+                <input name="montantPrimeCalcule" type="number" step="0.01" className={inputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Sous-traitant</label>
+                <select name="sousTraitantId" className={inputClass} defaultValue="">
+                  <option value="">—</option>
+                  {sousTraitants.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Montant pose sous-traitance (€)</label>
+                <input name="montantPoseSousTraitance" type="number" step="0.01" className={inputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Régie</label>
+                <select name="regieId" className={inputClass} defaultValue="">
+                  <option value="">—</option>
+                  {regies.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Montant pose régie (€)</label>
+                <input name="montantRegie" type="number" step="0.01" className={inputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Matériel HT (€)</label>
+                <input name="montantMaterielHT" type="number" step="0.01" className={inputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Matériel TTC (€)</label>
+                <input name="montantMaterielTTC" type="number" step="0.01" className={inputClass} />
+              </div>
+            </div>
+            <Button type="submit">
+              <Plus className="h-4 w-4" />
+              Ajouter un poste
+            </Button>
+          </form>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Paperclip className="h-4 w-4 text-emerald-600" />
+            <CardTitle>Documents & photos</CardTitle>
+          </div>
+        </CardHeader>
+
+        <div className="space-y-4 p-5">
+          <ul className="space-y-1">
+            {dossier.documents.map((doc) => (
+              <li
+                key={doc.id}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-slate-50"
+              >
+                <a
+                  href={`/api/documents/${doc.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 font-medium text-slate-800 hover:text-emerald-700"
+                >
+                  <Download className="h-3.5 w-3.5 text-slate-400" />
+                  {doc.nomFichier}
+                </a>
+                <Badge color="slate">{typeDocumentLabels[doc.type]}</Badge>
+                <span className="text-xs text-slate-400">
+                  {new Date(doc.createdAt).toLocaleDateString("fr-FR")}
+                </span>
+                <form
+                  action={async () => {
+                    "use server";
+                    await deleteDocument(doc.id, dossier.id);
+                  }}
+                  className="ml-auto"
+                >
+                  <button type="submit" className="text-xs text-slate-400 hover:text-red-600">
+                    Supprimer
+                  </button>
+                </form>
+              </li>
+            ))}
+            {dossier.documents.length === 0 && (
+              <p className="text-sm text-slate-400">Aucun document.</p>
+            )}
+          </ul>
+
+          <form
+            action={uploadDocument}
+            encType="multipart/form-data"
+            className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4"
+          >
+            <input type="hidden" name="dossierId" value={dossier.id} />
             <div className="space-y-1">
-              <label className={labelClass}>Type de travaux</label>
-              <select name="type" required className={inputClass} defaultValue="">
-                <option value="" disabled>
-                  Choisir...
-                </option>
-                {Object.entries(typeTravauxLabels).map(([value, label]) => (
+              <label className={labelClass}>Type</label>
+              <select name="type" className={inputClass} defaultValue="DEVIS">
+                {Object.entries(typeDocumentLabels).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
@@ -564,194 +721,81 @@ export default async function DossierDetailPage({
               </select>
             </div>
             <div className="space-y-1">
-              <label className={labelClass}>Surface (m²)</label>
-              <input name="surfaceM2" type="number" step="0.01" className={inputClass} />
+              <label className={labelClass}>Fichier</label>
+              <input name="file" type="file" required className={inputClass} />
+            </div>
+            <Button type="submit">Téléverser</Button>
+          </form>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <CheckSquare className="h-4 w-4 text-emerald-600" />
+            <CardTitle>Tâches & relances</CardTitle>
+          </div>
+        </CardHeader>
+
+        <div className="space-y-4 p-5">
+          <ul className="space-y-1">
+            {dossier.taches.map((t) => (
+              <li
+                key={t.id}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-slate-50"
+              >
+                <form
+                  action={async () => {
+                    "use server";
+                    await toggleTache(t.id, t.statut !== "FAIT");
+                  }}
+                >
+                  <button
+                    type="submit"
+                    className={`h-4 w-4 rounded border transition ${
+                      t.statut === "FAIT"
+                        ? "border-emerald-600 bg-emerald-600"
+                        : "border-slate-300 hover:border-emerald-500"
+                    }`}
+                    aria-label="Basculer statut"
+                  />
+                </form>
+                <span className={t.statut === "FAIT" ? "text-slate-400 line-through" : "text-slate-800"}>
+                  {t.titre}
+                </span>
+                <span className="text-xs text-slate-400">{typeTacheLabels[t.type]}</span>
+                <span className="ml-auto text-xs text-slate-400">
+                  {new Date(t.dateEcheance).toLocaleDateString("fr-FR")}
+                </span>
+              </li>
+            ))}
+            {dossier.taches.length === 0 && <p className="text-sm text-slate-400">Aucune tâche.</p>}
+          </ul>
+
+          <form action={createTache} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4">
+            <input type="hidden" name="dossierId" value={dossier.id} />
+            <div className="space-y-1">
+              <label className={labelClass}>Titre</label>
+              <input name="titre" required className={inputClass} />
             </div>
             <div className="space-y-1">
-              <label className={labelClass}>CUMAC (kWh)</label>
-              <input name="montantCumac" type="number" className={inputClass} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Prime calculée (€)</label>
-              <input name="montantPrimeCalcule" type="number" step="0.01" className={inputClass} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Sous-traitant</label>
-              <select name="sousTraitantId" className={inputClass} defaultValue="">
-                <option value="">—</option>
-                {sousTraitants.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nom}
+              <label className={labelClass}>Type</label>
+              <select name="type" className={inputClass} defaultValue="RELANCE_CLIENT">
+                {Object.entries(typeTacheLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
                   </option>
                 ))}
               </select>
             </div>
             <div className="space-y-1">
-              <label className={labelClass}>Montant pose sous-traitance (€)</label>
-              <input name="montantPoseSousTraitance" type="number" step="0.01" className={inputClass} />
+              <label className={labelClass}>Échéance</label>
+              <input name="dateEcheance" type="date" required className={inputClass} />
             </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Régie</label>
-              <select name="regieId" className={inputClass} defaultValue="">
-                <option value="">—</option>
-                {regies.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.nom}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Montant pose régie (€)</label>
-              <input name="montantRegie" type="number" step="0.01" className={inputClass} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Matériel HT (€)</label>
-              <input name="montantMaterielHT" type="number" step="0.01" className={inputClass} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Matériel TTC (€)</label>
-              <input name="montantMaterielTTC" type="number" step="0.01" className={inputClass} />
-            </div>
-          </div>
-          <button
-            type="submit"
-            className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-          >
-            + Ajouter un poste
-          </button>
-        </form>
-      </section>
-
-      <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-sm font-medium text-neutral-900">Documents & photos</h2>
-
-        <ul className="space-y-2">
-          {dossier.documents.map((doc) => (
-            <li key={doc.id} className="flex items-center gap-3 text-sm">
-              <a
-                href={`/api/documents/${doc.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-neutral-800 hover:underline"
-              >
-                {doc.nomFichier}
-              </a>
-              <span className="text-xs text-neutral-400">{typeDocumentLabels[doc.type]}</span>
-              <span className="text-xs text-neutral-400">
-                {new Date(doc.createdAt).toLocaleDateString("fr-FR")}
-              </span>
-              <form
-                action={async () => {
-                  "use server";
-                  await deleteDocument(doc.id, dossier.id);
-                }}
-                className="ml-auto"
-              >
-                <button type="submit" className="text-xs text-neutral-400 hover:text-red-600">
-                  Supprimer
-                </button>
-              </form>
-            </li>
-          ))}
-          {dossier.documents.length === 0 && (
-            <p className="text-sm text-neutral-400">Aucun document.</p>
-          )}
-        </ul>
-
-        <form
-          action={uploadDocument}
-          encType="multipart/form-data"
-          className="flex flex-wrap items-end gap-2 border-t border-neutral-100 pt-4"
-        >
-          <input type="hidden" name="dossierId" value={dossier.id} />
-          <div className="space-y-1">
-            <label className={labelClass}>Type</label>
-            <select name="type" className={inputClass} defaultValue="DEVIS">
-              {Object.entries(typeDocumentLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className={labelClass}>Fichier</label>
-            <input name="file" type="file" required className={inputClass} />
-          </div>
-          <button
-            type="submit"
-            className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-          >
-            Téléverser
-          </button>
-        </form>
-      </section>
-
-      <section className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-sm font-medium text-neutral-900">Tâches & relances</h2>
-
-        <ul className="space-y-2">
-          {dossier.taches.map((t) => (
-            <li key={t.id} className="flex items-center gap-3 text-sm">
-              <form
-                action={async () => {
-                  "use server";
-                  await toggleTache(t.id, t.statut !== "FAIT");
-                }}
-              >
-                <button
-                  type="submit"
-                  className={`h-4 w-4 rounded border ${
-                    t.statut === "FAIT"
-                      ? "border-neutral-900 bg-neutral-900"
-                      : "border-neutral-300"
-                  }`}
-                  aria-label="Basculer statut"
-                />
-              </form>
-              <span className={t.statut === "FAIT" ? "text-neutral-400 line-through" : "text-neutral-800"}>
-                {t.titre}
-              </span>
-              <span className="text-xs text-neutral-400">{typeTacheLabels[t.type]}</span>
-              <span className="ml-auto text-xs text-neutral-400">
-                {new Date(t.dateEcheance).toLocaleDateString("fr-FR")}
-              </span>
-            </li>
-          ))}
-          {dossier.taches.length === 0 && (
-            <p className="text-sm text-neutral-400">Aucune tâche.</p>
-          )}
-        </ul>
-
-        <form action={createTache} className="flex flex-wrap items-end gap-2 border-t border-neutral-100 pt-4">
-          <input type="hidden" name="dossierId" value={dossier.id} />
-          <div className="space-y-1">
-            <label className={labelClass}>Titre</label>
-            <input name="titre" required className={inputClass} />
-          </div>
-          <div className="space-y-1">
-            <label className={labelClass}>Type</label>
-            <select name="type" className={inputClass} defaultValue="RELANCE_CLIENT">
-              {Object.entries(typeTacheLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className={labelClass}>Échéance</label>
-            <input name="dateEcheance" type="date" required className={inputClass} />
-          </div>
-          <button
-            type="submit"
-            className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-          >
-            Ajouter
-          </button>
-        </form>
-      </section>
+            <Button type="submit">Ajouter</Button>
+          </form>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -759,8 +803,8 @@ export default async function DossierDetailPage({
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="flex justify-between">
-      <dt className="text-neutral-500">{label}</dt>
-      <dd className={strong ? "font-semibold text-neutral-900" : "text-neutral-700"}>{value}</dd>
+      <dt className="text-slate-500">{label}</dt>
+      <dd className={strong ? "font-semibold text-slate-900" : "text-slate-700"}>{value}</dd>
     </div>
   );
 }

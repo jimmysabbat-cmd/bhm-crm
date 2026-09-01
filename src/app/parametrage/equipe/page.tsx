@@ -1,9 +1,10 @@
+import { UserPlus } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { createUser, toggleUserActif } from "../actions";
-
-const inputClass =
-  "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
-const labelClass = "text-sm font-medium text-neutral-700";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { inputClass, labelClass } from "@/components/ui/field";
 
 const roleLabels: Record<string, string> = {
   ADMIN: "Administrateur",
@@ -16,30 +17,41 @@ export default async function EquipePage() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-neutral-500">
+      <p className="text-sm text-slate-500">
         Chaque membre de l&apos;équipe se connecte avec son propre email et mot de passe. Un compte
         désactivé ne peut plus se connecter mais garde son historique (tâches assignées, etc.).
       </p>
 
-      <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+      <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-neutral-500">
+          <thead className="bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium">Nom</th>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 font-medium">Rôle</th>
-              <th className="px-4 py-3 font-medium"></th>
+              <th className="px-5 py-3">Nom</th>
+              <th className="px-5 py-3">Email</th>
+              <th className="px-5 py-3">Rôle</th>
+              <th className="px-5 py-3"></th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} className={`border-t border-neutral-100 ${!u.actif ? "opacity-50" : ""}`}>
-                <td className="px-4 py-3 font-medium text-neutral-900">{u.name}</td>
-                <td className="px-4 py-3 text-neutral-600">{u.email}</td>
-                <td className="px-4 py-3 text-neutral-600">{roleLabels[u.role] ?? u.role}</td>
-                <td className="px-4 py-3 text-right">
+              <tr key={u.id} className={`border-t border-slate-100 ${!u.actif ? "opacity-40" : ""}`}>
+                <td className="px-5 py-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                      {u.name[0]?.toUpperCase()}
+                    </div>
+                    <span className="font-medium text-slate-900">{u.name}</span>
+                  </div>
+                </td>
+                <td className="px-5 py-3.5 text-slate-600">{u.email}</td>
+                <td className="px-5 py-3.5">
+                  <Badge color={u.role === "ADMIN" ? "violet" : "slate"}>
+                    {roleLabels[u.role] ?? u.role}
+                  </Badge>
+                </td>
+                <td className="px-5 py-3.5 text-right">
                   <form action={async () => { "use server"; await toggleUserActif(u.id, !u.actif); }}>
-                    <button type="submit" className="text-xs text-neutral-500 hover:text-neutral-900">
+                    <button type="submit" className="text-xs font-medium text-slate-400 hover:text-red-600">
                       {u.actif ? "Désactiver" : "Réactiver"}
                     </button>
                   </form>
@@ -48,10 +60,10 @@ export default async function EquipePage() {
             ))}
           </tbody>
         </table>
-      </div>
+      </Card>
 
-      <form action={createUser} className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-sm font-medium text-neutral-900">Ajouter un membre de l&apos;équipe</h2>
+      <form action={createUser} className="space-y-4 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-200/50">
+        <h2 className="text-sm font-semibold text-slate-900">Ajouter un membre de l&apos;équipe</h2>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className={labelClass}>Nom</label>
@@ -74,12 +86,10 @@ export default async function EquipePage() {
             </select>
           </div>
         </div>
-        <button
-          type="submit"
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-        >
+        <Button type="submit">
+          <UserPlus className="h-4 w-4" />
           Créer le compte
-        </button>
+        </Button>
       </form>
     </div>
   );

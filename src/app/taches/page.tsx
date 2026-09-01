@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { toggleTache } from "../dossiers/actions";
+import { Card } from "@/components/ui/Card";
 
 export default async function TachesPage() {
   const taches = await prisma.tache.findMany({
@@ -13,25 +15,30 @@ export default async function TachesPage() {
   const now = Date.now();
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
-      <h1 className="text-2xl font-semibold text-neutral-900">Tâches & relances</h1>
+    <div className="mx-auto max-w-4xl space-y-6 px-8 py-10">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tâches & relances</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          {taches.length} tâche{taches.length > 1 ? "s" : ""} en attente
+        </p>
+      </div>
 
-      <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+      <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-neutral-500">
+          <thead className="bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium"></th>
-              <th className="px-4 py-3 font-medium">Client / dossier</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Titre</th>
-              <th className="px-4 py-3 font-medium">Échéance</th>
+              <th className="w-10 px-4 py-3"></th>
+              <th className="px-4 py-3">Client / dossier</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Titre</th>
+              <th className="px-4 py-3">Échéance</th>
             </tr>
           </thead>
           <tbody>
             {taches.map((t) => {
               const late = new Date(t.dateEcheance).getTime() < now;
               return (
-                <tr key={t.id} className="border-t border-neutral-100 hover:bg-neutral-50">
+                <tr key={t.id} className="border-t border-slate-100 hover:bg-slate-50/70">
                   <td className="px-4 py-3">
                     <form
                       action={async () => {
@@ -41,34 +48,46 @@ export default async function TachesPage() {
                     >
                       <button
                         type="submit"
-                        className="h-4 w-4 rounded border border-neutral-300"
+                        className="h-4 w-4 rounded border border-slate-300 transition hover:border-emerald-500 hover:bg-emerald-50"
                         aria-label="Marquer comme fait"
                       />
                     </form>
                   </td>
                   <td className="px-4 py-3">
-                    <Link href={`/dossiers/${t.dossierId}`} className="font-medium text-neutral-900 hover:underline">
+                    <Link
+                      href={`/dossiers/${t.dossierId}`}
+                      className="font-medium text-slate-900 hover:text-emerald-700"
+                    >
                       {t.dossier.client.prenom} {t.dossier.client.nom}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-neutral-600">{typeTacheLabels[t.type]}</td>
-                  <td className="px-4 py-3 text-neutral-600">{t.titre}</td>
-                  <td className={`px-4 py-3 ${late ? "text-red-600" : "text-neutral-600"}`}>
-                    {new Date(t.dateEcheance).toLocaleDateString("fr-FR")}
+                  <td className="px-4 py-3 text-slate-500">{typeTacheLabels[t.type]}</td>
+                  <td className="px-4 py-3 text-slate-500">{t.titre}</td>
+                  <td className="px-4 py-3">
+                    {late ? (
+                      <span className="flex items-center gap-1.5 text-red-600">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        {new Date(t.dateEcheance).toLocaleDateString("fr-FR")}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">
+                        {new Date(t.dateEcheance).toLocaleDateString("fr-FR")}
+                      </span>
+                    )}
                   </td>
                 </tr>
               );
             })}
             {taches.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-neutral-400">
+                <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
                   Aucune tâche en attente.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      </div>
+      </Card>
     </div>
   );
 }

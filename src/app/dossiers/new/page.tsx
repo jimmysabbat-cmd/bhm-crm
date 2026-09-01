@@ -1,11 +1,10 @@
+import { User, FileText } from "lucide-react";
 import { createDossier } from "../actions";
 import { precariteLabels } from "@/lib/dossier-labels";
 import { prisma } from "@/lib/prisma";
 import { TypeFields } from "./type-fields";
-
-const inputClass =
-  "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
-const labelClass = "text-sm font-medium text-neutral-700";
+import { inputClass, labelClass } from "@/components/ui/field";
+import { Button } from "@/components/ui/Button";
 
 export default async function NewDossierPage() {
   const [types, modesPaiement, mars, delegatairesCee] = await Promise.all([
@@ -16,12 +15,18 @@ export default async function NewDossierPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 px-6 py-8">
-      <h1 className="text-2xl font-semibold text-neutral-900">Nouveau dossier</h1>
+    <div className="mx-auto max-w-2xl space-y-6 px-8 py-10">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Nouveau dossier</h1>
+        <p className="mt-1 text-sm text-slate-500">Renseigne le client et le montage du dossier</p>
+      </div>
 
       <form action={createDossier} className="space-y-6">
-        <fieldset className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-          <legend className="px-1 text-sm font-medium text-neutral-900">Client</legend>
+        <fieldset className="space-y-4 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-200/50">
+          <legend className="flex items-center gap-2 px-1 text-sm font-semibold text-slate-900">
+            <User className="h-4 w-4 text-emerald-600" />
+            Client
+          </legend>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className={labelClass}>Prénom</label>
@@ -74,8 +79,11 @@ export default async function NewDossierPage() {
           </div>
         </fieldset>
 
-        <fieldset className="space-y-4 rounded-lg border border-neutral-200 bg-white p-5">
-          <legend className="px-1 text-sm font-medium text-neutral-900">Dossier</legend>
+        <fieldset className="space-y-4 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-200/50">
+          <legend className="flex items-center gap-2 px-1 text-sm font-semibold text-slate-900">
+            <FileText className="h-4 w-4 text-emerald-600" />
+            Dossier
+          </legend>
           <div className="grid grid-cols-2 gap-4">
             <TypeFields types={types} mars={mars} />
             <div className="space-y-1">
@@ -119,12 +127,7 @@ export default async function NewDossierPage() {
           </div>
         </fieldset>
 
-        <button
-          type="submit"
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-        >
-          Créer le dossier
-        </button>
+        <Button type="submit">Créer le dossier</Button>
       </form>
     </div>
   );

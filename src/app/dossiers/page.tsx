@@ -1,7 +1,11 @@
 import Link from "next/link";
+import { Plus, ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
 import { resteAChargeCents } from "@/lib/dossier-labels";
+import { Card } from "@/components/ui/Card";
+import { Badge, statutColor } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
 export default async function DossiersPage({
   searchParams,
@@ -20,65 +24,76 @@ export default async function DossiersPage({
   ]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
+    <div className="mx-auto max-w-6xl space-y-6 px-8 py-10">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-neutral-900">Dossiers</h1>
-        <Link
-          href="/dossiers/new"
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-        >
-          + Nouveau dossier
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Dossiers</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {dossiers.length} dossier{dossiers.length > 1 ? "s" : ""}
+            {statutFiltre ? ` · ${statutFiltre.label}` : ""}
+          </p>
+        </div>
+        <Link href="/dossiers/new">
+          <Button>
+            <Plus className="h-4 w-4" />
+            Nouveau dossier
+          </Button>
         </Link>
       </div>
 
       {statutFiltre && (
-        <Link href="/dossiers" className="text-sm text-neutral-500 hover:text-neutral-900">
-          ← Retirer le filtre « {statutFiltre.label} »
+        <Link
+          href="/dossiers"
+          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-emerald-700"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Retirer le filtre « {statutFiltre.label} »
         </Link>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+      <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-neutral-500">
+          <thead className="bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium">Client</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Statut</th>
-              <th className="px-4 py-3 font-medium">Devis TTC</th>
-              <th className="px-4 py-3 font-medium">Reste à charge</th>
+              <th className="px-5 py-3">Client</th>
+              <th className="px-5 py-3">Type</th>
+              <th className="px-5 py-3">Statut</th>
+              <th className="px-5 py-3">Devis TTC</th>
+              <th className="px-5 py-3">Reste à charge</th>
             </tr>
           </thead>
           <tbody>
             {dossiers.map((d) => (
-              <tr key={d.id} className="border-t border-neutral-100 hover:bg-neutral-50">
-                <td className="px-4 py-3">
-                  <Link href={`/dossiers/${d.id}`} className="font-medium text-neutral-900 hover:underline">
+              <tr key={d.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                <td className="px-5 py-3.5">
+                  <Link
+                    href={`/dossiers/${d.id}`}
+                    className="font-medium text-slate-900 hover:text-emerald-700"
+                  >
                     {d.client.prenom} {d.client.nom}
                   </Link>
-                  <p className="text-xs text-neutral-400">{d.reference}</p>
+                  <p className="text-xs text-slate-400">{d.reference}</p>
                 </td>
-                <td className="px-4 py-3 text-neutral-600">{d.type.label}</td>
-                <td className="px-4 py-3">
-                  <span className="rounded-full bg-neutral-100 px-2 py-1 text-xs text-neutral-700">
-                    {d.statut.label}
-                  </span>
+                <td className="px-5 py-3.5 text-slate-600">{d.type.label}</td>
+                <td className="px-5 py-3.5">
+                  <Badge color={statutColor(d.statut.key)}>{d.statut.label}</Badge>
                 </td>
-                <td className="px-4 py-3 text-neutral-600">{formatCents(d.montantDevisTTC)}</td>
-                <td className="px-4 py-3 text-neutral-600">
+                <td className="px-5 py-3.5 text-slate-600">{formatCents(d.montantDevisTTC)}</td>
+                <td className="px-5 py-3.5 font-medium text-slate-900">
                   {formatCents(resteAChargeCents(d))}
                 </td>
               </tr>
             ))}
             {dossiers.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-neutral-400">
+                <td colSpan={5} className="px-5 py-10 text-center text-slate-400">
                   Aucun dossier.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      </div>
+      </Card>
     </div>
   );
 }

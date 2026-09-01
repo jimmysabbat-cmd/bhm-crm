@@ -1,10 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-const inputClass =
-  "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
-const labelClass = "text-sm font-medium text-neutral-700";
+import { inputClass, labelClass } from "@/components/ui/field";
 
 type TypeOption = { id: string; key: string; label: string };
 type MarOption = { id: string; nom: string };

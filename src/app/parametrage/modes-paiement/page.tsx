@@ -1,61 +1,20 @@
 import { prisma } from "@/lib/prisma";
-import { createModePaiement, updateModePaiement, toggleModePaiement, reorder } from "../actions";
-
-const inputClass =
-  "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none";
+import { createModePaiement, updateModePaiement, toggleModePaiement } from "../actions";
+import { ParamList } from "../ParamList";
 
 export default async function ModesPaiementPage() {
   const modes = await prisma.modePaiement.findMany({ orderBy: { ordre: "asc" } });
 
   return (
-    <div className="space-y-6">
-      <p className="text-sm text-neutral-500">
-        Modes de perception de l&apos;aide proposés sur un dossier (client avance, avance 30% ANAH,
-        mandataire...).
-      </p>
-
-      <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
-        <table className="w-full text-sm">
-          <tbody>
-            {modes.map((m, i) => (
-              <tr key={m.id} className={`border-b border-neutral-100 last:border-0 ${!m.actif ? "opacity-50" : ""}`}>
-                <td className="px-2 py-2">
-                  <div className="flex gap-0.5">
-                    <form action={async () => { "use server"; await reorder("modePaiement", m.id, "up"); }}>
-                      <button type="submit" disabled={i === 0} className="px-1 text-neutral-400 hover:text-neutral-900 disabled:opacity-30">↑</button>
-                    </form>
-                    <form action={async () => { "use server"; await reorder("modePaiement", m.id, "down"); }}>
-                      <button type="submit" disabled={i === modes.length - 1} className="px-1 text-neutral-400 hover:text-neutral-900 disabled:opacity-30">↓</button>
-                    </form>
-                  </div>
-                </td>
-                <td className="w-full px-2 py-2">
-                  <form action={updateModePaiement.bind(null, m.id)} className="flex gap-2">
-                    <input name="label" defaultValue={m.label} className={inputClass} />
-                    <button type="submit" className="rounded-md bg-neutral-900 px-3 py-2 text-xs font-medium text-white hover:bg-neutral-800">
-                      Enregistrer
-                    </button>
-                  </form>
-                </td>
-                <td className="px-2 py-2">
-                  <form action={async () => { "use server"; await toggleModePaiement(m.id, !m.actif); }}>
-                    <button type="submit" className="whitespace-nowrap text-xs text-neutral-500 hover:text-neutral-900">
-                      {m.actif ? "Archiver" : "Réactiver"}
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <form action={createModePaiement} className="flex gap-2">
-        <input name="label" placeholder="Nouveau mode de paiement..." required className={inputClass} />
-        <button type="submit" className="whitespace-nowrap rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800">
-          + Ajouter
-        </button>
-      </form>
-    </div>
+    <ParamList
+      description="Modes de perception de l'aide proposés sur un dossier (client avance, avance 30% ANAH, mandataire...)."
+      items={modes.map((m) => ({ id: m.id, value: m.label, actif: m.actif }))}
+      fieldName="label"
+      placeholder="Nouveau mode de paiement..."
+      reorderModel="modePaiement"
+      createAction={createModePaiement}
+      updateAction={updateModePaiement}
+      toggleAction={toggleModePaiement}
+    />
   );
 }
