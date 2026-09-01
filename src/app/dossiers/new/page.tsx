@@ -85,7 +85,7 @@ export default async function NewDossierPage() {
             Dossier
           </legend>
           <div className="grid grid-cols-2 gap-4">
-            <TypeFields types={types} mars={mars} />
+            <TypeFields types={types} mars={mars} delegatairesCee={delegatairesCee} />
             <div className="space-y-1">
               <label className={labelClass}>Mode de paiement de l&apos;aide</label>
               <select name="modePaiementAideId" className={inputClass} defaultValue="">
@@ -115,21 +115,6 @@ export default async function NewDossierPage() {
                 defaultValue={0}
                 className={inputClass}
               />
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Aide CEE (€)</label>
-              <input name="montantAideCEE" type="number" step="0.01" defaultValue={0} className={inputClass} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Délégataire CEE</label>
-              <select name="delegataireCeeId" className={inputClass} defaultValue="">
-                <option value="">—</option>
-                {delegatairesCee.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nom}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
         </fieldset>

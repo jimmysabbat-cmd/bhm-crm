@@ -309,16 +309,18 @@ export default async function DossierDetailPage({
                 defaultDateDepot={dateInputValue(dossier.dateDepotAnah)}
               />
             )}
-            <div className="flex items-center justify-between gap-2 text-sm">
-              <label className="text-slate-500">Aide CEE</label>
-              <input
-                name="montantAideCEE"
-                type="number"
-                step="0.01"
-                defaultValue={dossier.montantAideCEE / 100}
-                className={`w-32 text-right ${smallInputClass}`}
-              />
-            </div>
+            {!isRenoAmpleur && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <label className="text-slate-500">Aide CEE</label>
+                <input
+                  name="montantAideCEE"
+                  type="number"
+                  step="0.01"
+                  defaultValue={dossier.montantAideCEE / 100}
+                  className={`w-32 text-right ${smallInputClass}`}
+                />
+              </div>
+            )}
             <div className="flex justify-between border-t border-slate-100 pt-2.5 text-sm font-semibold text-slate-900">
               <span>Reste à charge client</span>
               <span>{formatCents(resteACharge)}</span>
@@ -359,16 +361,18 @@ export default async function DossierDetailPage({
               className={inputClass}
             />
           </div>
-          <div className="space-y-1">
-            <label className={labelClass}>Encaissé CEE (€)</label>
-            <input
-              name="montantEncaisseCEE"
-              type="number"
-              step="0.01"
-              defaultValue={dossier.montantEncaisseCEE / 100}
-              className={inputClass}
-            />
-          </div>
+          {!isRenoAmpleur && (
+            <div className="space-y-1">
+              <label className={labelClass}>Encaissé CEE (€)</label>
+              <input
+                name="montantEncaisseCEE"
+                type="number"
+                step="0.01"
+                defaultValue={dossier.montantEncaisseCEE / 100}
+                className={inputClass}
+              />
+            </div>
+          )}
           <div className="space-y-1">
             <label className={labelClass}>Début travaux</label>
             <input
@@ -387,17 +391,19 @@ export default async function DossierDetailPage({
               className={inputClass}
             />
           </div>
-          <div className="space-y-1">
-            <label className={labelClass}>Délégataire CEE</label>
-            <select name="delegataireCeeId" defaultValue={dossier.delegataireCeeId ?? ""} className={inputClass}>
-              <option value="">—</option>
-              {delegatairesCee.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.nom}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!isRenoAmpleur && (
+            <div className="space-y-1">
+              <label className={labelClass}>Délégataire CEE</label>
+              <select name="delegataireCeeId" defaultValue={dossier.delegataireCeeId ?? ""} className={inputClass}>
+                <option value="">—</option>
+                {delegatairesCee.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex items-end">
             <Button type="submit" className="w-full">
               Enregistrer

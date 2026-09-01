@@ -6,8 +6,17 @@ import { MprAmpleurCalculator } from "@/components/ui/MprAmpleurCalculator";
 
 type TypeOption = { id: string; key: string; label: string };
 type MarOption = { id: string; nom: string };
+type DelegataireOption = { id: string; nom: string };
 
-export function TypeFields({ types, mars }: { types: TypeOption[]; mars: MarOption[] }) {
+export function TypeFields({
+  types,
+  mars,
+  delegatairesCee,
+}: {
+  types: TypeOption[];
+  mars: MarOption[];
+  delegatairesCee: DelegataireOption[];
+}) {
   const [typeId, setTypeId] = useState("");
   const selected = types.find((t) => t.id === typeId);
   const isRenoAmpleur = selected?.key.startsWith("RENOVATION_AMPLEUR") ?? false;
@@ -57,6 +66,26 @@ export function TypeFields({ types, mars }: { types: TypeOption[]; mars: MarOpti
           </div>
           <div className="col-span-2">
             <MprAmpleurCalculator targetInputId="montantAideMPR" />
+          </div>
+        </>
+      )}
+
+      {!isRenoAmpleur && (
+        <>
+          <div className="space-y-1">
+            <label className={labelClass}>Aide CEE (€)</label>
+            <input name="montantAideCEE" type="number" step="0.01" defaultValue={0} className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Délégataire CEE</label>
+            <select name="delegataireCeeId" className={inputClass} defaultValue="">
+              <option value="">—</option>
+              {delegatairesCee.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nom}
+                </option>
+              ))}
+            </select>
           </div>
         </>
       )}
