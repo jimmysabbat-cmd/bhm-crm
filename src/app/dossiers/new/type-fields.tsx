@@ -69,12 +69,12 @@ export function TypeFields({
             <input name="dateOctroiAnah" type="date" className={inputClass} />
           </div>
           <div className="col-span-2">
-            <MprAmpleurCalculator targetInputId="montantAideMPR" />
+            <MprAmpleurCalculator targetInputId="montantAideMPR" defaultOpen />
           </div>
         </>
       )}
 
-      {!noCee && (
+      {typeId && !noCee && (
         <>
           <div className="space-y-1">
             <label className={labelClass}>Aide CEE (€)</label>
@@ -94,9 +94,9 @@ export function TypeFields({
         </>
       )}
 
-      {!isRenoAmpleur && (
+      {!isRenoAmpleur && typeId && (
         <div className="col-span-2">
-          <MonogesteCalculator targetInputId="montantAideMPR" />
+          <MonogesteCalculator targetInputId="montantAideMPR" defaultOpen />
         </div>
       )}
     </>

@@ -101,6 +101,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   tachesAssignees Tache[]
+  dossiersCrees   Dossier[]
 }
 
 // Listes paramétrables depuis /parametrage - remplacent d'anciens enums figés
@@ -204,8 +205,13 @@ model Client {
   ville          String?
   precarite      Precarite?
   zoneClimatique ZoneClimatique?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+
+  // Infos techniques du logement
+  surfaceHabitableM2 Int?
+  anneeConstruction  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   dossiers Dossier[]
 }
@@ -221,6 +227,9 @@ model Dossier {
 
   statutId String
   statut   DossierStatus @relation(fields: [statutId], references: [id])
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
 
   // Montants en centimes
   montantDevisTTC Int
@@ -268,6 +277,7 @@ model DossierPosteTravaux {
   dossier                Dossier     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
   type                   TypeTravaux
   surfaceM2              Float?
+  quantite               Int? // ex. nombre de splits pour une PAC air/air, nombre de fenêtres...
   montantCumac           Int? // en kWh cumac
   montantPrimeCalculeCts Int? // prime CEE calculée, en centimes
 

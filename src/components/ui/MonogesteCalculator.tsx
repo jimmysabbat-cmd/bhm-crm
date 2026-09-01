@@ -27,12 +27,14 @@ export function MonogesteCalculator({
   targetInputId,
   defaultPrecarite,
   defaultDateDepot,
+  defaultOpen,
 }: {
   targetInputId: string;
   defaultPrecarite?: Precarite | null;
   defaultDateDepot?: string | null;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen ?? false);
   const [dateDepot, setDateDepot] = useState(defaultDateDepot ?? "");
   const [precarite, setPrecarite] = useState<Precarite>(defaultPrecarite ?? "TRES_MODESTE");
   const [lignes, setLignes] = useState<Ligne[]>([{ id: nextId++, type: "PAC_AIR_EAU", quantite: "1" }]);

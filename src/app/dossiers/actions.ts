@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import { eurosToCents } from "@/lib/money";
 import { saveDocumentFile, deleteDocumentFile } from "@/lib/documents";
 import type { Precarite, ZoneClimatique, TypeTravaux, TypeDocument } from "@/generated/prisma/enums";
@@ -20,6 +21,9 @@ function generateReference(): string {
 }
 
 export async function createDossier(formData: FormData) {
+  const session = await auth();
+  const createdById = (session?.user as { id?: string } | undefined)?.id ?? null;
+
   const client = await prisma.client.create({
     data: {
       prenom: String(formData.get("prenom")),
@@ -31,20 +35,29 @@ export async function createDossier(formData: FormData) {
       ville: (formData.get("ville") as string) || null,
       precarite: (formData.get("precarite") as Precarite) || null,
       zoneClimatique: (formData.get("zoneClimatique") as ZoneClimatique) || null,
+      surfaceHabitableM2: formData.get("surfaceHabitableM2")
+        ? Number(formData.get("surfaceHabitableM2"))
+        : null,
+      anneeConstruction: formData.get("anneeConstruction")
+        ? Number(formData.get("anneeConstruction"))
+        : null,
     },
   });
 
-  const statutInitial = await prisma.dossierStatus.findUnique({
-    where: { key: "DEVIS_SIGNE" },
-  });
-  if (!statutInitial) throw new Error("Statut initial 'DEVIS_SIGNE' introuvable - lancez le seed.");
+  let statutId = (formData.get("statutId") as string) || "";
+  if (!statutId) {
+    const statutInitial = await prisma.dossierStatus.findUnique({ where: { key: "DEVIS_SIGNE" } });
+    if (!statutInitial) throw new Error("Statut initial 'DEVIS_SIGNE' introuvable - lancez le seed.");
+    statutId = statutInitial.id;
+  }
 
   const dossier = await prisma.dossier.create({
     data: {
       reference: generateReference(),
       clientId: client.id,
       typeId: String(formData.get("typeId")),
-      statutId: statutInitial.id,
+      statutId,
+      createdById,
       montantDevisTTC: eurosToCents(Number(formData.get("montantDevisTTC") || 0)),
       montantAideMPR: eurosToCents(Number(formData.get("montantAideMPR") || 0)),
       montantAideCEE: eurosToCents(Number(formData.get("montantAideCEE") || 0)),
@@ -62,6 +75,28 @@ export async function createDossier(formData: FormData) {
         : null,
     },
   });
+
+  // Travaux prévus, saisis à la création (champs indexés travaux.N.champ)
+  const travauxParLigne = new Map<number, { type?: string; quantite?: string; surfaceM2?: string }>();
+  for (const [key, value] of formData.entries()) {
+    const match = key.match(/^travaux\.(\d+)\.(type|quantite|surfaceM2)$/);
+    if (!match) continue;
+    const index = Number(match[1]);
+    const champ = match[2] as "type" | "quantite" | "surfaceM2";
+    if (!travauxParLigne.has(index)) travauxParLigne.set(index, {});
+    travauxParLigne.get(index)![champ] = String(value);
+  }
+  for (const ligne of travauxParLigne.values()) {
+    if (!ligne.type) continue;
+    await prisma.dossierPosteTravaux.create({
+      data: {
+        dossierId: dossier.id,
+        type: ligne.type as TypeTravaux,
+        quantite: ligne.quantite ? Number(ligne.quantite) : null,
+        surfaceM2: ligne.surfaceM2 ? Number(ligne.surfaceM2) : null,
+      },
+    });
+  }
 
   revalidatePath("/dossiers");
   redirect(`/dossiers/${dossier.id}`);
@@ -86,6 +121,12 @@ export async function updateClientInfo(formData: FormData) {
       ville: (formData.get("ville") as string) || null,
       precarite: (formData.get("precarite") as Precarite) || null,
       zoneClimatique: (formData.get("zoneClimatique") as ZoneClimatique) || null,
+      surfaceHabitableM2: formData.get("surfaceHabitableM2")
+        ? Number(formData.get("surfaceHabitableM2"))
+        : null,
+      anneeConstruction: formData.get("anneeConstruction")
+        ? Number(formData.get("anneeConstruction"))
+        : null,
     },
   });
   await prisma.dossier.update({

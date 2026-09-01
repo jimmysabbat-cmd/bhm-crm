@@ -60,13 +60,15 @@ export function MprAmpleurCalculator({
   targetInputId,
   defaultPrecarite,
   defaultDateDepot,
+  defaultOpen,
 }: {
   targetInputId: string;
   defaultPrecarite?: Precarite | null;
   /** Date de dépôt du dossier ANAH au format "yyyy-mm-dd", pour choisir le bon barème. */
   defaultDateDepot?: string | null;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen ?? false);
   const [montantHT, setMontantHT] = useState("");
   const [gain, setGain] = useState<Gain>("3");
   const [precarite, setPrecarite] = useState<Precarite>(defaultPrecarite ?? "TRES_MODESTE");

@@ -1,18 +1,21 @@
-import { User, FileText } from "lucide-react";
+import { User, FileText, Wrench } from "lucide-react";
 import { createDossier } from "../actions";
 import { precariteLabels } from "@/lib/dossier-labels";
 import { prisma } from "@/lib/prisma";
 import { TypeFields } from "./type-fields";
+import { TravauxPrevusFields } from "./travaux-prevus-fields";
 import { inputClass, labelClass } from "@/components/ui/field";
 import { Button } from "@/components/ui/Button";
 
 export default async function NewDossierPage() {
-  const [types, modesPaiement, mars, delegatairesCee] = await Promise.all([
+  const [types, modesPaiement, mars, delegatairesCee, statuts] = await Promise.all([
     prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
   ]);
+  const statutParDefaut = statuts.find((s) => s.key === "DEVIS_SIGNE")?.id ?? statuts[0]?.id ?? "";
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-8 py-10">
@@ -76,6 +79,14 @@ export default async function NewDossierPage() {
                 <option value="H3">H3</option>
               </select>
             </div>
+            <div className="space-y-1">
+              <label className={labelClass}>Surface habitable (m²)</label>
+              <input name="surfaceHabitableM2" type="number" className={inputClass} />
+            </div>
+            <div className="space-y-1">
+              <label className={labelClass}>Année de construction</label>
+              <input name="anneeConstruction" type="number" className={inputClass} />
+            </div>
           </div>
         </fieldset>
 
@@ -87,7 +98,17 @@ export default async function NewDossierPage() {
           <div className="grid grid-cols-2 gap-4">
             <TypeFields types={types} mars={mars} delegatairesCee={delegatairesCee} />
             <div className="space-y-1">
-              <label className={labelClass}>Mode de paiement de l&apos;aide</label>
+              <label className={labelClass}>Statut initial</label>
+              <select name="statutId" defaultValue={statutParDefaut} className={inputClass}>
+                {statuts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className={labelClass}>Circuit de versement de l&apos;aide</label>
               <select name="modePaiementAideId" className={inputClass} defaultValue="">
                 <option value="">—</option>
                 {modesPaiement.map((m) => (
@@ -96,6 +117,10 @@ export default async function NewDossierPage() {
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-slate-400">
+                Qui avance l&apos;argent (client, ANAH, BHM en mandataire...) — pas le programme
+                d&apos;aide lui-même, déjà défini par le type de dossier.
+              </p>
             </div>
             <div className="space-y-1">
               <label className={labelClass}>Devis TTC (€)</label>
@@ -105,18 +130,16 @@ export default async function NewDossierPage() {
               <label className={labelClass}>Date de signature</label>
               <input name="dateSignatureDevis" type="date" className={inputClass} />
             </div>
-            <div className="space-y-1">
-              <label className={labelClass}>Aide MPR / ANAH (€)</label>
-              <input
-                id="montantAideMPR"
-                name="montantAideMPR"
-                type="number"
-                step="0.01"
-                defaultValue={0}
-                className={inputClass}
-              />
-            </div>
+            <input id="montantAideMPR" name="montantAideMPR" type="hidden" defaultValue={0} />
           </div>
+        </fieldset>
+
+        <fieldset className="space-y-4 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-200/50">
+          <legend className="flex items-center gap-2 px-1 text-sm font-semibold text-slate-900">
+            <Wrench className="h-4 w-4 text-emerald-600" />
+            Travaux prévus
+          </legend>
+          <TravauxPrevusFields />
         </fieldset>
 
         <Button type="submit">Créer le dossier</Button>

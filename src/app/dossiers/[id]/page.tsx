@@ -72,6 +72,7 @@ export default async function DossierDetailPage({
           client: true,
           type: true,
           statut: true,
+          createdBy: true,
           modePaiementAide: true,
           mar: true,
           statutAnah: true,
@@ -157,7 +158,10 @@ export default async function DossierDetailPage({
           <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-slate-900">
             {dossier.client.prenom} {dossier.client.nom}
           </h1>
-          <p className="mt-1 text-sm text-slate-500">{dossier.type.label}</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {dossier.type.label}
+            {dossier.createdBy && ` · créé par ${dossier.createdBy.name}`}
+          </p>
         </div>
         <Badge color={statutColor(dossier.statut.key)}>{dossier.statut.label}</Badge>
       </div>
@@ -222,6 +226,24 @@ export default async function DossierDetailPage({
               <option value="H2">H2</option>
               <option value="H3">H3</option>
             </select>
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Surface habitable (m²)</label>
+            <input
+              name="surfaceHabitableM2"
+              type="number"
+              defaultValue={dossier.client.surfaceHabitableM2 ?? ""}
+              className={inputClass}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Année de construction</label>
+            <input
+              name="anneeConstruction"
+              type="number"
+              defaultValue={dossier.client.anneeConstruction ?? ""}
+              className={inputClass}
+            />
           </div>
           <div className="space-y-1">
             <label className={labelClass}>Type de dossier</label>
@@ -303,7 +325,9 @@ export default async function DossierDetailPage({
           <form action={updateMontage} className="space-y-2.5 p-5">
             <input type="hidden" name="dossierId" value={dossier.id} />
             <div className="flex items-center justify-between gap-2 text-sm">
-              <label className="text-slate-500">Mode de paiement</label>
+              <label className="text-slate-500" title="Qui avance l'argent (client, ANAH, BHM en mandataire...)">
+                Circuit de versement
+              </label>
               <select
                 name="modePaiementAideId"
                 defaultValue={dossier.modePaiementAideId ?? ""}
