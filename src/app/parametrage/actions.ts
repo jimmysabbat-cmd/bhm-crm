@@ -237,12 +237,27 @@ export async function deleteSousTraitant(id: string) {
 
 // --- Délégataires CEE ---
 
+function optionalRachatCts(value: FormDataEntryValue | null): number | undefined {
+  if (!value || String(value).trim() === "") return undefined;
+  return Math.round(Number(value) * 100);
+}
+
 export async function createDelegataireCee(formData: FormData) {
   await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
   const count = await prisma.delegataireCee.count();
-  await prisma.delegataireCee.create({ data: { nom, ordre: count } });
+  await prisma.delegataireCee.create({
+    data: {
+      nom,
+      ordre: count,
+      rachatTresModesteCts: optionalRachatCts(formData.get("rachatTresModeste")),
+      rachatClassiqueCts: optionalRachatCts(formData.get("rachatClassique")),
+      delaiPaiementJours: formData.get("delaiPaiementJours")
+        ? Number(formData.get("delaiPaiementJours"))
+        : undefined,
+    },
+  });
   revalidatePath("/parametrage/delegataires-cee");
 }
 
@@ -250,7 +265,17 @@ export async function updateDelegataireCee(id: string, formData: FormData) {
   await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
-  await prisma.delegataireCee.update({ where: { id }, data: { nom } });
+  await prisma.delegataireCee.update({
+    where: { id },
+    data: {
+      nom,
+      rachatTresModesteCts: optionalRachatCts(formData.get("rachatTresModeste")) ?? null,
+      rachatClassiqueCts: optionalRachatCts(formData.get("rachatClassique")) ?? null,
+      delaiPaiementJours: formData.get("delaiPaiementJours")
+        ? Number(formData.get("delaiPaiementJours"))
+        : null,
+    },
+  });
   revalidatePath("/parametrage/delegataires-cee");
 }
 

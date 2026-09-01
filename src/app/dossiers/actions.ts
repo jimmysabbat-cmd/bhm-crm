@@ -147,6 +147,9 @@ export async function updateEncaissements(formData: FormData) {
       montantEncaisseMPR: eurosToCents(Number(formData.get("montantEncaisseMPR") || 0)),
       montantEncaisseCEE: eurosToCents(Number(formData.get("montantEncaisseCEE") || 0)),
       delegataireCeeId: (formData.get("delegataireCeeId") as string) || null,
+      dateDepotDelegataireCee: formData.get("dateDepotDelegataireCee")
+        ? new Date(String(formData.get("dateDepotDelegataireCee")))
+        : null,
       dateDebutTravaux: formData.get("dateDebutTravaux")
         ? new Date(String(formData.get("dateDebutTravaux")))
         : null,

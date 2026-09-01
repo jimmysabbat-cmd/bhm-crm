@@ -171,6 +171,12 @@ model DelegataireCee {
   actif     Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  // Taux de rachat CEE (€ par MCumac, en centimes) proposés par ce
+  // délégataire, et délai de paiement après dépôt du dossier chez lui.
+  rachatTresModesteCts Int?
+  rachatClassiqueCts   Int?
+  delaiPaiementJours   Int?
+
   dossiers Dossier[]
 }
 
@@ -231,6 +237,7 @@ model Dossier {
   mar                Mar? @relation(fields: [marId], references: [id])
   delegataireCeeId   String?
   delegataireCee     DelegataireCee? @relation(fields: [delegataireCeeId], references: [id])
+  dateDepotDelegataireCee DateTime?
 
   // Suivi administratif ANAH (rénovation d'ampleur uniquement)
   statutAnahId   String?

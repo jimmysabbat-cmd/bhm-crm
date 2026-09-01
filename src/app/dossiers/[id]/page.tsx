@@ -11,6 +11,7 @@ import {
   Download,
   User,
   Lock,
+  Clock,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
@@ -108,6 +109,11 @@ export default async function DossierDetailPage({
   const chantierDebloque =
     !isRenoAmpleur ||
     (dossier.statutAnah != null && accepteStatut != null && dossier.statutAnah.ordre >= accepteStatut.ordre);
+
+  const echeanceDelegataireCee =
+    dossier.dateDepotDelegataireCee && dossier.delegataireCee?.delaiPaiementJours
+      ? addDays(dossier.dateDepotDelegataireCee, dossier.delegataireCee.delaiPaiementJours)
+      : null;
 
   const totalAides = dossier.montantAideMPR + dossier.montantAideCEE;
   const resteAPercevoirClient = resteACharge - dossier.montantEncaisseClient;
@@ -444,17 +450,35 @@ export default async function DossierDetailPage({
             />
           </div>
           {!noCee && (
-            <div className="space-y-1">
-              <label className={labelClass}>Délégataire CEE</label>
-              <select name="delegataireCeeId" defaultValue={dossier.delegataireCeeId ?? ""} className={inputClass}>
-                <option value="">—</option>
-                {delegatairesCee.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nom}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <>
+              <div className="space-y-1">
+                <label className={labelClass}>Délégataire CEE</label>
+                <select name="delegataireCeeId" defaultValue={dossier.delegataireCeeId ?? ""} className={inputClass}>
+                  <option value="">—</option>
+                  {delegatairesCee.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Date de dépôt chez le délégataire</label>
+                <input
+                  name="dateDepotDelegataireCee"
+                  type="date"
+                  defaultValue={dateInputValue(dossier.dateDepotDelegataireCee)}
+                  className={inputClass}
+                />
+              </div>
+              {echeanceDelegataireCee && (
+                <div className="col-span-2 flex items-center gap-1.5 text-xs text-slate-500 sm:col-span-3">
+                  <Clock className="h-3.5 w-3.5" />
+                  Paiement CEE attendu vers le {echeanceDelegataireCee.toLocaleDateString("fr-FR")}
+                  {dossier.delegataireCee && ` (délai ${dossier.delegataireCee.delaiPaiementJours} j)`}
+                </div>
+              )}
+            </>
           )}
           <div className="flex items-end">
             <Button type="submit" className="w-full">
@@ -774,6 +798,14 @@ export default async function DossierDetailPage({
                 cumacTargetId="createPosteCumac"
                 primeTargetId="createPostePrime"
                 defaultZone={dossier.client.zoneClimatique}
+                delegataires={delegatairesCee}
+                defaultDelegataireOptionKey={
+                  dossier.delegataireCeeId
+                    ? `${dossier.delegataireCeeId}:${
+                        dossier.client.precarite === "TRES_MODESTE" ? "tm" : "classique"
+                      }`
+                    : undefined
+                }
               />
               <div className="space-y-1">
                 <label className={labelClass}>Sous-traitant</label>

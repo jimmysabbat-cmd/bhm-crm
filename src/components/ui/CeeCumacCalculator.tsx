@@ -39,35 +39,58 @@ function surfaceTranche(surfaceM2: number): SurfaceTranche {
   return "plus90";
 }
 
-// Taux de rachat connus (partenaire Eco Environnement, en vigueur au
-// 01/01/2026) proposés en raccourci ; "Autre" laisse saisir librement pour
-// tout autre délégataire (ex. Watt Energy à 13,5 €/MCumac vu ailleurs).
-const TAUX_CONNUS = {
-  eco_precarite: { label: "Eco Environnement — Très modeste (12,50 €/MCumac)", valeur: 12.5 },
-  eco_classique: { label: "Eco Environnement — Modeste / Classique (7,40 €/MCumac)", valeur: 7.4 },
-  autre: { label: "Autre délégataire (saisie libre)", valeur: null },
-} as const;
-type TauxKey = keyof typeof TAUX_CONNUS;
+export type DelegataireRachat = {
+  id: string;
+  nom: string;
+  rachatTresModesteCts: number | null;
+  rachatClassiqueCts: number | null;
+};
+
+const AUTRE = "autre";
 
 export function CeeCumacCalculator({
   cumacTargetId,
   primeTargetId,
   defaultZone,
+  delegataires,
+  defaultDelegataireOptionKey,
 }: {
   cumacTargetId: string;
   primeTargetId: string;
   defaultZone?: ZoneClimatique | null;
+  delegataires: DelegataireRachat[];
+  /** Pré-sélectionne une option, ex. "delId:tm" ou "delId:classique" — le délégataire du dossier si connu. */
+  defaultDelegataireOptionKey?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [zone, setZone] = useState<ZoneClimatique>(defaultZone ?? "H1");
   const [surface, setSurface] = useState("");
   const [etas, setEtas] = useState<Etas>("plus140");
-  const [tauxKey, setTauxKey] = useState<TauxKey>("eco_precarite");
+  const [tauxOption, setTauxOption] = useState<string>(defaultDelegataireOptionKey ?? AUTRE);
   const [rachatManuel, setRachatManuel] = useState("");
+
+  const options: { key: string; label: string; valeur: number }[] = [];
+  for (const d of delegataires) {
+    if (d.rachatTresModesteCts !== null) {
+      options.push({
+        key: `${d.id}:tm`,
+        label: `${d.nom} — Très modeste (${(d.rachatTresModesteCts / 100).toFixed(2)} €/MCumac)`,
+        valeur: d.rachatTresModesteCts / 100,
+      });
+    }
+    if (d.rachatClassiqueCts !== null) {
+      options.push({
+        key: `${d.id}:classique`,
+        label: `${d.nom} — Modeste/Classique (${(d.rachatClassiqueCts / 100).toFixed(2)} €/MCumac)`,
+        valeur: d.rachatClassiqueCts / 100,
+      });
+    }
+  }
 
   const surfaceNum = Number(surface) || 0;
   const cumac = surfaceNum > 0 ? CUMAC[zone][surfaceTranche(surfaceNum)][etas] : null;
-  const rachat = tauxKey === "autre" ? Number(rachatManuel) || 0 : TAUX_CONNUS[tauxKey].valeur ?? 0;
+  const rachat =
+    tauxOption === AUTRE ? Number(rachatManuel) || 0 : options.find((o) => o.key === tauxOption)?.valeur ?? 0;
   const primeCts = cumac !== null ? Math.round((cumac * rachat) / 10) : null;
 
   function apply() {
@@ -141,17 +164,18 @@ export function CeeCumacCalculator({
         </div>
         <div className="space-y-1">
           <label className={labelClass}>Taux de rachat</label>
-          <select value={tauxKey} onChange={(e) => setTauxKey(e.target.value as TauxKey)} className={inputClass}>
-            {Object.entries(TAUX_CONNUS).map(([key, t]) => (
-              <option key={key} value={key}>
-                {t.label}
+          <select value={tauxOption} onChange={(e) => setTauxOption(e.target.value)} className={inputClass}>
+            {options.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
               </option>
             ))}
+            <option value={AUTRE}>Autre délégataire (saisie libre)</option>
           </select>
         </div>
       </div>
 
-      {tauxKey === "autre" && (
+      {tauxOption === AUTRE && (
         <div className="w-48 space-y-1">
           <label className={labelClass}>Rachat délégataire (€/MCumac)</label>
           <input
