@@ -2,32 +2,73 @@
 
 import { useState } from "react";
 import { Calculator } from "lucide-react";
+import type { ZoneClimatique } from "@/generated/prisma/enums";
 import { formatCents } from "@/lib/money";
 import { inputClass, labelClass } from "@/components/ui/field";
 import { Button } from "@/components/ui/Button";
 
-// Fiche CEE PAC air/eau — données transmises par l'utilisateur, valables
-// "à l'heure actuelle". Seule la tranche >= 90 m² est connue pour l'instant ;
-// d'autres tranches de surface seront ajoutées si l'utilisateur les fournit.
-function cumacPacAirEau(surfaceM2: number, etasSup140: boolean): number | null {
-  if (surfaceM2 < 90) return null;
-  return etasSup140 ? 655_200 : 545_400;
+// Fiche CEE BAR-TH-171 (PAC air/eau) — barème de valorisation transmis par
+// l'utilisateur (tableau "Eco Environnement - Eco Negoce", entrée en
+// vigueur le 01/01/2026). Cumac (kWhc) par zone climatique, tranche de
+// surface chauffée et bande d'ETAS. Rien en dessous de 111% d'ETAS n'est
+// couvert par ce barème.
+type SurfaceTranche = "moins70" | "70a90" | "plus90";
+type Etas = "111a140" | "plus140";
+
+const CUMAC: Record<ZoneClimatique, Record<SurfaceTranche, Record<Etas, number>>> = {
+  H1: {
+    moins70: { "111a140": 272_700, plus140: 327_600 },
+    "70a90": { "111a140": 381_780, plus140: 458_640 },
+    plus90: { "111a140": 545_400, plus140: 655_200 },
+  },
+  H2: {
+    moins70: { "111a140": 227_250, plus140: 273_000 },
+    "70a90": { "111a140": 318_150, plus140: 382_200 },
+    plus90: { "111a140": 454_500, plus140: 546_000 },
+  },
+  H3: {
+    moins70: { "111a140": 159_075, plus140: 191_100 },
+    "70a90": { "111a140": 222_705, plus140: 267_540 },
+    plus90: { "111a140": 318_150, plus140: 382_200 },
+  },
+};
+
+function surfaceTranche(surfaceM2: number): SurfaceTranche {
+  if (surfaceM2 < 70) return "moins70";
+  if (surfaceM2 < 90) return "70a90";
+  return "plus90";
 }
+
+// Taux de rachat connus (partenaire Eco Environnement, en vigueur au
+// 01/01/2026) proposés en raccourci ; "Autre" laisse saisir librement pour
+// tout autre délégataire (ex. Watt Energy à 13,5 €/MCumac vu ailleurs).
+const TAUX_CONNUS = {
+  eco_precarite: { label: "Eco Environnement — Très modeste (12,50 €/MCumac)", valeur: 12.5 },
+  eco_classique: { label: "Eco Environnement — Modeste / Classique (7,40 €/MCumac)", valeur: 7.4 },
+  autre: { label: "Autre délégataire (saisie libre)", valeur: null },
+} as const;
+type TauxKey = keyof typeof TAUX_CONNUS;
 
 export function CeeCumacCalculator({
   cumacTargetId,
   primeTargetId,
+  defaultZone,
 }: {
   cumacTargetId: string;
   primeTargetId: string;
+  defaultZone?: ZoneClimatique | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [zone, setZone] = useState<ZoneClimatique>(defaultZone ?? "H1");
   const [surface, setSurface] = useState("");
-  const [etasSup140, setEtasSup140] = useState(true);
-  const [rachat, setRachat] = useState("");
+  const [etas, setEtas] = useState<Etas>("plus140");
+  const [tauxKey, setTauxKey] = useState<TauxKey>("eco_precarite");
+  const [rachatManuel, setRachatManuel] = useState("");
 
-  const cumac = cumacPacAirEau(Number(surface) || 0, etasSup140);
-  const primeCts = cumac !== null ? Math.round((cumac * (Number(rachat) || 0)) / 10) : null;
+  const surfaceNum = Number(surface) || 0;
+  const cumac = surfaceNum > 0 ? CUMAC[zone][surfaceTranche(surfaceNum)][etas] : null;
+  const rachat = tauxKey === "autre" ? Number(rachatManuel) || 0 : TAUX_CONNUS[tauxKey].valeur ?? 0;
+  const primeCts = cumac !== null ? Math.round((cumac * rachat) / 10) : null;
 
   function apply() {
     if (cumac === null || primeCts === null) return;
@@ -51,7 +92,7 @@ export function CeeCumacCalculator({
         className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800"
       >
         <Calculator className="h-3.5 w-3.5" />
-        Calculer le CEE (PAC air/eau)
+        Calculer le CEE (PAC air/eau — fiche BAR-TH-171)
       </button>
     );
   }
@@ -61,7 +102,7 @@ export function CeeCumacCalculator({
       <div className="flex items-center justify-between">
         <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
           <Calculator className="h-3.5 w-3.5" />
-          Calculateur CEE — PAC air/eau
+          Calculateur CEE — PAC air/eau (BAR-TH-171)
         </p>
         <button
           type="button"
@@ -72,9 +113,17 @@ export function CeeCumacCalculator({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="space-y-1">
-          <label className={labelClass}>Surface (m²)</label>
+          <label className={labelClass}>Zone climatique</label>
+          <select value={zone} onChange={(e) => setZone(e.target.value as ZoneClimatique)} className={inputClass}>
+            <option value="H1">H1</option>
+            <option value="H2">H2</option>
+            <option value="H3">H3</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className={labelClass}>Surface chauffée (m²)</label>
           <input
             type="number"
             step="0.01"
@@ -85,33 +134,40 @@ export function CeeCumacCalculator({
         </div>
         <div className="space-y-1">
           <label className={labelClass}>ETAS</label>
-          <select
-            value={etasSup140 ? "sup" : "inf"}
-            onChange={(e) => setEtasSup140(e.target.value === "sup")}
-            className={inputClass}
-          >
-            <option value="sup">Supérieur à 140 %</option>
-            <option value="inf">Inférieur à 140 %</option>
+          <select value={etas} onChange={(e) => setEtas(e.target.value as Etas)} className={inputClass}>
+            <option value="111a140">111 % ≤ ETAS &lt; 140 %</option>
+            <option value="plus140">ETAS ≥ 140 %</option>
           </select>
         </div>
         <div className="space-y-1">
+          <label className={labelClass}>Taux de rachat</label>
+          <select value={tauxKey} onChange={(e) => setTauxKey(e.target.value as TauxKey)} className={inputClass}>
+            {Object.entries(TAUX_CONNUS).map(([key, t]) => (
+              <option key={key} value={key}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {tauxKey === "autre" && (
+        <div className="w-48 space-y-1">
           <label className={labelClass}>Rachat délégataire (€/MCumac)</label>
           <input
             type="number"
             step="0.01"
-            value={rachat}
-            onChange={(e) => setRachat(e.target.value)}
+            value={rachatManuel}
+            onChange={(e) => setRachatManuel(e.target.value)}
             placeholder="ex. 13,5"
             className={inputClass}
           />
         </div>
-      </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-3 py-2 text-sm">
         {cumac === null ? (
-          <span className="text-amber-600">
-            Pas de donnée pour une surface &lt; 90 m² — renseigne le CUMAC manuellement.
-          </span>
+          <span className="text-amber-600">Renseigne la surface pour calculer le cumac.</span>
         ) : (
           <>
             <span className="text-slate-500">

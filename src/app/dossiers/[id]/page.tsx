@@ -770,7 +770,11 @@ export default async function DossierDetailPage({
                   className={inputClass}
                 />
               </div>
-              <CeeCumacCalculator cumacTargetId="createPosteCumac" primeTargetId="createPostePrime" />
+              <CeeCumacCalculator
+                cumacTargetId="createPosteCumac"
+                primeTargetId="createPostePrime"
+                defaultZone={dossier.client.zoneClimatique}
+              />
               <div className="space-y-1">
                 <label className={labelClass}>Sous-traitant</label>
                 <select name="sousTraitantId" className={inputClass} defaultValue="">
