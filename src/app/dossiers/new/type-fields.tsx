@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { inputClass, labelClass } from "@/components/ui/field";
 import { MprAmpleurCalculator } from "@/components/ui/MprAmpleurCalculator";
+import { MonogesteCalculator } from "@/components/ui/MonogesteCalculator";
 
 type TypeOption = { id: string; key: string; label: string };
 type MarOption = { id: string; nom: string };
@@ -91,6 +92,12 @@ export function TypeFields({
             </select>
           </div>
         </>
+      )}
+
+      {!isRenoAmpleur && (
+        <div className="col-span-2">
+          <MonogesteCalculator targetInputId="montantAideMPR" />
+        </div>
       )}
     </>
   );

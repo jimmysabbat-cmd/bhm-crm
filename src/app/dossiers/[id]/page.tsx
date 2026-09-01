@@ -41,6 +41,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge, statutColor } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { MprAmpleurCalculator } from "@/components/ui/MprAmpleurCalculator";
+import { MonogesteCalculator } from "@/components/ui/MonogesteCalculator";
 import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
 
 function dateInputValue(d: Date | null): string {
@@ -319,6 +320,12 @@ export default async function DossierDetailPage({
                 targetInputId="montantAideMPR-detail"
                 defaultPrecarite={dossier.client.precarite}
                 defaultDateDepot={dateInputValue(dossier.dateDepotAnah)}
+              />
+            )}
+            {!isRenoAmpleur && (
+              <MonogesteCalculator
+                targetInputId="montantAideMPR-detail"
+                defaultPrecarite={dossier.client.precarite}
               />
             )}
             {!noCee && (

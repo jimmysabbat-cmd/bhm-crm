@@ -29,11 +29,29 @@ export const statutTacheLabels: Record<StatutTache, string> = {
 };
 
 export const typeTravauxLabels: Record<TypeTravaux, string> = {
-  ITE: "ITE (isolation par l'extérieur)",
-  COMBLES: "Combles",
+  RACCORDEMENT_RESEAU_CHALEUR: "Raccordement à un réseau de chaleur/froid",
+  CHAUFFE_EAU_THERMODYNAMIQUE: "Chauffe-eau thermodynamique",
   PAC_AIR_EAU: "PAC air/eau",
+  PAC_AIR_AIR: "PAC air/air",
+  PAC_GEOTHERMIQUE_SOLAROTHERMIQUE: "PAC géothermique ou solarothermique",
+  CHAUFFE_EAU_SOLAIRE_INDIVIDUEL: "Chauffe-eau solaire individuel",
+  CHAUFFAGE_SOLAIRE_COMBINE: "Chauffage solaire combiné",
+  PVT_EAU: "PVT eau (partie thermique)",
+  POELE_BUCHES: "Poêle à bûches",
+  POELE_GRANULES: "Poêle à granulés",
+  CHAUDIERE_BOIS_MANUELLE: "Chaudière bois manuelle (bûches)",
+  CHAUDIERE_BOIS_AUTOMATIQUE: "Chaudière bois automatique (granulés)",
+  FOYER_FERME_INSERT: "Foyer fermé / insert",
+  ITE: "ITE (isolation murs extérieur)",
+  ITI: "ITI (isolation murs intérieur)",
+  COMBLES: "Isolation combles perdus",
+  RAMPANTS: "Isolation rampants de toiture",
+  TOITURE_TERRASSE: "Isolation toiture-terrasse",
+  PAROIS_VITREES: "Parois vitrées (fenêtres)",
+  AUDIT_ENERGETIQUE: "Audit énergétique",
+  DEPOSE_CUVE_FIOUL: "Dépose de cuve à fioul",
+  VMC: "VMC double flux",
   BALLON_THERMODYNAMIQUE: "Ballon thermodynamique",
-  VMC: "VMC",
   AUTRE: "Autre",
 };
 
