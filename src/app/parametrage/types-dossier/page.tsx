@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createDossierType, updateDossierType, toggleDossierType } from "../actions";
+import { createDossierType, updateDossierType, toggleDossierType, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function TypesDossierPage() {
@@ -15,6 +15,7 @@ export default async function TypesDossierPage() {
       createAction={createDossierType}
       updateAction={updateDossierType}
       toggleAction={toggleDossierType}
+      deleteAction={deleteItem.bind(null, "dossierType")}
     />
   );
 }

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createStatutAnah, updateStatutAnah, toggleStatutAnah } from "../actions";
+import { createStatutAnah, updateStatutAnah, toggleStatutAnah, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function StatutsAnahPage() {
@@ -15,6 +15,7 @@ export default async function StatutsAnahPage() {
       createAction={createStatutAnah}
       updateAction={updateStatutAnah}
       toggleAction={toggleStatutAnah}
+      deleteAction={deleteItem.bind(null, "statutAnah")}
     />
   );
 }

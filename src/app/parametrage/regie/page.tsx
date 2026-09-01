@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createRegie, updateRegie, toggleRegie } from "../actions";
+import { createRegie, updateRegie, toggleRegie, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function RegiePage() {
@@ -15,6 +15,7 @@ export default async function RegiePage() {
       createAction={createRegie}
       updateAction={updateRegie}
       toggleAction={toggleRegie}
+      deleteAction={deleteItem.bind(null, "regie")}
     />
   );
 }

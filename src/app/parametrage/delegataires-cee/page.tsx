@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createDelegataireCee, updateDelegataireCee, toggleDelegataireCee } from "../actions";
+import { createDelegataireCee, updateDelegataireCee, toggleDelegataireCee, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function DelegatairesCeePage() {
@@ -15,6 +15,7 @@ export default async function DelegatairesCeePage() {
       createAction={createDelegataireCee}
       updateAction={updateDelegataireCee}
       toggleAction={toggleDelegataireCee}
+      deleteAction={deleteItem.bind(null, "delegataireCee")}
     />
   );
 }

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createMar, updateMar, toggleMar } from "../actions";
+import { createMar, updateMar, toggleMar, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function MarPage() {
@@ -15,6 +15,7 @@ export default async function MarPage() {
       createAction={createMar}
       updateAction={updateMar}
       toggleAction={toggleMar}
+      deleteAction={deleteItem.bind(null, "mar")}
     />
   );
 }

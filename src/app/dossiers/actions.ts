@@ -67,6 +67,37 @@ export async function createDossier(formData: FormData) {
   redirect(`/dossiers/${dossier.id}`);
 }
 
+export async function updateClientInfo(formData: FormData) {
+  const dossierId = String(formData.get("dossierId"));
+  const dossier = await prisma.dossier.findUniqueOrThrow({
+    where: { id: dossierId },
+    select: { clientId: true },
+  });
+
+  await prisma.client.update({
+    where: { id: dossier.clientId },
+    data: {
+      prenom: String(formData.get("prenom")),
+      nom: String(formData.get("nom")),
+      email: (formData.get("email") as string) || null,
+      telephone: (formData.get("telephone") as string) || null,
+      adresse: (formData.get("adresse") as string) || null,
+      codePostal: (formData.get("codePostal") as string) || null,
+      ville: (formData.get("ville") as string) || null,
+      precarite: (formData.get("precarite") as Precarite) || null,
+      zoneClimatique: (formData.get("zoneClimatique") as ZoneClimatique) || null,
+    },
+  });
+  await prisma.dossier.update({
+    where: { id: dossierId },
+    data: { typeId: String(formData.get("typeId")) },
+  });
+
+  revalidatePath(`/dossiers/${dossierId}`);
+  revalidatePath("/dossiers");
+  revalidatePath("/");
+}
+
 export async function updateMontage(formData: FormData) {
   const dossierId = String(formData.get("dossierId"));
   await prisma.dossier.update({
@@ -215,6 +246,27 @@ export async function toggleTache(tacheId: string, done: boolean) {
     data: { statut: done ? "FAIT" : "A_FAIRE" },
   });
   revalidatePath(`/dossiers/${tache.dossierId}`);
+  revalidatePath("/taches");
+  revalidatePath("/");
+}
+
+export async function updateTache(tacheId: string, formData: FormData) {
+  const tache = await prisma.tache.update({
+    where: { id: tacheId },
+    data: {
+      titre: String(formData.get("titre")),
+      type: formData.get("type") as never,
+      dateEcheance: new Date(String(formData.get("dateEcheance"))),
+    },
+  });
+  revalidatePath(`/dossiers/${tache.dossierId}`);
+  revalidatePath("/taches");
+  revalidatePath("/");
+}
+
+export async function deleteTache(tacheId: string, dossierId: string) {
+  await prisma.tache.delete({ where: { id: tacheId } });
+  revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/taches");
   revalidatePath("/");
 }

@@ -1,6 +1,7 @@
 import { GripVertical, Plus } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmit";
 import { inputClass } from "@/components/ui/field";
 import { reorder } from "./actions";
 
@@ -16,6 +17,7 @@ export function ParamList({
   createAction,
   updateAction,
   toggleAction,
+  deleteAction,
 }: {
   description: string;
   items: Item[];
@@ -25,6 +27,7 @@ export function ParamList({
   createAction: (formData: FormData) => Promise<void>;
   updateAction: (id: string, formData: FormData) => Promise<void>;
   toggleAction: (id: string, actif: boolean) => Promise<void>;
+  deleteAction: (id: string) => Promise<void>;
 }) {
   return (
     <div className="space-y-6">
@@ -69,9 +72,16 @@ export function ParamList({
               </Button>
             </form>
             <form action={async () => { "use server"; await toggleAction(item.id, !item.actif); }}>
-              <button type="submit" className="whitespace-nowrap text-xs font-medium text-slate-400 hover:text-red-600">
+              <button type="submit" className="whitespace-nowrap text-xs font-medium text-slate-400 hover:text-emerald-600">
                 {item.actif ? "Archiver" : "Réactiver"}
               </button>
+            </form>
+            <form action={async () => { "use server"; await deleteAction(item.id); }}>
+              <ConfirmSubmitButton
+                label="Supprimer"
+                confirmMessage="Supprimer définitivement cet élément ? S'il est encore utilisé par un ou plusieurs dossiers, il sera archivé à la place (impossible de casser un dossier existant)."
+                className="whitespace-nowrap text-xs font-medium text-slate-400 hover:text-red-600"
+              />
             </form>
           </div>
         ))}

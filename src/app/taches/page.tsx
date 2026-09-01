@@ -2,8 +2,9 @@ import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { typeTacheLabels } from "@/lib/dossier-labels";
-import { toggleTache } from "../dossiers/actions";
+import { toggleTache, deleteTache } from "../dossiers/actions";
 import { Card } from "@/components/ui/Card";
+import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmit";
 
 export default async function TachesPage() {
   const taches = await prisma.tache.findMany({
@@ -32,6 +33,7 @@ export default async function TachesPage() {
               <th className="px-4 py-3">Type</th>
               <th className="px-4 py-3">Titre</th>
               <th className="px-4 py-3">Échéance</th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -75,12 +77,21 @@ export default async function TachesPage() {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <form action={async () => { "use server"; await deleteTache(t.id, t.dossierId); }}>
+                      <ConfirmSubmitButton
+                        label="Supprimer"
+                        confirmMessage="Supprimer cette tâche ?"
+                        className="text-xs font-medium text-slate-400 hover:text-red-600"
+                      />
+                    </form>
+                  </td>
                 </tr>
               );
             })}
             {taches.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
                   Aucune tâche en attente.
                 </td>
               </tr>

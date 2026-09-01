@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createModePaiement, updateModePaiement, toggleModePaiement } from "../actions";
+import { createModePaiement, updateModePaiement, toggleModePaiement, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function ModesPaiementPage() {
@@ -15,6 +15,7 @@ export default async function ModesPaiementPage() {
       createAction={createModePaiement}
       updateAction={updateModePaiement}
       toggleAction={toggleModePaiement}
+      deleteAction={deleteItem.bind(null, "modePaiement")}
     />
   );
 }

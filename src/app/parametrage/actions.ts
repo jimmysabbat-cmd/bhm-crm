@@ -200,9 +200,38 @@ export async function createSousTraitant(formData: FormData) {
   revalidatePath("/parametrage/sous-traitants");
 }
 
+export async function updateSousTraitant(id: string, formData: FormData) {
+  await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  await prisma.sousTraitant.update({
+    where: { id },
+    data: {
+      nom,
+      typeTravaux: (formData.get("typeTravaux") as never) || null,
+      telephone: (formData.get("telephone") as string) || null,
+      email: (formData.get("email") as string) || null,
+      delaiPaiementJours: formData.get("delaiPaiementJours")
+        ? Number(formData.get("delaiPaiementJours"))
+        : null,
+    },
+  });
+  revalidatePath("/parametrage/sous-traitants");
+}
+
 export async function toggleSousTraitant(id: string, actif: boolean) {
   await requireAdmin();
   await prisma.sousTraitant.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/sous-traitants");
+}
+
+export async function deleteSousTraitant(id: string) {
+  await requireAdmin();
+  try {
+    await prisma.sousTraitant.delete({ where: { id } });
+  } catch {
+    await prisma.sousTraitant.update({ where: { id }, data: { actif: false } });
+  }
   revalidatePath("/parametrage/sous-traitants");
 }
 
@@ -259,6 +288,41 @@ export async function reorder(
     delegate.update({ where: { id: items[index].id }, data: { ordre: items[swapWith].ordre } }),
     delegate.update({ where: { id: items[swapWith].id }, data: { ordre: items[index].ordre } }),
   ]);
+
+  const paths: Record<typeof model, string> = {
+    dossierType: "/parametrage/types-dossier",
+    dossierStatus: "/parametrage/statuts",
+    modePaiement: "/parametrage/modes-paiement",
+    mar: "/parametrage/mar",
+    statutAnah: "/parametrage/statuts-anah",
+    regie: "/parametrage/regie",
+    delegataireCee: "/parametrage/delegataires-cee",
+  };
+  revalidatePath(paths[model]);
+}
+
+export async function deleteItem(
+  model:
+    | "dossierType"
+    | "dossierStatus"
+    | "modePaiement"
+    | "mar"
+    | "statutAnah"
+    | "regie"
+    | "delegataireCee",
+  id: string
+) {
+  await requireAdmin();
+  const delegate = prisma[model] as {
+    delete: (args: unknown) => Promise<unknown>;
+    update: (args: unknown) => Promise<unknown>;
+  };
+  try {
+    await delegate.delete({ where: { id } });
+  } catch {
+    // Encore référencé par des dossiers (contrainte de clé étrangère) : on archive à la place.
+    await delegate.update({ where: { id }, data: { actif: false } });
+  }
 
   const paths: Record<typeof model, string> = {
     dossierType: "/parametrage/types-dossier",

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createDossierStatus, updateDossierStatus, toggleDossierStatus } from "../actions";
+import { createDossierStatus, updateDossierStatus, toggleDossierStatus, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function StatutsPage() {
@@ -15,6 +15,7 @@ export default async function StatutsPage() {
       createAction={createDossierStatus}
       updateAction={updateDossierStatus}
       toggleAction={toggleDossierStatus}
+      deleteAction={deleteItem.bind(null, "dossierStatus")}
     />
   );
 }

@@ -1,16 +1,18 @@
 import Link from "next/link";
-import { Users, Landmark, Zap, TrendingUp, AlertTriangle, ArrowRight } from "lucide-react";
+import { Users, Landmark, Zap, TrendingUp, AlertTriangle, ArrowRight, Plus } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { statutColor } from "@/components/ui/Badge";
 
 export default async function DashboardPage() {
   const dossiers = await prisma.dossier.findMany({
     where: { statut: { key: { not: "CLOTURE" } } },
     select: {
       statutId: true,
-      statut: { select: { label: true } },
+      statut: { select: { label: true, key: true } },
       montantDevisTTC: true,
       montantAideMPR: true,
       montantAideCEE: true,
@@ -83,11 +85,16 @@ export default async function DashboardPage() {
     else resteAPercevoirCEEParDelegataire.set(key, { nom, montant: resteCEE });
   }
 
-  const parStatut = dossiers.reduce<Record<string, { label: string; count: number }>>((acc, d) => {
-    if (!acc[d.statutId]) acc[d.statutId] = { label: d.statut.label, count: 0 };
-    acc[d.statutId].count += 1;
-    return acc;
-  }, {});
+  const parStatut = dossiers.reduce<Record<string, { label: string; key: string; count: number }>>(
+    (acc, d) => {
+      if (!acc[d.statutId]) acc[d.statutId] = { label: d.statut.label, key: d.statut.key, count: 0 };
+      acc[d.statutId].count += 1;
+      return acc;
+    },
+    {}
+  );
+  const statutEntries = Object.entries(parStatut).sort((a, b) => b[1].count - a[1].count);
+  const maxStatutCount = Math.max(1, ...statutEntries.map(([, v]) => v.count));
 
   const tachesEnRetard = await prisma.tache.findMany({
     where: { statut: "A_FAIRE", dateEcheance: { lt: new Date() } },
@@ -98,9 +105,17 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-8 py-10">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Trésorerie</h1>
-        <p className="mt-1 text-sm text-slate-500">Vue d&apos;ensemble de l&apos;activité en cours</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tableau de bord</h1>
+          <p className="mt-1 text-sm text-slate-500">Vue d&apos;ensemble de l&apos;activité en cours</p>
+        </div>
+        <Link href="/dossiers/new">
+          <Button>
+            <Plus className="h-4 w-4" />
+            Nouveau dossier
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -179,22 +194,31 @@ export default async function DashboardPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-900">Dossiers par statut</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {Object.entries(parStatut).map(([statutId, { label, count }]) => (
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">Dossiers par statut</h2>
+          <span className="text-xs text-slate-400">{dossiers.length} dossier{dossiers.length > 1 ? "s" : ""} en cours</span>
+        </div>
+        <Card className="divide-y divide-slate-100 overflow-hidden">
+          {statutEntries.map(([statutId, { label, key, count }]) => (
             <Link
               key={statutId}
               href={`/dossiers?statut=${statutId}`}
-              className="group rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm shadow-slate-200/50 transition hover:border-emerald-200 hover:shadow-md"
+              className="flex items-center gap-4 px-5 py-3 transition hover:bg-slate-50/70"
             >
-              <p className="text-2xl font-semibold text-slate-900">{count}</p>
-              <p className="mt-0.5 text-sm text-slate-500 group-hover:text-emerald-700">{label}</p>
+              <span className="w-44 shrink-0 truncate text-sm font-medium text-slate-700">{label}</span>
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className={`h-2 rounded-full ${barColors[statutColor(key)]}`}
+                  style={{ width: `${Math.max((count / maxStatutCount) * 100, 4)}%` }}
+                />
+              </div>
+              <span className="w-6 shrink-0 text-right text-sm font-semibold text-slate-900">{count}</span>
             </Link>
           ))}
-          {Object.keys(parStatut).length === 0 && (
-            <p className="col-span-full text-sm text-slate-400">Aucun dossier actif.</p>
+          {statutEntries.length === 0 && (
+            <p className="px-5 py-8 text-center text-sm text-slate-400">Aucun dossier actif.</p>
           )}
-        </div>
+        </Card>
       </section>
 
       <section className="space-y-3">
@@ -249,6 +273,15 @@ const tones = {
   blue: "bg-blue-100 text-blue-600",
   amber: "bg-amber-100 text-amber-600",
   emerald: "bg-emerald-100 text-emerald-600",
+};
+
+const barColors: Record<string, string> = {
+  slate: "bg-slate-400",
+  blue: "bg-blue-500",
+  amber: "bg-amber-500",
+  emerald: "bg-emerald-500",
+  red: "bg-red-500",
+  violet: "bg-violet-500",
 };
 
 function StatCard({

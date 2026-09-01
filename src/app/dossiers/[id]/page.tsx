@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
   Download,
+  User,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
@@ -21,11 +22,14 @@ import {
 } from "@/lib/dossier-labels";
 import {
   createTache,
+  updateClientInfo,
   updateEncaissements,
   updateMontage,
   updateStatut,
   updateAnahInfo,
   toggleTache,
+  updateTache,
+  deleteTache,
   createPosteTravaux,
   updatePosteTravaux,
   deletePosteTravaux,
@@ -55,7 +59,7 @@ export default async function DossierDetailPage({
 }) {
   const { id } = await params;
 
-  const [dossier, statuts, mars, statutsAnah, sousTraitants, regies, delegatairesCee] =
+  const [dossier, statuts, mars, statutsAnah, sousTraitants, regies, delegatairesCee, types] =
     await Promise.all([
       prisma.dossier.findUnique({
         where: { id },
@@ -81,6 +85,7 @@ export default async function DossierDetailPage({
       prisma.sousTraitant.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
       prisma.regie.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
       prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+      prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     ]);
 
   if (!dossier) notFound();
@@ -134,6 +139,86 @@ export default async function DossierDetailPage({
         </div>
         <Badge color={statutColor(dossier.statut.key)}>{dossier.statut.label}</Badge>
       </div>
+
+      <details className="group rounded-2xl border border-slate-200/70 bg-white shadow-sm shadow-slate-200/50">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-4">
+          <User className="h-4 w-4 text-emerald-600" />
+          <span className="text-sm font-semibold text-slate-900">Client & type de dossier</span>
+          <span className="ml-auto text-xs font-medium text-slate-400 group-hover:text-emerald-600">
+            Modifier
+          </span>
+        </summary>
+        <form
+          action={updateClientInfo}
+          className="grid grid-cols-2 gap-4 border-t border-slate-100 p-5"
+        >
+          <input type="hidden" name="dossierId" value={dossier.id} />
+          <div className="space-y-1">
+            <label className={labelClass}>Prénom</label>
+            <input name="prenom" defaultValue={dossier.client.prenom} required className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Nom</label>
+            <input name="nom" defaultValue={dossier.client.nom} required className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Email</label>
+            <input name="email" type="email" defaultValue={dossier.client.email ?? ""} className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Téléphone</label>
+            <input name="telephone" defaultValue={dossier.client.telephone ?? ""} className={inputClass} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <label className={labelClass}>Adresse</label>
+            <input name="adresse" defaultValue={dossier.client.adresse ?? ""} className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Code postal</label>
+            <input name="codePostal" defaultValue={dossier.client.codePostal ?? ""} className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Ville</label>
+            <input name="ville" defaultValue={dossier.client.ville ?? ""} className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Précarité</label>
+            <select name="precarite" defaultValue={dossier.client.precarite ?? ""} className={inputClass}>
+              <option value="">—</option>
+              {Object.entries(precariteLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Zone climatique</label>
+            <select name="zoneClimatique" defaultValue={dossier.client.zoneClimatique ?? ""} className={inputClass}>
+              <option value="">—</option>
+              <option value="H1">H1</option>
+              <option value="H2">H2</option>
+              <option value="H3">H3</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Type de dossier</label>
+            <select name="typeId" defaultValue={dossier.typeId} required className={inputClass}>
+              {!types.some((t) => t.id === dossier.typeId) && (
+                <option value={dossier.typeId}>{dossier.type.label} (archivé)</option>
+              )}
+              {types.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="col-span-2 flex items-end">
+            <Button type="submit">Enregistrer</Button>
+          </div>
+        </form>
+      </details>
 
       <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         <Card>
@@ -740,33 +825,58 @@ export default async function DossierDetailPage({
         <div className="space-y-4 p-5">
           <ul className="space-y-1">
             {dossier.taches.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-slate-50"
-              >
+              <li key={t.id} className="rounded-lg px-2 py-2 hover:bg-slate-50">
                 <form
-                  action={async () => {
-                    "use server";
-                    await toggleTache(t.id, t.statut !== "FAIT");
-                  }}
+                  action={updateTache.bind(null, t.id)}
+                  className="flex flex-wrap items-center gap-2 text-sm"
                 >
                   <button
                     type="submit"
-                    className={`h-4 w-4 rounded border transition ${
+                    formAction={async () => {
+                      "use server";
+                      await toggleTache(t.id, t.statut !== "FAIT");
+                    }}
+                    className={`h-4 w-4 shrink-0 rounded border transition ${
                       t.statut === "FAIT"
                         ? "border-emerald-600 bg-emerald-600"
                         : "border-slate-300 hover:border-emerald-500"
                     }`}
                     aria-label="Basculer statut"
                   />
+                  <input
+                    name="titre"
+                    defaultValue={t.titre}
+                    className={`min-w-[10rem] flex-1 ${smallInputClass} ${
+                      t.statut === "FAIT" ? "text-slate-400 line-through" : ""
+                    }`}
+                  />
+                  <select name="type" defaultValue={t.type} className={smallInputClass}>
+                    {Object.entries(typeTacheLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    name="dateEcheance"
+                    type="date"
+                    defaultValue={dateInputValue(t.dateEcheance)}
+                    className={smallInputClass}
+                  />
+                  <Button type="submit" variant="secondary" className="text-xs">
+                    Enregistrer
+                  </Button>
+                  <button
+                    type="submit"
+                    formAction={async () => {
+                      "use server";
+                      await deleteTache(t.id, dossier.id);
+                    }}
+                    className="text-xs font-medium text-slate-400 hover:text-red-600"
+                  >
+                    Supprimer
+                  </button>
                 </form>
-                <span className={t.statut === "FAIT" ? "text-slate-400 line-through" : "text-slate-800"}>
-                  {t.titre}
-                </span>
-                <span className="text-xs text-slate-400">{typeTacheLabels[t.type]}</span>
-                <span className="ml-auto text-xs text-slate-400">
-                  {new Date(t.dateEcheance).toLocaleDateString("fr-FR")}
-                </span>
               </li>
             ))}
             {dossier.taches.length === 0 && <p className="text-sm text-slate-400">Aucune tâche.</p>}
