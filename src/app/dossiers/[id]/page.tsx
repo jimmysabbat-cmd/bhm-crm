@@ -39,6 +39,7 @@ import {
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge, statutColor } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { MprAmpleurCalculator } from "@/components/ui/MprAmpleurCalculator";
 import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
 
 function dateInputValue(d: Date | null): string {
@@ -293,6 +294,7 @@ export default async function DossierDetailPage({
             <div className="flex items-center justify-between gap-2 text-sm">
               <label className="text-slate-500">Aide MPR / ANAH</label>
               <input
+                id="montantAideMPR-detail"
                 name="montantAideMPR"
                 type="number"
                 step="0.01"
@@ -300,6 +302,12 @@ export default async function DossierDetailPage({
                 className={`w-32 text-right ${smallInputClass}`}
               />
             </div>
+            {isRenoAmpleur && (
+              <MprAmpleurCalculator
+                targetInputId="montantAideMPR-detail"
+                defaultPrecarite={dossier.client.precarite}
+              />
+            )}
             <div className="flex items-center justify-between gap-2 text-sm">
               <label className="text-slate-500">Aide CEE</label>
               <input

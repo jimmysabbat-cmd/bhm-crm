@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { inputClass, labelClass } from "@/components/ui/field";
+import { MprAmpleurCalculator } from "@/components/ui/MprAmpleurCalculator";
 
 type TypeOption = { id: string; key: string; label: string };
 type MarOption = { id: string; nom: string };
@@ -53,6 +54,9 @@ export function TypeFields({ types, mars }: { types: TypeOption[]; mars: MarOpti
           <div className="space-y-1">
             <label className={labelClass}>Date d&apos;octroi ANAH</label>
             <input name="dateOctroiAnah" type="date" className={inputClass} />
+          </div>
+          <div className="col-span-2">
+            <MprAmpleurCalculator targetInputId="montantAideMPR" />
           </div>
         </>
       )}

@@ -107,7 +107,14 @@ export default async function NewDossierPage() {
             </div>
             <div className="space-y-1">
               <label className={labelClass}>Aide MPR / ANAH (€)</label>
-              <input name="montantAideMPR" type="number" step="0.01" defaultValue={0} className={inputClass} />
+              <input
+                id="montantAideMPR"
+                name="montantAideMPR"
+                type="number"
+                step="0.01"
+                defaultValue={0}
+                className={inputClass}
+              />
             </div>
             <div className="space-y-1">
               <label className={labelClass}>Aide CEE (€)</label>
