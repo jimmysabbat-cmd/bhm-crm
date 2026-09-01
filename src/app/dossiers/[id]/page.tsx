@@ -306,6 +306,7 @@ export default async function DossierDetailPage({
               <MprAmpleurCalculator
                 targetInputId="montantAideMPR-detail"
                 defaultPrecarite={dossier.client.precarite}
+                defaultDateDepot={dateInputValue(dossier.dateDepotAnah)}
               />
             )}
             <div className="flex items-center justify-between gap-2 text-sm">
