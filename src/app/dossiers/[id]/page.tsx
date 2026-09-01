@@ -902,7 +902,6 @@ export default async function DossierDetailPage({
 
           <form
             action={uploadDocument}
-            encType="multipart/form-data"
             className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4"
           >
             <input type="hidden" name="dossierId" value={dossier.id} />
