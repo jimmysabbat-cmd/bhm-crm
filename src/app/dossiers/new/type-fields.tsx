@@ -20,6 +20,9 @@ export function TypeFields({
   const [typeId, setTypeId] = useState("");
   const selected = types.find((t) => t.id === typeId);
   const isRenoAmpleur = selected?.key.startsWith("RENOVATION_AMPLEUR") ?? false;
+  // Seule la rénovation d'ampleur financée par l'ANAH n'a pas de CEE séparé
+  // (inclus dans la prime MPR) — le CEE seul en a un, par définition.
+  const noCee = selected?.key === "RENOVATION_AMPLEUR_ANAH";
 
   return (
     <>
@@ -70,7 +73,7 @@ export function TypeFields({
         </>
       )}
 
-      {!isRenoAmpleur && (
+      {!noCee && (
         <>
           <div className="space-y-1">
             <label className={labelClass}>Aide CEE (€)</label>

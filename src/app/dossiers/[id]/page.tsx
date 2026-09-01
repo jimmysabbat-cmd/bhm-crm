@@ -10,6 +10,7 @@ import {
   Trash2,
   Download,
   User,
+  Lock,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
@@ -93,6 +94,17 @@ export default async function DossierDetailPage({
 
   const resteACharge = resteAChargeCents(dossier);
   const isRenoAmpleur = dossier.type.key.startsWith("RENOVATION_AMPLEUR");
+  // Seule la rénovation d'ampleur financée par l'ANAH n'a pas de CEE séparé
+  // (inclus dans la prime MPR) — le CEE seul en a un, par définition.
+  const noCee = dossier.type.key === "RENOVATION_AMPLEUR_ANAH";
+
+  // Le chantier ne démarre pas (donc pas de finance réelle à suivre) tant que
+  // le dossier ANAH n'a pas été accepté — les encaissements restent verrouillés
+  // jusque-là pour les dossiers de rénovation d'ampleur.
+  const accepteStatut = statutsAnah.find((s) => s.key === "ACCEPTE");
+  const chantierDebloque =
+    !isRenoAmpleur ||
+    (dossier.statutAnah != null && accepteStatut != null && dossier.statutAnah.ordre >= accepteStatut.ordre);
 
   const totalAides = dossier.montantAideMPR + dossier.montantAideCEE;
   const resteAPercevoirClient = resteACharge - dossier.montantEncaisseClient;
@@ -309,7 +321,7 @@ export default async function DossierDetailPage({
                 defaultDateDepot={dateInputValue(dossier.dateDepotAnah)}
               />
             )}
-            {!isRenoAmpleur && (
+            {!noCee && (
               <div className="flex items-center justify-between gap-2 text-sm">
                 <label className="text-slate-500">Aide CEE</label>
                 <input
@@ -339,6 +351,22 @@ export default async function DossierDetailPage({
             <CardTitle>Encaissements & dates chantier</CardTitle>
           </div>
         </CardHeader>
+        {!chantierDebloque ? (
+          <div className="flex items-start gap-3 p-5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+              <Lock className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm text-slate-600">
+                Cette section se débloque une fois le dossier <strong>accepté par l&apos;ANAH</strong>.
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Statut ANAH actuel : {dossier.statutAnah?.label ?? "non renseigné"} — le chantier ne
+                démarrant pas tout de suite, pas besoin de suivre l&apos;argent réel pour l&apos;instant.
+              </p>
+            </div>
+          </div>
+        ) : (
         <form action={updateEncaissements} className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-3">
           <input type="hidden" name="dossierId" value={dossier.id} />
           <div className="space-y-1">
@@ -361,7 +389,7 @@ export default async function DossierDetailPage({
               className={inputClass}
             />
           </div>
-          {!isRenoAmpleur && (
+          {!noCee && (
             <div className="space-y-1">
               <label className={labelClass}>Encaissé CEE (€)</label>
               <input
@@ -391,7 +419,7 @@ export default async function DossierDetailPage({
               className={inputClass}
             />
           </div>
-          {!isRenoAmpleur && (
+          {!noCee && (
             <div className="space-y-1">
               <label className={labelClass}>Délégataire CEE</label>
               <select name="delegataireCeeId" defaultValue={dossier.delegataireCeeId ?? ""} className={inputClass}>
@@ -410,6 +438,7 @@ export default async function DossierDetailPage({
             </Button>
           </div>
         </form>
+        )}
       </Card>
 
       {isRenoAmpleur && (
