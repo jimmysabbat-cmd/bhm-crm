@@ -6,8 +6,16 @@ import crypto from "node:crypto";
 // authentification - toujours passer par /api/documents/[docId].
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads", "dossiers");
 
+function assertInsideUploadRoot(target: string): void {
+  const resolved = path.resolve(target);
+  if (resolved !== UPLOAD_ROOT && !resolved.startsWith(UPLOAD_ROOT + path.sep)) {
+    throw new Error("Chemin de fichier invalide.");
+  }
+}
+
 export async function saveDocumentFile(dossierId: string, file: File) {
   const dir = path.join(UPLOAD_ROOT, dossierId);
+  assertInsideUploadRoot(dir);
   await mkdir(dir, { recursive: true });
 
   const ext = path.extname(file.name);
@@ -26,7 +34,9 @@ export async function saveDocumentFile(dossierId: string, file: File) {
 }
 
 export function documentFilePath(cheminFichier: string): string {
-  return path.join(UPLOAD_ROOT, cheminFichier);
+  const full = path.join(UPLOAD_ROOT, cheminFichier);
+  assertInsideUploadRoot(full);
+  return full;
 }
 
 export async function deleteDocumentFile(cheminFichier: string): Promise<void> {

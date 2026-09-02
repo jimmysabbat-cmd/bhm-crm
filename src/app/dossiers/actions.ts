@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requireAuth } from "@/lib/authz";
 import { eurosToCents } from "@/lib/money";
 import { saveDocumentFile, deleteDocumentFile } from "@/lib/documents";
 import type { Precarite, ZoneClimatique, TypeTravaux, TypeDocument } from "@/generated/prisma/enums";
@@ -21,8 +21,8 @@ function generateReference(): string {
 }
 
 export async function createDossier(formData: FormData) {
-  const session = await auth();
-  const createdById = (session?.user as { id?: string } | undefined)?.id ?? null;
+  const session = await requireAuth();
+  const createdById = (session.user as { id?: string } | undefined)?.id ?? null;
 
   const client = await prisma.client.create({
     data: {
@@ -113,6 +113,7 @@ export async function createDossier(formData: FormData) {
 }
 
 export async function updateClientInfo(formData: FormData) {
+  await requireAuth();
   const dossierId = String(formData.get("dossierId"));
   const dossier = await prisma.dossier.findUniqueOrThrow({
     where: { id: dossierId },
@@ -150,6 +151,7 @@ export async function updateClientInfo(formData: FormData) {
 }
 
 export async function updateMontage(formData: FormData) {
+  await requireAuth();
   const dossierId = String(formData.get("dossierId"));
   await prisma.dossier.update({
     where: { id: dossierId },
@@ -165,6 +167,7 @@ export async function updateMontage(formData: FormData) {
 }
 
 export async function updateStatut(dossierId: string, statutId: string) {
+  await requireAuth();
   await prisma.dossier.update({ where: { id: dossierId }, data: { statutId } });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/dossiers");
@@ -172,6 +175,7 @@ export async function updateStatut(dossierId: string, statutId: string) {
 }
 
 export async function updateAnahInfo(formData: FormData) {
+  await requireAuth();
   const dossierId = String(formData.get("dossierId"));
   await prisma.dossier.update({
     where: { id: dossierId },
@@ -190,6 +194,7 @@ export async function updateAnahInfo(formData: FormData) {
 }
 
 export async function updateEncaissements(formData: FormData) {
+  await requireAuth();
   const dossierId = String(formData.get("dossierId"));
   await prisma.dossier.update({
     where: { id: dossierId },
@@ -214,6 +219,7 @@ export async function updateEncaissements(formData: FormData) {
 }
 
 export async function createPosteTravaux(formData: FormData) {
+  await requireAuth();
   const dossierId = String(formData.get("dossierId"));
   await prisma.dossierPosteTravaux.create({
     data: {
@@ -234,6 +240,7 @@ export async function createPosteTravaux(formData: FormData) {
 }
 
 export async function updatePosteTravaux(posteId: string, formData: FormData) {
+  await requireAuth();
   const poste = await prisma.dossierPosteTravaux.update({
     where: { id: posteId },
     data: {
@@ -253,16 +260,24 @@ export async function updatePosteTravaux(posteId: string, formData: FormData) {
 }
 
 export async function deletePosteTravaux(posteId: string, dossierId: string) {
+  await requireAuth();
   await prisma.dossierPosteTravaux.delete({ where: { id: posteId } });
   revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function uploadDocument(formData: FormData) {
+  await requireAuth();
   const dossierId = String(formData.get("dossierId"));
   const file = formData.get("file") as File;
   if (!file || file.size === 0) return;
 
-  const saved = await saveDocumentFile(dossierId, file);
+  // Le dossier doit exister en base avant toute écriture disque : dossierId
+  // vient du client et ne doit jamais être utilisé tel quel comme segment
+  // de chemin (risque de path traversal dans saveDocumentFile).
+  const dossier = await prisma.dossier.findUnique({ where: { id: dossierId }, select: { id: true } });
+  if (!dossier) throw new Error("Dossier introuvable.");
+
+  const saved = await saveDocumentFile(dossier.id, file);
   await prisma.dossierDocument.create({
     data: {
       dossierId,
@@ -274,6 +289,7 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function deleteDocument(docId: string, dossierId: string) {
+  await requireAuth();
   const doc = await prisma.dossierDocument.findUnique({ where: { id: docId } });
   if (!doc) return;
   await deleteDocumentFile(doc.cheminFichier);
@@ -282,6 +298,7 @@ export async function deleteDocument(docId: string, dossierId: string) {
 }
 
 export async function createTache(formData: FormData) {
+  await requireAuth();
   const dossierId = String(formData.get("dossierId"));
   await prisma.tache.create({
     data: {
@@ -296,6 +313,7 @@ export async function createTache(formData: FormData) {
 }
 
 export async function toggleTache(tacheId: string, done: boolean) {
+  await requireAuth();
   const tache = await prisma.tache.update({
     where: { id: tacheId },
     data: { statut: done ? "FAIT" : "A_FAIRE" },
@@ -306,6 +324,7 @@ export async function toggleTache(tacheId: string, done: boolean) {
 }
 
 export async function updateTache(tacheId: string, formData: FormData) {
+  await requireAuth();
   const tache = await prisma.tache.update({
     where: { id: tacheId },
     data: {
@@ -320,6 +339,7 @@ export async function updateTache(tacheId: string, formData: FormData) {
 }
 
 export async function deleteTache(tacheId: string, dossierId: string) {
+  await requireAuth();
   await prisma.tache.delete({ where: { id: tacheId } });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/taches");
