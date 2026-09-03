@@ -181,6 +181,7 @@ model Organisation {
   auditLogs            AuditLog[]
   programmes           Programme[]
   dossierEtapes        DossierEtape[]
+  reglesRelance        RegleRelance[]
 }
 
 model User {
@@ -547,12 +548,51 @@ model Tache {
   modeleTacheEtapeId String?
   modeleTacheEtape   ModeleTacheEtape? @relation(fields: [modeleTacheEtapeId], references: [id])
 
+  // Relance : renseignés uniquement sur les tâches de type relance (créées
+  // à la main ou par evaluateRelanceRules()). La même tâche reste ouverte
+  // et se met à jour à chaque relance plutôt que d'en créer une nouvelle -
+  // regleRelanceId + la contrainte unique ci-dessous garantissent qu'une
+  // même règle ne crée jamais deux tâches pour la même étape.
+  derniereRelanceAt DateTime?
+  nombreRelances    Int       @default(0)
+  prochaineRelanceAt DateTime?
+  regleRelanceId    String?
+  regleRelance      RegleRelance? @relation(fields: [regleRelanceId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([dossierEtapeId, modeleTacheEtapeId])
+  @@unique([dossierEtapeId, regleRelanceId])
   @@index([dossierId])
   @@index([statut, dateEcheance])
+}
+
+// Règle paramétrable simple de relance automatique : après apresJours dans
+// une étape (matchée par code, ou par flux si aucun code précis), créer une
+// tâche de relance ; recurrenceJours/maxRelances bornent les relances
+// suivantes. evaluateRelanceRules() est idempotent - à appeler manuellement
+// ou à l'ouverture du dashboard pour cette V1, pas de cron.
+model RegleRelance {
+  id                String        @id @default(cuid())
+  organisationId    String
+  organisation      Organisation  @relation(fields: [organisationId], references: [id])
+  nom               String
+  typeFlux          TypeFluxEtape
+  // Code d'une EtapeProgramme précise (ex. "INSTRUCTION_ANAH") pour cibler
+  // une étape exacte ; laisser vide pour matcher tout étape du typeFlux.
+  typeAction        String?
+  apresJours        Int
+  recurrenceJours   Int?
+  maxRelances       Int?
+  roleResponsable   Role?
+  actif             Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  taches Tache[]
+
+  @@index([organisationId])
 }
 
 // Mouvement financier daté et traçable, unitaire (un encaissement, un

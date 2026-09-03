@@ -4,6 +4,9 @@ import type {
   StatutTache,
   TypeTravaux,
   TypeDocument,
+  TypeMouvementFinancier,
+  CategorieMouvementFinancier,
+  StatutMouvementFinancier,
 } from "@/generated/prisma/enums";
 
 export const precariteLabels: Record<Precarite, string> = {
@@ -61,6 +64,36 @@ export const typeDocumentLabels: Record<TypeDocument, string> = {
   PHOTO_VISITE: "Photo de visite",
   PHOTO_CHANTIER: "Photo de chantier",
   AUTRE: "Autre",
+};
+
+export const typeMouvementLabels: Record<TypeMouvementFinancier, string> = {
+  ENTREE: "Entrée",
+  SORTIE: "Sortie",
+};
+
+export const categorieMouvementLabels: Record<CategorieMouvementFinancier, string> = {
+  ENCAISSEMENT_CLIENT: "Encaissement client",
+  ENCAISSEMENT_ANAH: "Encaissement ANAH",
+  ENCAISSEMENT_MPR: "Encaissement MPR",
+  ENCAISSEMENT_CEE: "Encaissement CEE",
+  PAIEMENT_SOUS_TRAITANT: "Paiement sous-traitant",
+  PAIEMENT_FOURNISSEUR: "Paiement fournisseur",
+  COMMISSION_COMMERCIALE: "Commission commerciale",
+  COMMISSION_REGIE: "Commission régie",
+  COMMISSION_APPORTEUR: "Commission apporteur",
+  AUTRE_ENTREE: "Autre entrée",
+  AUTRE_SORTIE: "Autre sortie",
+};
+
+export const statutMouvementLabels: Record<StatutMouvementFinancier, string> = {
+  PREVU: "Prévu",
+  A_RECEVOIR: "À recevoir",
+  A_PAYER: "À payer",
+  PARTIEL: "Partiel",
+  RECU: "Reçu",
+  PAYE: "Payé",
+  ANNULE: "Annulé",
+  EN_RETARD: "En retard",
 };
 
 export function resteAChargeCents(dossier: {

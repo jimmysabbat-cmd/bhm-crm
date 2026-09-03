@@ -16,10 +16,12 @@ import {
   Hammer,
   Workflow,
   AlertTriangle,
+  Banknote,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
 import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
+import { mouvementIsLate, mouvementJoursRetard } from "@/lib/finance";
 import { formatCents } from "@/lib/money";
 import {
   precariteLabels,
@@ -27,6 +29,9 @@ import {
   typeTacheLabels,
   typeTravauxLabels,
   typeDocumentLabels,
+  typeMouvementLabels,
+  categorieMouvementLabels,
+  statutMouvementLabels,
 } from "@/lib/dossier-labels";
 import {
   createTache,
@@ -55,6 +60,13 @@ import {
   ignorerEtape,
   assignerEtape,
 } from "../workflow-actions";
+import {
+  createMouvementFinancier,
+  updateMouvementFinancier,
+  marquerMouvementRecu,
+  marquerMouvementPaye,
+  annulerMouvementFinancier,
+} from "../mouvement-actions";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge, statutColor } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -160,6 +172,7 @@ export default async function DossierDetailPage({
           include: { sousTraitant: true, regie: true },
         },
         documents: { orderBy: { createdAt: "desc" } },
+        mouvementsFinanciers: { orderBy: { createdAt: "desc" } },
         programmeVersion: { include: { programme: true } },
         dossierEtapes: {
           include: {
@@ -246,6 +259,15 @@ export default async function DossierDetailPage({
         });
     }
   }
+
+  const entreesARecevoir = dossier.mouvementsFinanciers.filter(
+    (m) => m.type === "ENTREE" && m.statut !== "RECU" && m.statut !== "ANNULE"
+  );
+  const sortiesAPayer = dossier.mouvementsFinanciers.filter(
+    (m) => m.type === "SORTIE" && m.statut !== "PAYE" && m.statut !== "ANNULE"
+  );
+  const encaisses = dossier.mouvementsFinanciers.filter((m) => m.statut === "RECU");
+  const payes = dossier.mouvementsFinanciers.filter((m) => m.statut === "PAYE");
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-8 py-10">
@@ -943,6 +965,202 @@ export default async function DossierDetailPage({
               </ul>
             </div>
           )}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Banknote className="h-4 w-4 text-emerald-600" />
+            <CardTitle>Flux financiers</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="space-y-5 p-5">
+          {(
+            [
+              { titre: "Entrées à recevoir", items: entreesARecevoir },
+              { titre: "Sorties à payer", items: sortiesAPayer },
+              { titre: "Encaissé", items: encaisses },
+              { titre: "Payé", items: payes },
+            ] as const
+          ).map(
+            (groupe) =>
+              groupe.items.length > 0 && (
+                <div key={groupe.titre}>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                    {groupe.titre} ({groupe.items.length})
+                  </p>
+                  <div className="space-y-2">
+                    {groupe.items.map((m) => {
+                      const late = mouvementIsLate(m);
+                      const retard = mouvementJoursRetard(m);
+                      const montant = m.montantReelCts ?? m.montantPrevuCts ?? 0;
+                      return (
+                        <form
+                          key={m.id}
+                          action={updateMouvementFinancier.bind(null, m.id)}
+                          className="rounded-xl border border-slate-100 bg-slate-50/50 p-3"
+                        >
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+                            <select name="type" defaultValue={m.type} className={smallInputClass}>
+                              {Object.entries(typeMouvementLabels).map(([v, l]) => (
+                                <option key={v} value={v}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
+                            <select name="categorie" defaultValue={m.categorie} className={smallInputClass}>
+                              {Object.entries(categorieMouvementLabels).map(([v, l]) => (
+                                <option key={v} value={v}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              name="payeur"
+                              placeholder="Payeur"
+                              defaultValue={m.payeur ?? ""}
+                              className={smallInputClass}
+                            />
+                            <input
+                              name="beneficiaire"
+                              placeholder="Bénéficiaire"
+                              defaultValue={m.beneficiaire ?? ""}
+                              className={smallInputClass}
+                            />
+                            <input
+                              name="montantPrevu"
+                              type="number"
+                              step="0.01"
+                              placeholder="Prévu (€)"
+                              defaultValue={m.montantPrevuCts != null ? m.montantPrevuCts / 100 : ""}
+                              className={smallInputClass}
+                            />
+                            <input
+                              name="montantReel"
+                              type="number"
+                              step="0.01"
+                              placeholder="Réel (€)"
+                              defaultValue={m.montantReelCts != null ? m.montantReelCts / 100 : ""}
+                              className={smallInputClass}
+                            />
+                            <input
+                              name="datePrevue"
+                              type="date"
+                              defaultValue={dateInputValue(m.datePrevue)}
+                              className={smallInputClass}
+                            />
+                            <input
+                              name="dateReelle"
+                              type="date"
+                              defaultValue={dateInputValue(m.dateReelle)}
+                              className={smallInputClass}
+                            />
+                            <select name="statut" defaultValue={m.statut} className={smallInputClass}>
+                              {Object.entries(statutMouvementLabels).map(([v, l]) => (
+                                <option key={v} value={v}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              name="commentaire"
+                              placeholder="Commentaire"
+                              defaultValue={m.commentaire ?? ""}
+                              className={`sm:col-span-2 ${smallInputClass}`}
+                            />
+                            <span className="flex items-center justify-end text-sm font-semibold text-slate-900">
+                              {formatCents(montant)}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {late && (
+                              <span className="flex items-center gap-1 text-xs font-medium text-red-600">
+                                <AlertTriangle className="h-3 w-3" />
+                                En retard de {retard} j
+                              </span>
+                            )}
+                            <Button type="submit" variant="secondary" className="text-xs">
+                              Enregistrer
+                            </Button>
+                            {m.type === "ENTREE" && m.statut !== "RECU" && m.statut !== "ANNULE" && (
+                              <button
+                                type="submit"
+                                formAction={async () => {
+                                  "use server";
+                                  await marquerMouvementRecu(m.id);
+                                }}
+                                className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                              >
+                                Marquer reçu
+                              </button>
+                            )}
+                            {m.type === "SORTIE" && m.statut !== "PAYE" && m.statut !== "ANNULE" && (
+                              <button
+                                type="submit"
+                                formAction={async () => {
+                                  "use server";
+                                  await marquerMouvementPaye(m.id);
+                                }}
+                                className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                              >
+                                Marquer payé
+                              </button>
+                            )}
+                            {m.statut !== "ANNULE" && (
+                              <button
+                                type="submit"
+                                formAction={async () => {
+                                  "use server";
+                                  await annulerMouvementFinancier(m.id);
+                                }}
+                                className="text-xs font-medium text-slate-400 hover:text-red-600"
+                              >
+                                Annuler
+                              </button>
+                            )}
+                          </div>
+                        </form>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
+          )}
+          {dossier.mouvementsFinanciers.length === 0 && (
+            <p className="text-sm text-slate-400">Aucun mouvement financier.</p>
+          )}
+
+          <form
+            action={createMouvementFinancier}
+            className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-6"
+          >
+            <input type="hidden" name="dossierId" value={dossier.id} />
+            <select name="type" defaultValue="ENTREE" className={smallInputClass}>
+              {Object.entries(typeMouvementLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+            <select name="categorie" defaultValue="ENCAISSEMENT_CLIENT" className={smallInputClass}>
+              {Object.entries(categorieMouvementLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+            <input name="payeur" placeholder="Payeur" className={smallInputClass} />
+            <input name="beneficiaire" placeholder="Bénéficiaire" className={smallInputClass} />
+            <input name="montantPrevu" type="number" step="0.01" placeholder="Prévu (€)" className={smallInputClass} />
+            <input name="datePrevue" type="date" className={smallInputClass} />
+            <div className="col-span-2 sm:col-span-6">
+              <Button type="submit" className="text-xs">
+                <Plus className="h-3.5 w-3.5" />
+                Ajouter un mouvement
+              </Button>
+            </div>
+          </form>
         </div>
       </Card>
 

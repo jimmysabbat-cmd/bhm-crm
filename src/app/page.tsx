@@ -1,12 +1,26 @@
 import Link from "next/link";
-import { Users, Landmark, Zap, TrendingUp, AlertTriangle, ArrowRight, Plus, HandCoins } from "lucide-react";
+import {
+  Users,
+  Landmark,
+  Zap,
+  TrendingUp,
+  AlertTriangle,
+  ArrowRight,
+  Plus,
+  HandCoins,
+  Lock,
+  Wallet,
+  CalendarClock,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
+import { getNextBestActions, estCetteSemaine } from "@/lib/next-best-action";
+import { calculateBlockedAmountByFlux } from "@/lib/finance";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { statutColor } from "@/components/ui/Badge";
+import { Badge, statutColor } from "@/components/ui/Badge";
 
 export default async function DashboardPage() {
   const ctx = await requireUserContext();
@@ -131,6 +145,27 @@ export default async function DashboardPage() {
     take: 10,
   });
 
+  // Moteur Next Best Action - toutes les actions de l'organisation (vue
+  // globale), pour le bloc "À traiter en priorité" + les compteurs. Aucune
+  // valeur codée en dur : tout vient du moteur (cf. section 14 du prompt P5).
+  const toutesLesActions = await getNextBestActions({ organisationId: ctx.organisationId, scope: "all" });
+  const topActions = toutesLesActions.slice(0, 8);
+  const argentBloqueParFlux = await calculateBlockedAmountByFlux(ctx.organisationId);
+
+  const compteurs = {
+    actionsEnRetard: toutesLesActions.filter((a) => a.joursRetard > 0).length,
+    dossiersBloques: new Set(
+      toutesLesActions.filter((a) => a.typeAction === "ETAPE" && a.statut === "BLOQUE").map((a) => a.dossierId)
+    ).size,
+    montantBloqueTotal: argentBloqueParFlux.reduce((sum, f) => sum + f.montantBloqueCts, 0),
+    encaissementsEnRetard: toutesLesActions.filter(
+      (a) => a.typeAction === "MOUVEMENT_FINANCIER" && a.mouvementType === "ENTREE"
+    ).length,
+    paiementsSemaine: toutesLesActions.filter(
+      (a) => a.typeAction === "MOUVEMENT_FINANCIER" && a.mouvementType === "SORTIE" && estCetteSemaine(a)
+    ).length,
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-8 py-10">
       <div className="flex items-start justify-between gap-4">
@@ -167,6 +202,111 @@ export default async function DashboardPage() {
           tone="emerald"
         />
       </div>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">À traiter en priorité</h2>
+          <Link
+            href="/taches?vue=tout"
+            className="flex items-center gap-1 text-sm text-slate-500 hover:text-emerald-700"
+          >
+            Voir toutes les actions <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <CountCard label="Actions en retard" value={compteurs.actionsEnRetard} icon={AlertTriangle} tone="red" />
+          <CountCard label="Dossiers bloqués" value={compteurs.dossiersBloques} icon={Lock} tone="amber" />
+          <StatCard
+            label="Montant potentiellement bloqué"
+            value={compteurs.montantBloqueTotal}
+            icon={Wallet}
+            tone="violet"
+          />
+          <CountCard
+            label="Encaissements en retard"
+            value={compteurs.encaissementsEnRetard}
+            icon={HandCoins}
+            tone="blue"
+          />
+          <CountCard
+            label="Paiements à effectuer cette semaine"
+            value={compteurs.paiementsSemaine}
+            icon={CalendarClock}
+            tone="slate"
+          />
+        </div>
+
+        {topActions.length === 0 ? (
+          <Card className="p-5">
+            <p className="text-sm text-slate-400">Aucune action prioritaire actuellement.</p>
+          </Card>
+        ) : (
+          <Card className="overflow-hidden">
+            <table className="w-full text-sm">
+              <tbody>
+                {topActions.map((a) => (
+                  <tr key={a.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
+                    <td className="px-4 py-3">
+                      <Badge color={NIVEAU_COLOR[a.niveauUrgence]}>{a.niveauUrgence}</Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link href={a.route} className="font-medium text-slate-900 hover:text-emerald-700">
+                        {a.client}
+                      </Link>
+                      <p className="text-xs text-slate-400">{a.referenceDossier}</p>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{a.titre}</td>
+                    <td className="px-4 py-3">
+                      {a.dateEcheance ? (
+                        <span
+                          className={`flex items-center gap-1.5 ${
+                            a.joursRetard > 0 ? "text-red-600" : "text-slate-500"
+                          }`}
+                        >
+                          {a.joursRetard > 0 && <AlertTriangle className="h-3.5 w-3.5" />}
+                          {a.dateEcheance.toLocaleDateString("fr-FR")}
+                          {a.joursRetard > 0 && ` (+${a.joursRetard} j)`}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-slate-900">
+                      {a.montantBloqueCts > 0 ? formatCents(a.montantBloqueCts) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={a.route}
+                        className="flex items-center justify-end gap-0.5 text-xs font-medium text-slate-400 hover:text-slate-700"
+                      >
+                        Ouvrir <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Argent bloqué par flux</CardTitle>
+          </CardHeader>
+          <div className="grid grid-cols-1 divide-y divide-slate-100 p-5 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+            {argentBloqueParFlux.map((f) => (
+              <div key={f.flux} className="px-4 py-3 first:pl-0 sm:py-0">
+                <p className="text-xs text-slate-400">{f.label}</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{formatCents(f.montantBloqueCts)}</p>
+                <p className="text-xs text-slate-400">
+                  {f.nombreDossiers} dossier{f.nombreDossiers > 1 ? "s" : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </section>
 
       {mandataire.count > 0 && (
         <section className="space-y-3">
@@ -337,6 +477,14 @@ const tones = {
   amber: "bg-amber-100 text-amber-600",
   emerald: "bg-emerald-100 text-emerald-600",
   violet: "bg-violet-100 text-violet-600",
+  red: "bg-red-100 text-red-600",
+};
+
+const NIVEAU_COLOR: Record<string, "slate" | "blue" | "amber" | "red"> = {
+  BASSE: "slate",
+  NORMALE: "blue",
+  HAUTE: "amber",
+  CRITIQUE: "red",
 };
 
 const barColors: Record<string, string> = {
@@ -367,6 +515,32 @@ function StatCard({
           <p className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-900">
             {formatCents(value)}
           </p>
+        </div>
+        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${tones[tone]}`}>
+          <Icon className="h-4.5 w-4.5" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function CountCard({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: keyof typeof tones;
+}) {
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
         </div>
         <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${tones[tone]}`}>
           <Icon className="h-4.5 w-4.5" />

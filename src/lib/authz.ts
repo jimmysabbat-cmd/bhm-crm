@@ -58,3 +58,35 @@ export async function assertDossierInOrg(dossierId: string, organisationId: stri
     throw new Error("Dossier introuvable.");
   }
 }
+
+// --- Permissions (V1 simple, pas d'ABAC) ---
+//
+// hasRole/requireRole pour les vérifications ponctuelles par rôle ;
+// hasPermission pour les règles métier nommées qui regroupent plusieurs
+// rôles, centralisées ici plutôt que dispersées en `if (role === ...)`
+// dans les pages/actions. Objectif V1 (section 19) : ADMIN a la vue
+// globale, ADMINISTRATIF/COMMERCIAL/COMPTABILITE ont leurs domaines, les
+// autres rôles restent préparés sans permission spécifique pour l'instant.
+
+export function hasRole(ctx: UserContext, ...roles: Role[]): boolean {
+  return roles.includes(ctx.role);
+}
+
+export function requireRole(ctx: UserContext, ...roles: Role[]): void {
+  if (!hasRole(ctx, ...roles)) {
+    throw new Error("Accès refusé pour ce rôle.");
+  }
+}
+
+export type Permission = "VIEW_ALL_ACTIONS" | "MANAGE_FINANCES" | "MANAGE_PROGRAMMES" | "MANAGE_EQUIPE";
+
+const PERMISSIONS: Record<Permission, Role[]> = {
+  VIEW_ALL_ACTIONS: ["ADMIN"],
+  MANAGE_FINANCES: ["ADMIN", "COMPTA", "COMPTABILITE"],
+  MANAGE_PROGRAMMES: ["ADMIN"],
+  MANAGE_EQUIPE: ["ADMIN"],
+};
+
+export function hasPermission(ctx: UserContext, permission: Permission): boolean {
+  return PERMISSIONS[permission].includes(ctx.role);
+}
