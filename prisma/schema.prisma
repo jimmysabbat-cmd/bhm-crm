@@ -130,6 +130,37 @@ enum StatutMouvementFinancier {
   EN_RETARD
 }
 
+// Flux métier auquel une étape de programme se rattache (vue synthétique,
+// indépendant des colonnes statut*Id existantes sur Dossier).
+enum TypeFluxEtape {
+  COMMERCIAL
+  ADMINISTRATIF
+  ANAH
+  CEE
+  TRAVAUX
+  FINANCIER
+  AUTRE
+}
+
+enum StatutDossierEtape {
+  NON_DISPONIBLE
+  A_FAIRE
+  EN_COURS
+  EN_ATTENTE
+  BLOQUE
+  TERMINE
+  IGNORE
+  ANNULE
+}
+
+// Une seule règle de dépendance pour cette V1 : l'étape ne devient
+// disponible que lorsque TOUTES ses dépendances sont TERMINE. L'enum
+// existe pour permettre d'ajouter des règles plus tard sans migration
+// structurelle (ANY_COMPLETED, etc.).
+enum TypeDependanceEtape {
+  ALL_COMPLETED
+}
+
 // Une entreprise/organisation cliente de la plateforme. Une seule
 // organisation active aujourd'hui (BHM), mais toutes les entités
 // structurantes (User, Client, Dossier) y sont déjà rattachées pour
@@ -148,6 +179,8 @@ model Organisation {
   dossiers             Dossier[]
   mouvementsFinanciers MouvementFinancier[]
   auditLogs            AuditLog[]
+  programmes           Programme[]
+  dossierEtapes        DossierEtape[]
 }
 
 model User {
@@ -163,10 +196,11 @@ model User {
   organisationId String
   organisation   Organisation @relation(fields: [organisationId], references: [id])
 
-  tachesAssignees Tache[]
-  dossiersCrees   Dossier[]
-  mouvementsCrees MouvementFinancier[]
-  auditLogs       AuditLog[]
+  tachesAssignees        Tache[]
+  dossiersCrees          Dossier[]
+  mouvementsCrees        MouvementFinancier[]
+  auditLogs              AuditLog[]
+  dossierEtapesAssignees DossierEtape[]
 
   @@index([organisationId])
 }
@@ -366,6 +400,13 @@ model Dossier {
   statutTravauxId  String?
   statutTravaux    StatutTravaux? @relation(fields: [statutTravauxId], references: [id])
 
+  // Programme/workflow paramétrable (optionnel - un dossier créé avant ou
+  // sans programme n'en a pas). La version est figée à l'affectation : si
+  // le programme évolue ensuite, ce dossier garde SA version et son
+  // comportement ne change jamais rétroactivement.
+  programmeVersionId String?
+  programmeVersion   ProgrammeVersion? @relation(fields: [programmeVersionId], references: [id])
+
   dateSignatureDevis DateTime?
   dateDebutTravaux   DateTime?
   dateFinTravaux     DateTime?
@@ -378,6 +419,7 @@ model Dossier {
   taches               Tache[]
   commandes            Commande[]
   mouvementsFinanciers MouvementFinancier[]
+  dossierEtapes        DossierEtape[]
 
   @@index([statutId])
   @@index([typeId])
@@ -385,6 +427,7 @@ model Dossier {
   @@index([organisationId])
   @@index([statutCeeId])
   @@index([statutTravauxId])
+  @@index([programmeVersionId])
 }
 
 model DossierPosteTravaux {
@@ -495,9 +538,19 @@ model Tache {
   assigneAId   String?
   assigneA     User?       @relation(fields: [assigneAId], references: [id])
 
+  // Renseignés uniquement pour les tâches générées automatiquement par le
+  // moteur de workflow (src/lib/workflow.ts) - la contrainte unique ci-
+  // dessous est la garantie d'idempotence : recalculer plusieurs fois ne
+  // crée jamais deux fois la même tâche pour une même étape+modèle.
+  dossierEtapeId     String?
+  dossierEtape       DossierEtape?     @relation(fields: [dossierEtapeId], references: [id], onDelete: Cascade)
+  modeleTacheEtapeId String?
+  modeleTacheEtape   ModeleTacheEtape? @relation(fields: [modeleTacheEtapeId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([dossierEtapeId, modeleTacheEtapeId])
   @@index([dossierId])
   @@index([statut, dateEcheance])
 }
@@ -564,4 +617,175 @@ model AuditLog {
 
   @@index([organisationId])
   @@index([entityType, entityId])
+}
+
+// ============================================================
+// Moteur de programmes / workflows paramétrables
+//
+// Programme -> plusieurs ProgrammeVersion -> plusieurs EtapeProgramme
+// (la définition du modèle, éditable tant que la version n'est pas
+// publiée). Quand une ProgrammeVersion est affectée à un Dossier, ses
+// DossierEtape (l'instance réelle pour CE dossier) sont créées et tenues
+// à jour par recalculateDossierWorkflow() (src/lib/workflow.ts) - jamais
+// à la main, jamais dupliquées. Une version publiée est figée : pour la
+// faire évoluer, on la duplique plutôt que de la modifier en place, afin
+// que les dossiers déjà engagés ne changent jamais de comportement.
+// ============================================================
+
+model Programme {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  nom            String
+  code           String
+  description    String?
+  actif          Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  versions ProgrammeVersion[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+}
+
+model ProgrammeVersion {
+  id             String    @id @default(cuid())
+  programmeId    String
+  programme      Programme @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  numeroVersion  String
+  nomVersion     String?
+  dateDebutEffet DateTime?
+  dateFinEffet   DateTime?
+  actif          Boolean   @default(true)
+  // Fige la structure (étapes/dépendances/tâches modèles) dès que true -
+  // dupliquer pour modifier. Voir requireVersionModifiable() côté serveur.
+  publie         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  etapes   EtapeProgramme[]
+  dossiers Dossier[]
+
+  @@unique([programmeId, numeroVersion])
+  @@index([programmeId])
+}
+
+model EtapeProgramme {
+  id                 String           @id @default(cuid())
+  programmeVersionId String
+  programmeVersion   ProgrammeVersion @relation(fields: [programmeVersionId], references: [id], onDelete: Cascade)
+  code               String
+  nom                String
+  description        String?
+  ordre              Int              @default(0)
+  typeFlux           TypeFluxEtape    @default(AUTRE)
+  delaiNormalJours   Int?
+  delaiAlerteJours   Int?
+  roleResponsable    Role?
+  obligatoire        Boolean          @default(true)
+  actif              Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  dossierEtapes   DossierEtape[]
+  // Étapes dont CETTE étape dépend (doivent être TERMINE avant elle).
+  dependances     EtapeDependance[] @relation("Etape")
+  // Étapes qui dépendent de CETTE étape.
+  dependuesPar    EtapeDependance[] @relation("DependsOn")
+  documentsRequis EtapeDocumentRequis[]
+  modelesTaches   ModeleTacheEtape[]
+
+  @@unique([programmeVersionId, code])
+  @@index([programmeVersionId])
+}
+
+model EtapeDependance {
+  id               String              @id @default(cuid())
+  etapeId          String
+  etape            EtapeProgramme      @relation("Etape", fields: [etapeId], references: [id], onDelete: Cascade)
+  dependsOnEtapeId String
+  dependsOnEtape   EtapeProgramme      @relation("DependsOn", fields: [dependsOnEtapeId], references: [id], onDelete: Cascade)
+  type             TypeDependanceEtape @default(ALL_COMPLETED)
+  createdAt        DateTime            @default(now())
+
+  @@unique([etapeId, dependsOnEtapeId])
+  @@index([etapeId])
+  @@index([dependsOnEtapeId])
+}
+
+// Déclare qu'une étape nécessite un document d'un type donné pour être
+// considérée complète. Intégration additive au système Documents existant
+// (TypeDocument, DossierDocument) - pas de refonte : la présence est
+// simplement vérifiée en cherchant un DossierDocument du dossier dont le
+// type correspond.
+model EtapeDocumentRequis {
+  id               String         @id @default(cuid())
+  etapeProgrammeId String
+  etapeProgramme   EtapeProgramme @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
+  typeDocument     TypeDocument
+  obligatoire      Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+
+  @@unique([etapeProgrammeId, typeDocument])
+  @@index([etapeProgrammeId])
+}
+
+// Modèle de tâche générée automatiquement quand une DossierEtape devient
+// A_FAIRE. roleResponsable sert de repli si aucun utilisateur précis n'est
+// déterminable automatiquement (V1 : pas de moteur de répartition).
+model ModeleTacheEtape {
+  id               String         @id @default(cuid())
+  etapeProgrammeId String
+  etapeProgramme   EtapeProgramme @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
+  titre            String
+  description      String?
+  type             TypeTache      @default(AUTRE)
+  delaiJours       Int            @default(0)
+  roleResponsable  Role?
+  obligatoire      Boolean        @default(true)
+  actif            Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+
+  taches Tache[]
+
+  @@index([etapeProgrammeId])
+}
+
+// Instance réelle d'une étape sur un dossier précis (à distinguer de
+// EtapeProgramme, qui n'est qu'une définition). Une ligne par
+// (dossier, étape) - créée et recalculée uniquement par
+// recalculateDossierWorkflow(), jamais par une saisie manuelle directe.
+model DossierEtape {
+  id               String         @id @default(cuid())
+  organisationId   String
+  organisation     Organisation   @relation(fields: [organisationId], references: [id])
+  dossierId        String
+  dossier          Dossier        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  etapeProgrammeId String
+  etapeProgramme   EtapeProgramme @relation(fields: [etapeProgrammeId], references: [id])
+
+  statut         StatutDossierEtape @default(NON_DISPONIBLE)
+  dateDisponible DateTime?
+  dateDebut      DateTime?
+  dateEcheance   DateTime?
+  dateTerminee   DateTime?
+
+  assignedUserId String?
+  assignedUser   User?   @relation(fields: [assignedUserId], references: [id])
+
+  commentaire   String?
+  bloque        Boolean @default(false)
+  raisonBlocage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taches Tache[]
+
+  @@unique([dossierId, etapeProgrammeId])
+  @@index([organisationId])
+  @@index([dossierId])
+  @@index([etapeProgrammeId])
+  @@index([statut])
 }

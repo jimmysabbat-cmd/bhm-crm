@@ -14,9 +14,12 @@ import {
   Clock,
   Zap,
   Hammer,
+  Workflow,
+  AlertTriangle,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
+import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
 import { formatCents } from "@/lib/money";
 import {
   precariteLabels,
@@ -43,6 +46,15 @@ import {
   uploadDocument,
   deleteDocument,
 } from "../actions";
+import {
+  affecterProgrammeAuDossier,
+  demarrerEtape,
+  terminerEtape,
+  bloquerEtape,
+  debloquerEtape,
+  ignorerEtape,
+  assignerEtape,
+} from "../workflow-actions";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge, statutColor } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -62,6 +74,39 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
+const roleLabels: Record<string, string> = {
+  ADMIN: "Direction",
+  COMMERCIAL: "Commercial",
+  COMPTA: "Comptabilité",
+  ADMINISTRATIF: "Administratif",
+  REGIE: "Régie",
+  SOUS_TRAITANT: "Sous-traitant",
+  COMPTABILITE: "Comptabilité",
+  TECHNIQUE: "Technique",
+};
+
+const statutEtapeLabels: Record<string, string> = {
+  NON_DISPONIBLE: "Non disponible",
+  A_FAIRE: "À faire",
+  EN_COURS: "En cours",
+  EN_ATTENTE: "En attente",
+  BLOQUE: "Bloqué",
+  TERMINE: "Terminé",
+  IGNORE: "Ignoré",
+  ANNULE: "Annulé",
+};
+
+const statutEtapeColor: Record<string, "slate" | "blue" | "amber" | "emerald" | "red" | "violet"> = {
+  NON_DISPONIBLE: "slate",
+  A_FAIRE: "blue",
+  EN_COURS: "violet",
+  EN_ATTENTE: "amber",
+  BLOQUE: "red",
+  TERMINE: "emerald",
+  IGNORE: "slate",
+  ANNULE: "slate",
+};
+
 export default async function DossierDetailPage({
   params,
 }: {
@@ -69,6 +114,17 @@ export default async function DossierDetailPage({
 }) {
   const { id } = await params;
   const ctx = await requireUserContext();
+
+  // Le moteur de workflow est idempotent : le rappeler à chaque affichage
+  // garantit une vue toujours à jour (étapes promues, tâches auto créées)
+  // sans risque de doublon ni d'effet de bord sur les étapes déjà avancées.
+  const dossierAvecProgramme = await prisma.dossier.findFirst({
+    where: { id, organisationId: ctx.organisationId },
+    select: { id: true, programmeVersionId: true },
+  });
+  if (dossierAvecProgramme?.programmeVersionId) {
+    await recalculateDossierWorkflow(dossierAvecProgramme.id);
+  }
 
   const [
     dossier,
@@ -82,6 +138,8 @@ export default async function DossierDetailPage({
     delegatairesCee,
     types,
     modesPaiement,
+    programmeVersionsPubliees,
+    orgUsers,
   ] = await Promise.all([
     prisma.dossier.findFirst({
       where: { id, organisationId: ctx.organisationId },
@@ -102,6 +160,14 @@ export default async function DossierDetailPage({
           include: { sousTraitant: true, regie: true },
         },
         documents: { orderBy: { createdAt: "desc" } },
+        programmeVersion: { include: { programme: true } },
+        dossierEtapes: {
+          include: {
+            etapeProgramme: { include: { documentsRequis: true } },
+            assignedUser: { select: { id: true, name: true } },
+          },
+          orderBy: { etapeProgramme: { ordre: "asc" } },
+        },
       },
     }),
     prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
@@ -114,6 +180,16 @@ export default async function DossierDetailPage({
     prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.programmeVersion.findMany({
+      where: { publie: true, programme: { organisationId: ctx.organisationId, actif: true } },
+      include: { programme: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.user.findMany({
+      where: { organisationId: ctx.organisationId, actif: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   if (!dossier) notFound();
@@ -646,6 +722,160 @@ export default async function DossierDetailPage({
           </form>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Workflow className="h-4 w-4 text-emerald-600" />
+            <CardTitle>Workflow du dossier</CardTitle>
+            {dossier.programmeVersion && (
+              <span className="text-xs text-slate-400">
+                {dossier.programmeVersion.programme.nom} · v{dossier.programmeVersion.numeroVersion}
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        {!dossier.programmeVersionId ? (
+          <form action={affecterProgrammeAuDossier} className="flex flex-wrap items-end gap-2 p-5">
+            <input type="hidden" name="dossierId" value={dossier.id} />
+            <div className="min-w-[16rem] space-y-1">
+              <label className={labelClass}>Programme</label>
+              <select name="programmeVersionId" required className={inputClass} defaultValue="">
+                <option value="" disabled>
+                  Choisir un programme...
+                </option>
+                {programmeVersionsPubliees.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.programme.nom} · v{v.numeroVersion}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button type="submit">Démarrer un programme</Button>
+            {programmeVersionsPubliees.length === 0 && (
+              <p className="w-full text-xs text-slate-400">
+                Aucun programme publié - configurable depuis Paramétrage → Programmes.
+              </p>
+            )}
+          </form>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {dossier.dossierEtapes.map((de) => {
+              const delais = calculerDelaiEtape(de);
+              const responsableLabel =
+                de.assignedUser?.name ?? (de.etapeProgramme.roleResponsable ? roleLabels[de.etapeProgramme.roleResponsable] : null);
+              const documentsRequis = de.etapeProgramme.documentsRequis;
+              const documentsPresents = new Set(dossier.documents.map((doc) => doc.type));
+
+              return (
+                <div key={de.id} className="space-y-2.5 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-slate-400">{de.etapeProgramme.ordre + 1}.</span>
+                    <span className="font-medium text-slate-900">{de.etapeProgramme.nom}</span>
+                    <Badge color={statutEtapeColor[de.statut]}>{statutEtapeLabels[de.statut]}</Badge>
+                    {delais.enRetard && (
+                      <span className="flex items-center gap-1 text-xs font-medium text-red-600">
+                        <AlertTriangle className="h-3 w-3" />
+                        Retard : +{delais.joursRetard} j
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <span>Responsable : {responsableLabel ?? "non assigné"}</span>
+                    {de.dateDebut && <span>Début : {new Date(de.dateDebut).toLocaleDateString("fr-FR")}</span>}
+                    {de.dateEcheance && (
+                      <span>Échéance : {new Date(de.dateEcheance).toLocaleDateString("fr-FR")}</span>
+                    )}
+                    {delais.joursEcoules != null && de.statut !== "TERMINE" && (
+                      <span>Depuis {delais.joursEcoules} j</span>
+                    )}
+                    {de.dateTerminee && (
+                      <span>Terminée le {new Date(de.dateTerminee).toLocaleDateString("fr-FR")}</span>
+                    )}
+                  </div>
+
+                  {de.bloque && de.raisonBlocage && (
+                    <p className="text-xs text-red-600">Bloqué : {de.raisonBlocage}</p>
+                  )}
+
+                  {documentsRequis.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {documentsRequis.map((doc) => (
+                        <Badge key={doc.id} color={documentsPresents.has(doc.typeDocument) ? "emerald" : "amber"}>
+                          {typeDocumentLabels[doc.typeDocument]} : {documentsPresents.has(doc.typeDocument) ? "reçu" : "manquant"}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {de.statut === "A_FAIRE" && (
+                      <form action={async () => { "use server"; await demarrerEtape(de.id); }}>
+                        <Button type="submit" variant="secondary" className="text-xs">
+                          Démarrer
+                        </Button>
+                      </form>
+                    )}
+                    {(de.statut === "A_FAIRE" || de.statut === "EN_COURS") && (
+                      <form action={async () => { "use server"; await terminerEtape(de.id); }}>
+                        <Button type="submit" variant="secondary" className="text-xs">
+                          Terminer
+                        </Button>
+                      </form>
+                    )}
+                    {(de.statut === "A_FAIRE" || de.statut === "EN_COURS") && (
+                      <form action={bloquerEtape.bind(null, de.id)} className="flex items-center gap-1.5">
+                        <input
+                          name="raison"
+                          placeholder="Raison du blocage"
+                          className="w-40 rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                        />
+                        <Button type="submit" variant="ghost" className="text-xs">
+                          Bloquer
+                        </Button>
+                      </form>
+                    )}
+                    {de.statut === "BLOQUE" && (
+                      <form action={async () => { "use server"; await debloquerEtape(de.id); }}>
+                        <Button type="submit" variant="secondary" className="text-xs">
+                          Débloquer
+                        </Button>
+                      </form>
+                    )}
+                    {!de.etapeProgramme.obligatoire && (de.statut === "A_FAIRE" || de.statut === "EN_COURS") && (
+                      <form action={async () => { "use server"; await ignorerEtape(de.id); }}>
+                        <Button type="submit" variant="ghost" className="text-xs">
+                          Ignorer
+                        </Button>
+                      </form>
+                    )}
+                    {!["TERMINE", "IGNORE", "ANNULE"].includes(de.statut) && (
+                      <form action={assignerEtape.bind(null, de.id)} className="flex items-center gap-1.5">
+                        <select
+                          name="userId"
+                          defaultValue={de.assignedUserId ?? ""}
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                        >
+                          <option value="">Non assigné</option>
+                          {orgUsers.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}
+                            </option>
+                          ))}
+                        </select>
+                        <Button type="submit" variant="ghost" className="text-xs">
+                          Assigner
+                        </Button>
+                      </form>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       <Card>
         <CardHeader>
