@@ -19,7 +19,11 @@ import {
   Banknote,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireUserContext, hasPermission, canAccessDossierStudy } from "@/lib/authz";
+import { buildStudyContext, isStudyStale } from "@/lib/etude/engine";
+import { sanitizeScenariosForRole } from "@/lib/etude/redact";
+import type { StudyContext, StudyScenario } from "@/lib/etude/types";
+import { EtudeStudyPanel } from "../EtudeStudyPanel";
 import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
 import { mouvementIsLate, mouvementJoursRetard, calculateBlockedAmountForDossier } from "@/lib/finance";
 import { getFinancialSummaryForDossier, getCreancesForDossier, getDettesForDossier, financialDataQualityLabels } from "@/lib/financial-engine";
@@ -260,6 +264,45 @@ export default async function DossierDetailPage({
           })
         );
       }
+    }
+  }
+
+  // Section étude (P8) - accès filtré par rôle ET par "propriété" du dossier
+  // pour COMMERCIAL (canAccessDossierStudy, section 31). On ne charge les
+  // études que si l'utilisateur a au moins VIEW_STUDY : jamais de requête
+  // inutile pour un rôle qui n'y aura de toute façon pas accès.
+  const peutVoirEtude = canAccessDossierStudy(ctx, dossier);
+  const peutSimulerEtude = peutVoirEtude && hasPermission(ctx, "RUN_STUDY");
+  const peutEnregistrerEtude = peutVoirEtude && hasPermission(ctx, "SAVE_STUDY");
+  const peutAppliquerEtude = peutVoirEtude && hasPermission(ctx, "APPLY_STUDY");
+
+  let etudeLatestProps: import("../EtudeStudyPanel").LatestEtudeProps | null = null;
+  let etudeHistorique: { id: string; version: number; mode: string; createdAt: string }[] = [];
+  if (peutVoirEtude) {
+    const etudes = await prisma.etudeDossier.findMany({
+      where: { dossierId: dossier.id },
+      orderBy: { version: "desc" },
+    });
+    etudeHistorique = etudes.map((e) => ({ id: e.id, version: e.version, mode: e.mode, createdAt: e.createdAt.toISOString() }));
+
+    const derniere = etudes[0];
+    if (derniere) {
+      const snapshot = derniere.inputsSnapshot as unknown as StudyContext;
+      const results = derniere.resultsSnapshot as unknown as { scenarios: StudyScenario[]; recommendedScenarioLabel: string };
+      const currentContext = await buildStudyContext(dossier.id, ctx.organisationId);
+      etudeLatestProps = {
+        id: derniere.id,
+        version: derniere.version,
+        mode: derniere.mode,
+        createdAt: derniere.createdAt.toISOString(),
+        dataQuality: snapshot.dataQuality,
+        missingFields: snapshot.missingFields,
+        scenarios: sanitizeScenariosForRole(results.scenarios, ctx),
+        recommendedScenarioLabel: results.recommendedScenarioLabel,
+        recommendedScenarioId: derniere.recommendedScenarioId,
+        selectedScenarioId: derniere.selectedScenarioId,
+        obsolete: isStudyStale(derniere, currentContext),
+      };
     }
   }
 
@@ -1080,6 +1123,17 @@ export default async function DossierDetailPage({
             )}
           </div>
         </Card>
+      )}
+
+      {peutVoirEtude && (
+        <EtudeStudyPanel
+          dossierId={dossier.id}
+          peutSimuler={peutSimulerEtude}
+          peutEnregistrer={peutEnregistrerEtude}
+          peutAppliquer={peutAppliquerEtude}
+          latestEtude={etudeLatestProps}
+          historique={etudeHistorique}
+        />
       )}
 
       <Card>

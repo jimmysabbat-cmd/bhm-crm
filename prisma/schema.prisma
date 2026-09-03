@@ -241,6 +241,7 @@ model Organisation {
   reglesRelance        RegleRelance[]
   calculsReglementaires CalculReglementaire[]
   tarifsDelegataireCee  TarifDelegataireCee[]
+  etudesDossier         EtudeDossier[]
 }
 
 model User {
@@ -263,6 +264,8 @@ model User {
   dossierEtapesAssignees DossierEtape[]
   calculsReglementairesCrees    CalculReglementaire[] @relation("CalculReglementaireCreatedBy")
   calculsReglementairesOverrides CalculReglementaire[] @relation("CalculReglementaireOverrideBy")
+  etudesDossierCrees            EtudeDossier[]
+  etudesDossierSelectionnees    EtudeDossier[] @relation("EtudeDossierSelectedBy")
 
   @@index([organisationId])
 }
@@ -484,6 +487,7 @@ model Dossier {
   mouvementsFinanciers MouvementFinancier[]
   dossierEtapes        DossierEtape[]
   calculsReglementaires CalculReglementaire[]
+  etudesDossier        EtudeDossier[]
 
   @@index([statutId])
   @@index([typeId])
@@ -1103,4 +1107,63 @@ model TarifDelegataireCee {
 
   @@index([organisationId])
   @@index([delegataireId])
+}
+
+// ============================================================
+// Moteur d'étude / scénarios / recommandation (P8).
+//
+// Une étude SIMULATION est un calcul dynamique, non contractuel, pas
+// nécessairement sauvegardé (le commercial peut simuler sans jamais
+// enregistrer). Une étude OFFICIEL est un snapshot immuable : ni
+// inputsSnapshot ni resultsSnapshot ne sont jamais modifiés après coup -
+// une nouvelle étude officielle crée une nouvelle ligne (version = max+1
+// pour ce dossier), l'ancienne reste strictement inchangée (section 20/44
+// du prompt P8). inputHash permet de détecter si les données du dossier
+// ont changé depuis (isStudyStale, section 28/29) sans recalculer à
+// chaque affichage.
+// ============================================================
+
+enum ModeEtude {
+  SIMULATION
+  OFFICIEL
+}
+
+model EtudeDossier {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  dossierId      String
+  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  version Int       @default(1)
+  mode    ModeEtude
+
+  inputsSnapshot  Json
+  resultsSnapshot Json
+  // Hash stable des données critiques ayant produit cette étude (section
+  // 29) - permet de détecter l'obsolescence sans recalculer, jamais un
+  // simple timestamp (un dossier peut être touché sans que rien de
+  // pertinent pour l'étude ne change).
+  inputHash String
+
+  recommendedScenarioId String?
+
+  // Scénario retenu par un humain (section 21) - distinct de
+  // recommendedScenarioId (calculé par le moteur) : on ne prétend jamais
+  // qu'un scénario est "le meilleur" de façon certaine, mais un utilisateur
+  // peut choisir d'en retenir un. Mutable après création (contrairement à
+  // inputsSnapshot/resultsSnapshot qui restent figés) car c'est un simple
+  // pointeur de décision, pas une donnée de calcul historique.
+  selectedScenarioId String?
+  selectedAt         DateTime?
+  selectedById       String?
+  selectedBy         User?     @relation("EtudeDossierSelectedBy", fields: [selectedById], references: [id])
+
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([dossierId, version])
+  @@index([organisationId])
+  @@index([dossierId])
 }

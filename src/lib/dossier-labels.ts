@@ -148,6 +148,26 @@ export const statutEligibiliteReglementaireLabels: Record<StatutEligibiliteRegle
   DONNEES_INSUFFISANTES: "Données insuffisantes",
 };
 
+// P8 - moteur d'étude.
+export const studyDataQualityLabels: Record<"COMPLETE" | "GOOD" | "PARTIAL" | "INSUFFICIENT", string> = {
+  COMPLETE: "Données complètes",
+  GOOD: "Données correctes",
+  PARTIAL: "Données partielles",
+  INSUFFICIENT: "Données insuffisantes",
+};
+
+export const scenarioRecommandationLabels: Record<
+  "RECOMMANDE" | "INTERESSANT" | "A_CONFIRMER" | "RISQUE" | "NON_RECOMMANDE" | "IMPOSSIBLE_A_EVALUER",
+  string
+> = {
+  RECOMMANDE: "Recommandé",
+  INTERESSANT: "Intéressant",
+  A_CONFIRMER: "À confirmer",
+  RISQUE: "Risqué",
+  NON_RECOMMANDE: "Non recommandé",
+  IMPOSSIBLE_A_EVALUER: "Impossible à évaluer",
+};
+
 export function resteAChargeCents(dossier: {
   montantDevisTTC: number;
   montantAideMPR: number;

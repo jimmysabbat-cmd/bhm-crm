@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { calculerDelaiEtape } from "@/lib/workflow";
 import { calculateBlockedAmountForDossier, mouvementIsLate, mouvementJoursRetard } from "@/lib/finance";
 import { calculateCeeValuation } from "@/lib/reglementaire/valuation";
+import { buildStudyContext, isStudyStale } from "@/lib/etude/engine";
 import { typeDocumentLabels, categorieMouvementLabels } from "@/lib/dossier-labels";
 import type { Role, Precarite } from "@/generated/prisma/enums";
 
@@ -21,7 +22,7 @@ export const roleLabels: Record<string, string> = {
 };
 
 export type NiveauUrgence = "BASSE" | "NORMALE" | "HAUTE" | "CRITIQUE";
-export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT" | "REGLEMENTAIRE_CEE";
+export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT" | "REGLEMENTAIRE_CEE" | "ETUDE_SCENARIO";
 
 export type NextBestAction = {
   id: string;
@@ -120,6 +121,7 @@ function score(params: {
     MOUVEMENT_FINANCIER: 8,
     DOCUMENT_MANQUANT: 12,
     REGLEMENTAIRE_CEE: 10,
+    ETUDE_SCENARIO: 8,
   };
   total += urgencyBase[params.typeAction];
 
@@ -178,6 +180,11 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
           createdAt: true,
           calculReglementaireActif: { select: { statutEligibilite: true, kwhCumac: true, overrideStatutEligibilite: true } },
         },
+      },
+      etudesDossier: {
+        orderBy: { version: "desc" },
+        take: 1,
+        select: { id: true, version: true, mode: true, inputHash: true, createdAt: true },
       },
     },
   });
@@ -566,6 +573,57 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
             });
           }
         }
+      }
+    }
+
+    // --- Étude obsolète (P8, section 30) - uniquement si une étude a déjà
+    // été enregistrée pour ce dossier : un dossier jamais étudié n'est PAS
+    // une anomalie, on ne remonte donc rien dans ce cas. Ne duplique pas les
+    // actions REGLEMENTAIRE_CEE ci-dessus (qui portent sur un poste/calcul
+    // CEE précis) : celle-ci porte sur l'étude/scénario dans son ensemble,
+    // recalculée via le même isStudyStale() que reconnaitreEtudeObsolete().
+    const derniereEtude = dossier.etudesDossier[0];
+    if (derniereEtude && matchesScope(ctx, null, "ADMINISTRATIF" as Role)) {
+      const etudeContext = await buildStudyContext(dossier.id, ctx.organisationId);
+      if (isStudyStale(derniereEtude, etudeContext)) {
+        const { total, reasons: scoreReasons } = score({
+          joursRetard: 0,
+          montantBloqueCts: 0,
+          bloque: false,
+          documentManquant: false,
+          typeAction: "ETUDE_SCENARIO",
+          delaiAlerteDepasse: false,
+        });
+        scoreReasons.push(`Étude v${derniereEtude.version} (${derniereEtude.mode}) obsolète : des données du dossier ont changé depuis l'enregistrement.`);
+        actions.push({
+          id: `etude:${derniereEtude.id}:obsolete`,
+          sourceId: derniereEtude.id,
+          organisationId: ctx.organisationId,
+          dossierId: dossier.id,
+          client: clientLabel,
+          referenceDossier: dossier.reference,
+          typeAction: "ETUDE_SCENARIO",
+          titre: "Étude à recalculer",
+          description: null,
+          origine: "EtudeDossier",
+          statut: "OBSOLETE",
+          responsableUserId: null,
+          responsableRole: "ADMINISTRATIF" as Role,
+          responsableLabel: roleLabels.ADMINISTRATIF,
+          dateCreation: derniereEtude.createdAt,
+          dateEcheance: null,
+          joursRetard: 0,
+          niveauUrgence: niveauFromScore(total),
+          montantBloqueCts: 0,
+          raisonMontantBloque: null,
+          route,
+          reasons: scoreReasons,
+          priorityScore: total,
+          flux: "ETUDE",
+          tacheRelanceId: null,
+          nombreRelances: 0,
+          mouvementType: null,
+        });
       }
     }
   }

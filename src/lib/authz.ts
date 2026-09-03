@@ -101,7 +101,22 @@ export type Permission =
   // réglementaire déjà en P6) peuvent simuler un calcul CEE sans rien
   // modifier de la réglementation.
   | "MANAGE_REGLEMENTATION"
-  | "SIMULATE_REGLEMENTATION";
+  | "SIMULATE_REGLEMENTATION"
+  // P8 - moteur d'étude (section 31). VIEW_STUDY/RUN_STUDY couvrent la
+  // lecture et la simulation (COMMERCIAL peut simuler, mais seulement sur
+  // SES dossiers - vérifié en plus au niveau Server Action via
+  // canAccessDossierStudy, car ce système de permissions reste par rôle,
+  // pas par instance). SAVE_STUDY (enregistrer une étude) et APPLY_STUDY
+  // (créer réellement calcul/mouvement à partir d'un scénario) sont des
+  // actions d'écriture plus sensibles, réservées à la direction/
+  // l'administratif. COMPTABILITE lit les données économiques (VIEW_STUDY)
+  // sans simuler/enregistrer/appliquer. REGIE/SOUS_TRAITANT/TECHNIQUE
+  // n'ont aucun accès à l'étude (jamais la marge ni les coûts internes -
+  // cf. VIEW_MARGIN/VIEW_INTERNAL_COSTS qui les excluent déjà).
+  | "VIEW_STUDY"
+  | "RUN_STUDY"
+  | "SAVE_STUDY"
+  | "APPLY_STUDY";
 
 const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_ALL_ACTIONS: ["ADMIN"],
@@ -114,8 +129,25 @@ const PERMISSIONS: Record<Permission, Role[]> = {
   MANAGE_FINANCE: ["ADMIN", "COMPTA", "COMPTABILITE"],
   MANAGE_REGLEMENTATION: ["ADMIN"],
   SIMULATE_REGLEMENTATION: ["ADMIN", "COMMERCIAL", "COMPTA", "COMPTABILITE", "ADMINISTRATIF", "TECHNIQUE"],
+  VIEW_STUDY: ["ADMIN", "COMMERCIAL", "ADMINISTRATIF", "COMPTA", "COMPTABILITE"],
+  RUN_STUDY: ["ADMIN", "COMMERCIAL", "ADMINISTRATIF"],
+  SAVE_STUDY: ["ADMIN", "ADMINISTRATIF"],
+  APPLY_STUDY: ["ADMIN", "ADMINISTRATIF"],
 };
 
 export function hasPermission(ctx: UserContext, permission: Permission): boolean {
   return PERMISSIONS[permission].includes(ctx.role);
+}
+
+// P8 (section 31) : COMMERCIAL ne doit voir/simuler l'étude QUE sur ses
+// propres dossiers ("own dossiers"), pas ceux de tout le monde - une
+// restriction par instance que le système de permissions par rôle seul ne
+// peut pas exprimer. dossier.createdById est la seule notion de
+// "propriétaire" déjà présente dans le schéma (pas de champ
+// commercialId dédié) ; ADMIN/ADMINISTRATIF/COMPTABILITE voient tous les
+// dossiers de leur organisation dès lors qu'ils ont VIEW_STUDY.
+export function canAccessDossierStudy(ctx: UserContext, dossier: { createdById: string | null }): boolean {
+  if (!hasPermission(ctx, "VIEW_STUDY")) return false;
+  if (ctx.role === "COMMERCIAL") return dossier.createdById === ctx.userId;
+  return true;
 }
