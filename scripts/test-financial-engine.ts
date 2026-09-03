@@ -4,7 +4,7 @@ import {
   calculateContractualRevenue,
   getRemainingAmount,
   calculateForecastMargin,
-  calculateActualMargin,
+  calculateMargeSurCoutsReelsConnus,
   getCreancesForDossier,
   getCreancesForOrganisation,
   getCashflowForecast,
@@ -111,7 +111,7 @@ async function main() {
     },
   });
   {
-    const marge = await calculateActualMargin(dossier1.id);
+    const marge = await calculateMargeSurCoutsReelsConnus(dossier1.id);
     assert(marge.coutsCts === 1_750_000, `coûts réels = 17 500 € (trouvé ${marge.coutsCts / 100} €)`);
     assert(marge.margeCts === 750_000, `marge réelle = 7 500 € (trouvé ${marge.margeCts / 100} €)`);
     assert(marge.margePct === 30, `marge réelle = 30 % (trouvé ${marge.margePct} %)`);

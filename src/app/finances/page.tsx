@@ -3,10 +3,13 @@ import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowRight, Wallet } from "lucide-react";
 import { requireUserContext, hasPermission } from "@/lib/authz";
 import {
+  getEntreeLignesForOrganisation,
   getMouvementsNonSoldes,
   getCreancesForOrganisation,
   getCashflowForecast,
   getMargesDossiers,
+  financialDataQualityLabels,
+  type LigneEntreeUnifiee,
   type MouvementAvecDossier,
 } from "@/lib/financial-engine";
 import { formatCents } from "@/lib/money";
@@ -15,47 +18,102 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { inputClass, labelClass } from "@/components/ui/field";
 
-function matchesFilters(m: MouvementAvecDossier, filtres: { categorie?: string; statut?: string; q?: string }): boolean {
-  if (filtres.categorie && m.categorie !== filtres.categorie) return false;
-  if (filtres.statut && m.statut !== filtres.statut) return false;
+// Vue d'affichage commune aux mouvements détaillés et aux lignes virtuelles
+// legacy (section 3 du prompt P6B) - évite de dupliquer le rendu pour deux
+// formes de données différentes.
+type LigneAffichage = {
+  id: string;
+  dossierId: string;
+  dossierReference: string;
+  clientLabel: string;
+  categorieLabel: string;
+  partiePrenante: string | null;
+  datePrevue: Date | null;
+  statutLabel: string;
+  resteCts: number;
+  enRetard: boolean;
+  joursRetard: number;
+  precision: "DETAILED" | "LEGACY";
+};
+
+function fromEntreeLigne(l: LigneEntreeUnifiee): LigneAffichage {
+  return {
+    id: l.id,
+    dossierId: l.dossierId,
+    dossierReference: l.dossierReference,
+    clientLabel: l.clientLabel,
+    categorieLabel: l.categorieLabel,
+    partiePrenante: l.payeur,
+    datePrevue: l.datePrevue,
+    statutLabel: l.statutLabel,
+    resteCts: l.resteCts,
+    enRetard: l.enRetard,
+    joursRetard: l.joursRetard,
+    precision: l.precision,
+  };
+}
+
+function fromMouvement(m: MouvementAvecDossier): LigneAffichage {
+  return {
+    id: m.id,
+    dossierId: m.dossierId,
+    dossierReference: m.dossierReference,
+    clientLabel: m.clientLabel,
+    categorieLabel: m.categorieLabel,
+    partiePrenante: m.payeur ?? m.beneficiaire,
+    datePrevue: m.datePrevue,
+    statutLabel: statutMouvementLabels[m.statut],
+    resteCts: m.resteCts,
+    enRetard: m.enRetard,
+    joursRetard: m.joursRetard,
+    precision: "DETAILED",
+  };
+}
+
+function matchesFilters(l: LigneAffichage, filtres: { categorieLabel?: string; statutLabel?: string; q?: string }): boolean {
+  if (filtres.categorieLabel && l.categorieLabel !== filtres.categorieLabel) return false;
+  if (filtres.statutLabel && l.statutLabel !== filtres.statutLabel) return false;
   if (filtres.q) {
     const q = filtres.q.toLowerCase();
-    if (!m.dossierReference.toLowerCase().includes(q) && !m.clientLabel.toLowerCase().includes(q)) return false;
+    if (!l.dossierReference.toLowerCase().includes(q) && !l.clientLabel.toLowerCase().includes(q)) return false;
   }
   return true;
 }
 
-function MouvementRow({ m }: { m: MouvementAvecDossier }) {
+function LigneRow({ l }: { l: LigneAffichage }) {
   return (
     <tr className="border-t border-slate-100 hover:bg-slate-50/70">
       <td className="px-4 py-2.5">
-        <Link href={`/dossiers/${m.dossierId}#flux-financiers`} className="font-medium text-slate-900 hover:text-emerald-700">
-          {m.clientLabel}
+        <Link href={`/dossiers/${l.dossierId}#flux-financiers`} className="font-medium text-slate-900 hover:text-emerald-700">
+          {l.clientLabel}
         </Link>
-        <p className="text-xs text-slate-400">{m.dossierReference}</p>
+        <p className="text-xs text-slate-400">{l.dossierReference}</p>
       </td>
-      <td className="px-4 py-2.5 text-slate-500">{m.categorieLabel}</td>
-      <td className="px-4 py-2.5 text-slate-500">{m.payeur || m.beneficiaire || "—"}</td>
+      <td className="px-4 py-2.5 text-slate-500">
+        {l.categorieLabel}
+        {l.precision === "LEGACY" && <Badge color="amber">legacy</Badge>}
+      </td>
+      <td className="px-4 py-2.5 text-slate-500">{l.partiePrenante || "—"}</td>
       <td className="px-4 py-2.5">
-        {m.datePrevue ? (
-          <span className={`flex items-center gap-1.5 ${m.enRetard ? "text-red-600" : "text-slate-500"}`}>
-            {m.enRetard && <AlertTriangle className="h-3.5 w-3.5" />}
-            {m.datePrevue.toLocaleDateString("fr-FR")}
-            {m.enRetard && ` (+${m.joursRetard} j)`}
+        {l.datePrevue ? (
+          <span className={`flex items-center gap-1.5 ${l.enRetard ? "text-red-600" : "text-slate-500"}`}>
+            {l.enRetard && <AlertTriangle className="h-3.5 w-3.5" />}
+            {l.datePrevue.toLocaleDateString("fr-FR")}
+            {l.enRetard && ` (+${l.joursRetard} j)`}
           </span>
         ) : (
-          <span className="text-slate-400">Sans date</span>
+          <span className="text-slate-400">Sans échéance connue</span>
         )}
       </td>
       <td className="px-4 py-2.5">
-        <Badge color="slate">{statutMouvementLabels[m.statut]}</Badge>
+        <Badge color="slate">{l.statutLabel}</Badge>
       </td>
-      <td className="px-4 py-2.5 text-right font-medium text-slate-900">{formatCents(m.resteCts)}</td>
+      <td className="px-4 py-2.5 text-right font-medium text-slate-900">{formatCents(l.resteCts)}</td>
     </tr>
   );
 }
 
-function MouvementsTable({ items, empty }: { items: MouvementAvecDossier[]; empty: string }) {
+function LignesTable({ items, empty }: { items: LigneAffichage[]; empty: string }) {
   if (items.length === 0) return <p className="p-5 text-sm text-slate-400">{empty}</p>;
   return (
     <div className="overflow-x-auto">
@@ -71,8 +129,8 @@ function MouvementsTable({ items, empty }: { items: MouvementAvecDossier[]; empt
           </tr>
         </thead>
         <tbody>
-          {items.map((m) => (
-            <MouvementRow key={m.id} m={m} />
+          {items.map((l) => (
+            <LigneRow key={l.id} l={l} />
           ))}
         </tbody>
       </table>
@@ -92,7 +150,11 @@ export default async function FinancesPage({
   const peutVoirMarge = hasPermission(ctx, "VIEW_MARGIN");
 
   const { categorie, statut, q, granularite: granulariteRaw } = await searchParams;
-  const filtres = { categorie, statut, q };
+  const filtres = {
+    categorieLabel: categorie ? categorieMouvementLabels[categorie as keyof typeof categorieMouvementLabels] : undefined,
+    statutLabel: statut ? statutMouvementLabels[statut as keyof typeof statutMouvementLabels] : undefined,
+    q,
+  };
   const granularite = granulariteRaw === "mois" ? "mois" : "semaine";
 
   const dateDebut = new Date();
@@ -100,23 +162,32 @@ export default async function FinancesPage({
   const dateFin = new Date(dateDebut);
   dateFin.setDate(dateFin.getDate() + (granularite === "mois" ? 180 : 56));
 
-  const [entreesBrutes, sortiesBrutes, creances, cashflow, marges] = await Promise.all([
-    getMouvementsNonSoldes(ctx.organisationId, "ENTREE"),
+  const [entreeLignesBrutes, sortiesBrutes, creances, cashflow, marges] = await Promise.all([
+    getEntreeLignesForOrganisation(ctx.organisationId),
     peutVoirCoutsInternes ? getMouvementsNonSoldes(ctx.organisationId, "SORTIE") : Promise.resolve([]),
     getCreancesForOrganisation(ctx.organisationId),
     getCashflowForecast(ctx.organisationId, dateDebut, dateFin, granularite),
     getMargesDossiers(ctx.organisationId),
   ]);
 
-  const entrees = entreesBrutes.filter((m) => matchesFilters(m, filtres));
-  const sorties = sortiesBrutes.filter((m) => matchesFilters(m, filtres));
-  const enRetard = [...entrees, ...sorties].filter((m) => m.enRetard).sort((a, b) => b.joursRetard - a.joursRetard);
+  // Ne montrer que ce qui reste réellement dû (section 3/4 du prompt P6B) -
+  // les lignes soldées (resteCts = 0) n'ont rien à faire dans "à encaisser".
+  const entreesToutes = entreeLignesBrutes.filter((l) => l.resteCts > 0).map(fromEntreeLigne);
+  const sortiesToutes = sortiesBrutes.map(fromMouvement);
 
-  const totalAEncaisser = entrees.reduce((s, m) => s + m.resteCts, 0);
-  const totalAPayer = sorties.reduce((s, m) => s + m.resteCts, 0);
+  const entrees = entreesToutes.filter((l) => matchesFilters(l, filtres));
+  const sorties = sortiesToutes.filter((l) => matchesFilters(l, filtres));
+  const entreesAvecEcheance = entrees.filter((l) => l.datePrevue !== null);
+  const entreesSansEcheance = entrees.filter((l) => l.datePrevue === null);
+  const enRetard = [...entrees, ...sorties].filter((l) => l.enRetard).sort((a, b) => b.joursRetard - a.joursRetard);
+
+  const totalAEncaisser = entrees.reduce((s, l) => s + l.resteCts, 0);
+  const totalAPayer = sorties.reduce((s, l) => s + l.resteCts, 0);
   const totalCreances = creances.reduce((s, c) => s + c.resteCts, 0);
 
-  const categoriesPresentes = Array.from(new Set([...entreesBrutes, ...sortiesBrutes].map((m) => m.categorie)));
+  const categoriesPresentes = Array.from(new Set([...entreeLignesBrutes.map((l) => l.categorieRaw), ...sortiesBrutes.map((m) => m.categorie)])).filter(
+    (c): c is keyof typeof categorieMouvementLabels => c in categorieMouvementLabels
+  );
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-8 py-10">
@@ -186,7 +257,16 @@ export default async function FinancesPage({
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-900">A. À encaisser ({entrees.length})</h2>
         <Card className="overflow-hidden">
-          <MouvementsTable items={entrees} empty="Rien à encaisser." />
+          <p className="border-b border-slate-100 px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+            Avec échéance connue ({entreesAvecEcheance.length})
+          </p>
+          <LignesTable items={entreesAvecEcheance} empty="Rien avec une échéance connue." />
+        </Card>
+        <Card className="overflow-hidden">
+          <p className="border-b border-slate-100 px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+            Sans échéance connue ({entreesSansEcheance.length})
+          </p>
+          <LignesTable items={entreesSansEcheance} empty="Rien sans échéance connue." />
         </Card>
       </section>
 
@@ -194,7 +274,7 @@ export default async function FinancesPage({
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-slate-900">B. À payer ({sorties.length})</h2>
           <Card className="overflow-hidden">
-            <MouvementsTable items={sorties} empty="Rien à payer." />
+            <LignesTable items={sorties} empty="Rien à payer." />
           </Card>
         </section>
       )}
@@ -202,7 +282,7 @@ export default async function FinancesPage({
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-900">C. En retard ({enRetard.length})</h2>
         <Card className="overflow-hidden">
-          <MouvementsTable items={enRetard} empty="Aucun retard." />
+          <LignesTable items={enRetard} empty="Aucun retard." />
         </Card>
       </section>
 
@@ -232,7 +312,10 @@ export default async function FinancesPage({
                       </Link>
                       <p className="text-xs text-slate-400">{c.dossierReference}</p>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-500">{c.origine ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-slate-500">
+                      {c.origine === "LEGACY_AGGREGATE" ? "Agrégat legacy" : c.origine ?? "—"}
+                      {c.precision === "LEGACY" && <Badge color="amber">legacy</Badge>}
+                    </td>
                     <td className="px-4 py-2.5">
                       <Badge color={c.statut === "EN_RETARD" ? "red" : c.statut === "LITIGE" ? "amber" : "slate"}>{c.statut}</Badge>
                     </td>
@@ -251,7 +334,7 @@ export default async function FinancesPage({
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-slate-900">E. Trésorerie prévisionnelle</h2>
           <span className="text-xs text-slate-400">
-            Prévision de flux (reste à percevoir/payer par échéance) - pas un solde bancaire
+            Prévision de flux (reste à percevoir/payer par échéance connue uniquement) - pas un solde bancaire
           </span>
         </div>
         <Card className="overflow-hidden">
@@ -288,7 +371,8 @@ export default async function FinancesPage({
             <p className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400">
               {cashflow.sansDate.nombreMouvements} mouvement(s) sans date prévue, non inclus ci-dessus (
               {formatCents(cashflow.sansDate.entreesCts)} entrées / {formatCents(cashflow.sansDate.sortiesCts)} sorties à
-              planifier).
+              planifier) - jamais rattachés à une échéance inventée. Les lignes historiques (legacy, sans date) de la
+              section A ne sont pas non plus incluses ici pour la même raison.
             </p>
           )}
         </Card>
@@ -302,13 +386,14 @@ export default async function FinancesPage({
               <thead className="bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-2.5">Dossier</th>
+                  <th className="px-4 py-2.5">Qualité</th>
                   <th className="px-4 py-2.5 text-right">CA</th>
                   <th className="px-4 py-2.5 text-right">Encaissé</th>
                   <th className="px-4 py-2.5 text-right">Reste à encaisser</th>
                   {peutVoirCoutsInternes && <th className="px-4 py-2.5 text-right">Coût prévu</th>}
                   {peutVoirCoutsInternes && <th className="px-4 py-2.5 text-right">Coût réel</th>}
                   {peutVoirMarge && <th className="px-4 py-2.5 text-right">Marge prévue</th>}
-                  {peutVoirMarge && <th className="px-4 py-2.5 text-right">Marge réelle</th>}
+                  {peutVoirMarge && <th className="px-4 py-2.5 text-right">Marge sur coûts réels</th>}
                   <th className="px-4 py-2.5 text-right">Créances</th>
                   {peutVoirCoutsInternes && <th className="px-4 py-2.5 text-right">Dettes</th>}
                 </tr>
@@ -322,6 +407,11 @@ export default async function FinancesPage({
                       </Link>
                       <p className="text-xs text-slate-400">{d.reference}</p>
                     </td>
+                    <td className="px-4 py-2.5">
+                      <Badge color={d.financialDataQuality === "DETAILED" ? "emerald" : d.financialDataQuality === "PARTIAL" ? "blue" : d.financialDataQuality === "LEGACY" ? "amber" : "red"}>
+                        {financialDataQualityLabels[d.financialDataQuality]}
+                      </Badge>
+                    </td>
                     <td className="px-4 py-2.5 text-right text-slate-700">{formatCents(d.caContractuelCts)}</td>
                     <td className="px-4 py-2.5 text-right text-slate-700">{formatCents(d.encaisseCts)}</td>
                     <td className="px-4 py-2.5 text-right text-slate-700">{formatCents(d.resteAEncaisserCts)}</td>
@@ -329,7 +419,7 @@ export default async function FinancesPage({
                     {peutVoirCoutsInternes && <td className="px-4 py-2.5 text-right text-slate-500">{formatCents(d.coutReelCts)}</td>}
                     {peutVoirMarge && <td className="px-4 py-2.5 text-right text-slate-700">{formatCents(d.margePrevisionnelleCts)}</td>}
                     {peutVoirMarge && (
-                      <td className="px-4 py-2.5 text-right font-medium text-slate-900">{formatCents(d.margeReelleCts)}</td>
+                      <td className="px-4 py-2.5 text-right font-medium text-slate-900">{formatCents(d.margeSurCoutsReelsCts)}</td>
                     )}
                     <td className="px-4 py-2.5 text-right text-slate-700">{formatCents(d.creancesCts)}</td>
                     {peutVoirCoutsInternes && <td className="px-4 py-2.5 text-right text-slate-500">{formatCents(d.dettesCts)}</td>}
@@ -337,7 +427,7 @@ export default async function FinancesPage({
                 ))}
                 {marges.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={10} className="px-4 py-10 text-center text-slate-400">
                       Aucun dossier actif.
                     </td>
                   </tr>
@@ -346,6 +436,10 @@ export default async function FinancesPage({
             </table>
           </div>
         </Card>
+        <p className="text-xs text-slate-400">
+          « Marge sur coûts réels » compare le CA contractuel à des coûts réellement engagés - ce n&apos;est pas une marge
+          réalisée au sens comptable (aucune facturation/reconnaissance de revenu n&apos;existe encore dans le CRM).
+        </p>
       </section>
 
       <p className="flex items-center gap-1.5 text-xs text-slate-400">

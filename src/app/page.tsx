@@ -18,7 +18,7 @@ import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { getNextBestActions, estCetteSemaine } from "@/lib/next-best-action";
 import { calculateBlockedAmountByFlux } from "@/lib/finance";
-import { getMargesDossiers, getMouvementsNonSoldes } from "@/lib/financial-engine";
+import { getMargesDossiers, getMouvementsNonSoldes, getEntreeLignesForOrganisation } from "@/lib/financial-engine";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, statutColor } from "@/components/ui/Badge";
@@ -167,16 +167,17 @@ export default async function DashboardPage() {
     ).length,
   };
 
-  // Indicateurs du moteur financier (P6, section 23) - masqués aux rôles
-  // sans VIEW_FINANCIAL_SUMMARY, sous-masqués pour marge/coûts internes.
-  // Aucune valeur codée en dur : tout vient de financial-engine.ts.
+  // Indicateurs du moteur financier (P6, section 23 ; couche centrale
+  // unifiée par P6B section 4/5 - mêmes fonctions que /finances) - masqués
+  // aux rôles sans VIEW_FINANCIAL_SUMMARY, sous-masqués pour marge/coûts
+  // internes. Aucune valeur codée en dur : tout vient de financial-engine.ts.
   const peutVoirFinances = hasPermission(ctx, "VIEW_FINANCIAL_SUMMARY");
   const peutVoirMarge = hasPermission(ctx, "VIEW_MARGIN");
   const peutVoirCoutsInternes = hasPermission(ctx, "VIEW_INTERNAL_COSTS");
   const [margesDossiers, entreesNonSoldees, sortiesNonSoldees] = peutVoirFinances
     ? await Promise.all([
         getMargesDossiers(ctx.organisationId),
-        getMouvementsNonSoldes(ctx.organisationId, "ENTREE"),
+        getEntreeLignesForOrganisation(ctx.organisationId),
         peutVoirCoutsInternes ? getMouvementsNonSoldes(ctx.organisationId, "SORTIE") : Promise.resolve([]),
       ])
     : [[], [], []];
@@ -187,7 +188,7 @@ export default async function DashboardPage() {
     encaissementsEnRetard: entreesNonSoldees.filter((m) => m.enRetard).length,
     totalAPayerCts: sortiesNonSoldees.reduce((s, m) => s + m.resteCts, 0),
     margePrevisionnelleCts: margesDossiers.reduce((s, d) => s + d.margePrevisionnelleCts, 0),
-    margeReelleCts: margesDossiers.reduce((s, d) => s + d.margeReelleCts, 0),
+    margeSurCoutsReelsCts: margesDossiers.reduce((s, d) => s + d.margeSurCoutsReelsCts, 0),
     creancesOuvertesCts: margesDossiers.reduce((s, d) => s + d.creancesCts, 0),
   };
 
@@ -353,7 +354,7 @@ export default async function DashboardPage() {
               <StatCard label="Marge prévisionnelle" value={indicateursFinanciers.margePrevisionnelleCts} icon={TrendingUp} tone="emerald" />
             )}
             {peutVoirMarge && (
-              <StatCard label="Marge réelle disponible" value={indicateursFinanciers.margeReelleCts} icon={TrendingUp} tone="emerald" />
+              <StatCard label="Marge sur coûts réels connus" value={indicateursFinanciers.margeSurCoutsReelsCts} icon={TrendingUp} tone="emerald" />
             )}
           </div>
         </section>

@@ -22,7 +22,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserContext, hasPermission } from "@/lib/authz";
 import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
 import { mouvementIsLate, mouvementJoursRetard, calculateBlockedAmountForDossier } from "@/lib/finance";
-import { getFinancialSummaryForDossier, getCreancesForDossier, getDettesForDossier } from "@/lib/financial-engine";
+import { getFinancialSummaryForDossier, getCreancesForDossier, getDettesForDossier, financialDataQualityLabels } from "@/lib/financial-engine";
 import { formatCents } from "@/lib/money";
 import {
   precariteLabels,
@@ -120,6 +120,13 @@ const statutEtapeColor: Record<string, "slate" | "blue" | "amber" | "emerald" | 
   TERMINE: "emerald",
   IGNORE: "slate",
   ANNULE: "slate",
+};
+
+const FINANCIAL_DATA_QUALITY_COLOR: Record<string, "slate" | "blue" | "amber" | "emerald" | "red"> = {
+  DETAILED: "emerald",
+  PARTIAL: "blue",
+  LEGACY: "amber",
+  INSUFFICIENT: "red",
 };
 
 export default async function DossierDetailPage({
@@ -924,6 +931,9 @@ export default async function DossierDetailPage({
             <div className="flex items-center gap-2">
               <Wallet className="h-4 w-4 text-emerald-600" />
               <CardTitle>Synthèse financière</CardTitle>
+              <Badge color={FINANCIAL_DATA_QUALITY_COLOR[syntheseFinanciere.financialDataQuality]}>
+                {financialDataQualityLabels[syntheseFinanciere.financialDataQuality]}
+              </Badge>
             </div>
             <a href="#flux-financiers" className="text-xs font-medium text-slate-400 hover:text-emerald-700">
               Voir le détail des mouvements →
@@ -969,12 +979,19 @@ export default async function DossierDetailPage({
                     }`}
                   />
                   <Row
-                    label="Réelle"
-                    value={`${formatCents(syntheseFinanciere.margeReelleCts)}${
-                      syntheseFinanciere.margeReellePct != null ? ` (${syntheseFinanciere.margeReellePct.toFixed(0)} %)` : ""
+                    label="Sur coûts réels connus"
+                    value={`${formatCents(syntheseFinanciere.margeSurCoutsReelsCts)}${
+                      syntheseFinanciere.margeSurCoutsReelsPct != null ? ` (${syntheseFinanciere.margeSurCoutsReelsPct.toFixed(0)} %)` : ""
                     }`}
+                  />
+                  <Row
+                    label="Réalisée"
+                    value={syntheseFinanciere.margeRealisee.statut === "CALCULEE" ? formatCents(syntheseFinanciere.margeRealisee.margeCts) : "Non calculable"}
                     strong
                   />
+                  {syntheseFinanciere.margeRealisee.statut === "NON_CALCULABLE" && (
+                    <p className="pt-0.5 text-xs text-slate-400">{syntheseFinanciere.margeRealisee.raison}</p>
+                  )}
                 </dl>
               ) : (
                 <dl className="space-y-1.5 text-sm">
