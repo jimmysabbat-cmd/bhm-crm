@@ -19,9 +19,10 @@ import {
   Banknote,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext } from "@/lib/authz";
+import { requireUserContext, hasPermission } from "@/lib/authz";
 import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
-import { mouvementIsLate, mouvementJoursRetard } from "@/lib/finance";
+import { mouvementIsLate, mouvementJoursRetard, calculateBlockedAmountForDossier } from "@/lib/finance";
+import { getFinancialSummaryForDossier, getCreancesForDossier, getDettesForDossier } from "@/lib/financial-engine";
 import { formatCents } from "@/lib/money";
 import {
   precariteLabels,
@@ -32,6 +33,8 @@ import {
   typeMouvementLabels,
   categorieMouvementLabels,
   statutMouvementLabels,
+  partiePrenanteLabels,
+  conditionExigibiliteLabels,
 } from "@/lib/dossier-labels";
 import {
   createTache,
@@ -206,6 +209,22 @@ export default async function DossierDetailPage({
   ]);
 
   if (!dossier) notFound();
+
+  // Section 26 : la synthèse financière moteur (P6) est masquée aux rôles
+  // qui ne doivent pas voir les coûts internes / la marge (COMMERCIAL,
+  // RÉGIE, SOUS_TRAITANT...) - on ne calcule même pas ce que l'utilisateur
+  // n'a pas le droit de voir.
+  const peutVoirFinances = hasPermission(ctx, "VIEW_FINANCIAL_SUMMARY");
+  const peutVoirMarge = hasPermission(ctx, "VIEW_MARGIN");
+  const peutVoirCoutsInternes = hasPermission(ctx, "VIEW_INTERNAL_COSTS");
+  const [syntheseFinanciere, argentBloque, creancesDossier, dettesDossier] = peutVoirFinances
+    ? await Promise.all([
+        getFinancialSummaryForDossier(dossier.id),
+        calculateBlockedAmountForDossier(dossier.id),
+        getCreancesForDossier(dossier.id),
+        peutVoirCoutsInternes ? getDettesForDossier(dossier.id) : Promise.resolve([]),
+      ])
+    : [null, null, [], []];
 
   const resteACharge = resteAChargeCents(dossier);
   const isRenoAmpleur = dossier.type.key.startsWith("RENOVATION_AMPLEUR");
@@ -899,6 +918,123 @@ export default async function DossierDetailPage({
         )}
       </Card>
 
+      {peutVoirFinances && syntheseFinanciere && argentBloque && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-emerald-600" />
+              <CardTitle>Synthèse financière</CardTitle>
+            </div>
+            <a href="#flux-financiers" className="text-xs font-medium text-slate-400 hover:text-emerald-700">
+              Voir le détail des mouvements →
+            </a>
+          </CardHeader>
+          <div className="space-y-5 p-5">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+              <dl className="space-y-1.5 text-sm">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                  CA contractuel
+                </p>
+                <Row label="CA contractuel" value={formatCents(syntheseFinanciere.caContractuelCts)} strong />
+                <Row label="Encaissements" value={formatCents(syntheseFinanciere.encaisseCts)} />
+                <Row label="Reste à encaisser" value={formatCents(syntheseFinanciere.resteAEncaisserCts)} />
+                {syntheseFinanciere.caConfidence !== "HIGH" && (
+                  <p className="pt-1 text-xs text-amber-600">
+                    CA {syntheseFinanciere.caConfidence === "LOW" ? "inconnu" : "incertain"} ({syntheseFinanciere.caSource})
+                  </p>
+                )}
+              </dl>
+
+              {peutVoirCoutsInternes ? (
+                <dl className="space-y-1.5 text-sm">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Coûts</p>
+                  <Row label="Coûts prévus" value={formatCents(syntheseFinanciere.sortiesPrevuesCts)} />
+                  <Row label="Coûts payés" value={formatCents(syntheseFinanciere.sortiesPayeesCts)} />
+                  <Row label="Reste à payer" value={formatCents(syntheseFinanciere.resteAPayerCts)} />
+                </dl>
+              ) : (
+                <dl className="space-y-1.5 text-sm">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Coûts</p>
+                  <p className="text-xs text-slate-400">Non visible pour votre rôle.</p>
+                </dl>
+              )}
+
+              {peutVoirMarge ? (
+                <dl className="space-y-1.5 text-sm">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Marge</p>
+                  <Row
+                    label="Prévisionnelle"
+                    value={`${formatCents(syntheseFinanciere.margePrevisionnelleCts)}${
+                      syntheseFinanciere.margePrevisionnellePct != null ? ` (${syntheseFinanciere.margePrevisionnellePct.toFixed(0)} %)` : ""
+                    }`}
+                  />
+                  <Row
+                    label="Réelle"
+                    value={`${formatCents(syntheseFinanciere.margeReelleCts)}${
+                      syntheseFinanciere.margeReellePct != null ? ` (${syntheseFinanciere.margeReellePct.toFixed(0)} %)` : ""
+                    }`}
+                    strong
+                  />
+                </dl>
+              ) : (
+                <dl className="space-y-1.5 text-sm">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Marge</p>
+                  <p className="text-xs text-slate-400">Non visible pour votre rôle.</p>
+                </dl>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 border-t border-slate-100 pt-4 sm:grid-cols-3">
+              <dl className="space-y-1.5 text-sm">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Créances ({creancesDossier.length})
+                </p>
+                {creancesDossier.length === 0 ? (
+                  <p className="text-xs text-slate-400">Aucune créance ouverte.</p>
+                ) : (
+                  creancesDossier.map((c) => (
+                    <Row key={c.mouvementId} label={c.debiteurNom ?? partiePrenanteLabels[c.debiteurType ?? "CLIENT"]} value={formatCents(c.resteCts)} />
+                  ))
+                )}
+              </dl>
+              {peutVoirCoutsInternes && (
+                <dl className="space-y-1.5 text-sm">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                    Dettes ({dettesDossier.length})
+                  </p>
+                  {dettesDossier.length === 0 ? (
+                    <p className="text-xs text-slate-400">Aucune dette ouverte.</p>
+                  ) : (
+                    dettesDossier.map((d) => (
+                      <Row
+                        key={d.mouvementId}
+                        label={d.beneficiaireNom ?? partiePrenanteLabels[d.beneficiaireType ?? "AUTRE"]}
+                        value={formatCents(d.resteCts)}
+                      />
+                    ))
+                  )}
+                </dl>
+              )}
+              <dl className="space-y-1.5 text-sm">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Argent bloqué</p>
+                <Row label="Total" value={formatCents(argentBloque.montantBloqueCts)} strong />
+                {argentBloque.details.map((d) => (
+                  <Row key={d.origine} label={d.origine} value={formatCents(d.montantCts)} />
+                ))}
+              </dl>
+            </div>
+
+            {syntheseFinanciere.limites.length > 0 && (
+              <ul className="border-t border-slate-100 pt-3 text-xs text-slate-400">
+                {syntheseFinanciere.limites.map((l) => (
+                  <li key={l}>· {l}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -968,6 +1104,7 @@ export default async function DossierDetailPage({
         </div>
       </Card>
 
+      <div id="flux-financiers" className="scroll-mt-6">
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -1022,12 +1159,44 @@ export default async function DossierDetailPage({
                               defaultValue={m.payeur ?? ""}
                               className={smallInputClass}
                             />
+                            <select name="payeurType" defaultValue={m.payeurType ?? ""} className={smallInputClass}>
+                              <option value="">Type payeur…</option>
+                              {Object.entries(partiePrenanteLabels).map(([v, l]) => (
+                                <option key={v} value={v}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
                             <input
                               name="beneficiaire"
                               placeholder="Bénéficiaire"
                               defaultValue={m.beneficiaire ?? ""}
                               className={smallInputClass}
                             />
+                            <select
+                              name="beneficiaireType"
+                              defaultValue={m.beneficiaireType ?? ""}
+                              className={smallInputClass}
+                            >
+                              <option value="">Type bénéficiaire…</option>
+                              {Object.entries(partiePrenanteLabels).map(([v, l]) => (
+                                <option key={v} value={v}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              name="exigibleQuand"
+                              defaultValue={m.exigibleQuand ?? ""}
+                              className={smallInputClass}
+                            >
+                              <option value="">Exigible quand…</option>
+                              {Object.entries(conditionExigibiliteLabels).map(([v, l]) => (
+                                <option key={v} value={v}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
                             <input
                               name="montantPrevu"
                               type="number"
@@ -1151,7 +1320,31 @@ export default async function DossierDetailPage({
               ))}
             </select>
             <input name="payeur" placeholder="Payeur" className={smallInputClass} />
+            <select name="payeurType" defaultValue="" className={smallInputClass}>
+              <option value="">Type payeur…</option>
+              {Object.entries(partiePrenanteLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
             <input name="beneficiaire" placeholder="Bénéficiaire" className={smallInputClass} />
+            <select name="beneficiaireType" defaultValue="" className={smallInputClass}>
+              <option value="">Type bénéficiaire…</option>
+              {Object.entries(partiePrenanteLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+            <select name="exigibleQuand" defaultValue="" className={smallInputClass}>
+              <option value="">Exigible quand…</option>
+              {Object.entries(conditionExigibiliteLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
             <input name="montantPrevu" type="number" step="0.01" placeholder="Prévu (€)" className={smallInputClass} />
             <input name="datePrevue" type="date" className={smallInputClass} />
             <div className="col-span-2 sm:col-span-6">
@@ -1163,6 +1356,7 @@ export default async function DossierDetailPage({
           </form>
         </div>
       </Card>
+      </div>
 
       <Card>
         <CardHeader>

@@ -7,6 +7,8 @@ import type {
   TypeMouvementFinancier,
   CategorieMouvementFinancier,
   StatutMouvementFinancier,
+  PartiePrenante,
+  ConditionExigibilite,
 } from "@/generated/prisma/enums";
 
 export const precariteLabels: Record<Precarite, string> = {
@@ -83,6 +85,18 @@ export const categorieMouvementLabels: Record<CategorieMouvementFinancier, strin
   COMMISSION_APPORTEUR: "Commission apporteur",
   AUTRE_ENTREE: "Autre entrée",
   AUTRE_SORTIE: "Autre sortie",
+  CLIENT_ACOMPTE: "Acompte client",
+  CLIENT_SOLDE: "Solde client",
+  REMBOURSEMENT_AVANCE_CLIENT: "Remboursement d'avance par le client",
+  FINANCEMENT_PARTENAIRE: "Financement partenaire",
+  POSE_INTERNE: "Pose interne (régie)",
+  PAIEMENT_MAR: "Paiement MAR",
+  PAIEMENT_AUDIT: "Paiement audit",
+  PAIEMENT_CONTROLE: "Paiement contrôle",
+  TRANSPORT: "Transport",
+  LOCATION_MATERIEL: "Location matériel",
+  ECHAFAUDAGE: "Échafaudage",
+  FRAIS_FINANCEMENT: "Frais de financement",
 };
 
 export const statutMouvementLabels: Record<StatutMouvementFinancier, string> = {
@@ -94,6 +108,34 @@ export const statutMouvementLabels: Record<StatutMouvementFinancier, string> = {
   PAYE: "Payé",
   ANNULE: "Annulé",
   EN_RETARD: "En retard",
+  LITIGE: "Litige",
+  BLOQUE: "Bloqué",
+};
+
+export const partiePrenanteLabels: Record<PartiePrenante, string> = {
+  CLIENT: "Client",
+  ENTREPRISE: "Entreprise",
+  ANAH: "ANAH",
+  CEE: "CEE",
+  FINANCEUR: "Financeur",
+  FOURNISSEUR: "Fournisseur",
+  SOUS_TRAITANT: "Sous-traitant",
+  REGIE: "Régie",
+  COMMERCIAL: "Commercial",
+  APPORTEUR: "Apporteur d'affaires",
+  MAR: "MAR",
+  AUTRE: "Autre",
+};
+
+export const conditionExigibiliteLabels: Record<ConditionExigibilite, string> = {
+  A_LA_SIGNATURE: "À la signature",
+  A_L_ACCEPTATION: "À l'acceptation",
+  AU_DEMARRAGE_TRAVAUX: "Au démarrage des travaux",
+  A_LA_FIN_TRAVAUX: "À la fin des travaux",
+  A_L_ENCAISSEMENT_CLIENT: "À l'encaissement client",
+  A_L_ENCAISSEMENT_ANAH: "À l'encaissement ANAH",
+  A_L_ENCAISSEMENT_CEE: "À l'encaissement CEE",
+  MANUEL: "Manuel",
 };
 
 export function resteAChargeCents(dossier: {

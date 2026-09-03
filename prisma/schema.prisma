@@ -105,6 +105,12 @@ enum TypeMouvementFinancier {
   SORTIE
 }
 
+// P6 : valeurs ajoutées de façon purement additive (jamais de renommage ni
+// suppression) pour ne casser aucune donnée existante. ENCAISSEMENT_CLIENT/
+// ANAH/MPR/CEE, PAIEMENT_SOUS_TRAITANT/FOURNISSEUR et COMMISSION_* restent
+// les catégories historiques ; les nouvelles couvrent les flux génériques
+// demandés par le moteur financier (financement partenaire, avances,
+// prestataires divers) qui n'avaient pas encore de catégorie dédiée.
 enum CategorieMouvementFinancier {
   ENCAISSEMENT_CLIENT
   ENCAISSEMENT_ANAH
@@ -117,6 +123,23 @@ enum CategorieMouvementFinancier {
   COMMISSION_APPORTEUR
   AUTRE_ENTREE
   AUTRE_SORTIE
+  // --- Entrées supplémentaires (P6) ---
+  CLIENT_ACOMPTE
+  CLIENT_SOLDE
+  // Remboursement par le client d'une avance faite par l'entreprise (ex :
+  // l'ANAH verse l'aide directement au client alors que l'entreprise avait
+  // déjà déduit ce montant de la facture) - jamais du CA, cf. financial-engine.ts.
+  REMBOURSEMENT_AVANCE_CLIENT
+  FINANCEMENT_PARTENAIRE
+  // --- Sorties supplémentaires (P6) ---
+  POSE_INTERNE
+  PAIEMENT_MAR
+  PAIEMENT_AUDIT
+  PAIEMENT_CONTROLE
+  TRANSPORT
+  LOCATION_MATERIEL
+  ECHAFAUDAGE
+  FRAIS_FINANCEMENT
 }
 
 enum StatutMouvementFinancier {
@@ -128,6 +151,40 @@ enum StatutMouvementFinancier {
   PAYE
   ANNULE
   EN_RETARD
+  LITIGE
+  BLOQUE
+}
+
+// Qui paie / qui reçoit, en complément du libellé libre payeur/beneficiaire
+// (nom) déjà existant sur MouvementFinancier - permet de filtrer/agréger
+// par type de partie prenante sans dépendre d'un texte libre.
+enum PartiePrenante {
+  CLIENT
+  ENTREPRISE
+  ANAH
+  CEE
+  FINANCEUR
+  FOURNISSEUR
+  SOUS_TRAITANT
+  REGIE
+  COMMERCIAL
+  APPORTEUR
+  MAR
+  AUTRE
+}
+
+// Condition d'exigibilité d'un mouvement (utile surtout pour les
+// commissions/dettes) - champ préparé pour la V1, pas encore de moteur
+// événementiel qui déclenche automatiquement le passage à A_PAYER/A_RECEVOIR.
+enum ConditionExigibilite {
+  A_LA_SIGNATURE
+  A_L_ACCEPTATION
+  AU_DEMARRAGE_TRAVAUX
+  A_LA_FIN_TRAVAUX
+  A_L_ENCAISSEMENT_CLIENT
+  A_L_ENCAISSEMENT_ANAH
+  A_L_ENCAISSEMENT_CEE
+  MANUEL
 }
 
 // Flux métier auquel une étape de programme se rattache (vue synthétique,
@@ -612,11 +669,20 @@ model MouvementFinancier {
 
   payeur       String? // libellé libre : "Client", "ANAH", "Délégataire CEE X"...
   beneficiaire String?
+  // Type de partie prenante (P6) - complète payeur/beneficiaire (le nom
+  // libre) sans les remplacer, pour permettre les agrégations génériques
+  // (créances = ENTREE où payeurType = CLIENT, dettes = SORTIE non soldée...).
+  payeurType       PartiePrenante?
+  beneficiaireType PartiePrenante?
 
   montantPrevuCts Int?
   montantReelCts  Int?
   datePrevue      DateTime?
   dateReelle      DateTime?
+
+  // Quand ce mouvement devient exigible (P6, section 17) - champ informatif
+  // pour la V1, non branché à un moteur événementiel automatique.
+  exigibleQuand ConditionExigibilite?
 
   statut StatutMouvementFinancier @default(PREVU)
   // Origine libre - utiliser la valeur "SOURCE_EXISTANTE_AGREGEE" pour tout

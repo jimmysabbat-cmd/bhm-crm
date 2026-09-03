@@ -342,15 +342,33 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
       const joursRetard = mouvementJoursRetard(m);
       const montant = m.montantReelCts ?? m.montantPrevuCts ?? 0;
 
+      // P6 section 24 : remonter aussi les mouvements devenus exigibles
+      // (créance client, CEE/ANAH attendus, fournisseur/sous-traitant/
+      // commission à payer) même avant qu'ils ne soient en retard - pas
+      // uniquement les mouvements déjà en retard, pour que "sous-traitant
+      // exigible" / "commission exigible" remontent au bon moment.
+      const estExigible = ["A_PAYER", "A_RECEVOIR", "PARTIEL", "LITIGE", "BLOQUE"].includes(m.statut);
+      if (!late && !estExigible) continue;
+
       const { total, reasons } = score({
         joursRetard,
         montantBloqueCts: montant,
-        bloque: false,
+        bloque: m.statut === "BLOQUE",
         documentManquant: false,
         typeAction: "MOUVEMENT_FINANCIER",
         delaiAlerteDepasse: false,
       });
-      if (!late) continue; // uniquement les mouvements en retard, pour ne pas noyer la liste
+      if (m.statut === "LITIGE") reasons.push("Mouvement en litige");
+
+      const suffixe = late
+        ? "en retard"
+        : m.statut === "LITIGE"
+          ? "en litige"
+          : m.statut === "BLOQUE"
+            ? "bloqué"
+            : m.type === "ENTREE"
+              ? "à recevoir"
+              : "à payer";
 
       actions.push({
         id: `mouvement:${m.id}`,
@@ -360,7 +378,7 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
         client: clientLabel,
         referenceDossier: dossier.reference,
         typeAction: "MOUVEMENT_FINANCIER",
-        titre: `${categorieMouvementLabels[m.categorie]} en retard`,
+        titre: `${categorieMouvementLabels[m.categorie]} ${suffixe}`,
         description: m.commentaire,
         origine: "MouvementFinancier",
         statut: m.statut,
@@ -372,7 +390,9 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
         joursRetard,
         niveauUrgence: niveauFromScore(total),
         montantBloqueCts: montant,
-        raisonMontantBloque: `${categorieMouvementLabels[m.categorie]} prévu le ${m.datePrevue?.toLocaleDateString("fr-FR")}`,
+        raisonMontantBloque: m.datePrevue
+          ? `${categorieMouvementLabels[m.categorie]} prévu le ${m.datePrevue.toLocaleDateString("fr-FR")}`
+          : `${categorieMouvementLabels[m.categorie]} sans date prévue`,
         route,
         reasons,
         priorityScore: total,

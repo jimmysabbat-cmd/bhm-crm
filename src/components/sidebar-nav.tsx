@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Wallet } from "lucide-react";
 
 const icons = {
   tresorerie: LayoutDashboard,
   dossiers: FolderKanban,
   taches: CheckSquare,
+  finances: Wallet,
   parametrage: Settings,
 };
 

@@ -8,7 +8,7 @@ const STATUTS_MOUVEMENT_TERMINAUX: StatutMouvementFinancier[] = ["RECU", "PAYE",
 // (montantAideMPR/CEE, montantEncaisse*) - ne jamais les recompter aussi
 // via MouvementFinancier tant que celui-ci n'est pas la source de vérité
 // unique (cf. section 5/6 du prompt P3 : coexistence assumée pour l'instant).
-const CATEGORIES_COUVERTES_PAR_AGREGATS = new Set([
+export const CATEGORIES_COUVERTES_PAR_AGREGATS = new Set([
   "ENCAISSEMENT_CLIENT",
   "ENCAISSEMENT_ANAH",
   "ENCAISSEMENT_MPR",

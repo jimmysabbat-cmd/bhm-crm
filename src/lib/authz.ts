@@ -78,13 +78,32 @@ export function requireRole(ctx: UserContext, ...roles: Role[]): void {
   }
 }
 
-export type Permission = "VIEW_ALL_ACTIONS" | "MANAGE_FINANCES" | "MANAGE_PROGRAMMES" | "MANAGE_EQUIPE";
+export type Permission =
+  | "VIEW_ALL_ACTIONS"
+  | "MANAGE_FINANCES"
+  | "MANAGE_PROGRAMMES"
+  | "MANAGE_EQUIPE"
+  // P6 - moteur financier (section 26). ADMIN a toujours tout. COMPTABILITE
+  // (+ COMPTA legacy) a la vue finance complète, y compris coûts internes et
+  // marge. ADMINISTRATIF ne voit que ce qui est nécessaire aux encaissements
+  // et aides (résumé financier), jamais la marge ni les coûts internes.
+  // COMMERCIAL/REGIE/SOUS_TRAITANT/TECHNIQUE n'ont aucune de ces permissions
+  // par défaut - "sauf permission explicite" (non implémentée en V1 : pas de
+  // permissions par utilisateur, seulement par rôle).
+  | "VIEW_FINANCIAL_SUMMARY"
+  | "VIEW_INTERNAL_COSTS"
+  | "VIEW_MARGIN"
+  | "MANAGE_FINANCE";
 
 const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_ALL_ACTIONS: ["ADMIN"],
   MANAGE_FINANCES: ["ADMIN", "COMPTA", "COMPTABILITE"],
   MANAGE_PROGRAMMES: ["ADMIN"],
   MANAGE_EQUIPE: ["ADMIN"],
+  VIEW_FINANCIAL_SUMMARY: ["ADMIN", "COMPTA", "COMPTABILITE", "ADMINISTRATIF"],
+  VIEW_INTERNAL_COSTS: ["ADMIN", "COMPTA", "COMPTABILITE"],
+  VIEW_MARGIN: ["ADMIN", "COMPTA", "COMPTABILITE"],
+  MANAGE_FINANCE: ["ADMIN", "COMPTA", "COMPTABILITE"],
 };
 
 export function hasPermission(ctx: UserContext, permission: Permission): boolean {

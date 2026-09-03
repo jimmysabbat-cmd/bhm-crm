@@ -13,11 +13,12 @@ import {
   CalendarClock,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext } from "@/lib/authz";
+import { requireUserContext, hasPermission } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { getNextBestActions, estCetteSemaine } from "@/lib/next-best-action";
 import { calculateBlockedAmountByFlux } from "@/lib/finance";
+import { getMargesDossiers, getMouvementsNonSoldes } from "@/lib/financial-engine";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, statutColor } from "@/components/ui/Badge";
@@ -166,6 +167,30 @@ export default async function DashboardPage() {
     ).length,
   };
 
+  // Indicateurs du moteur financier (P6, section 23) - masqués aux rôles
+  // sans VIEW_FINANCIAL_SUMMARY, sous-masqués pour marge/coûts internes.
+  // Aucune valeur codée en dur : tout vient de financial-engine.ts.
+  const peutVoirFinances = hasPermission(ctx, "VIEW_FINANCIAL_SUMMARY");
+  const peutVoirMarge = hasPermission(ctx, "VIEW_MARGIN");
+  const peutVoirCoutsInternes = hasPermission(ctx, "VIEW_INTERNAL_COSTS");
+  const [margesDossiers, entreesNonSoldees, sortiesNonSoldees] = peutVoirFinances
+    ? await Promise.all([
+        getMargesDossiers(ctx.organisationId),
+        getMouvementsNonSoldes(ctx.organisationId, "ENTREE"),
+        peutVoirCoutsInternes ? getMouvementsNonSoldes(ctx.organisationId, "SORTIE") : Promise.resolve([]),
+      ])
+    : [[], [], []];
+
+  const indicateursFinanciers = {
+    caContractuelActifCts: margesDossiers.reduce((s, d) => s + d.caContractuelCts, 0),
+    totalAEncaisserCts: margesDossiers.reduce((s, d) => s + d.resteAEncaisserCts, 0),
+    encaissementsEnRetard: entreesNonSoldees.filter((m) => m.enRetard).length,
+    totalAPayerCts: sortiesNonSoldees.reduce((s, m) => s + m.resteCts, 0),
+    margePrevisionnelleCts: margesDossiers.reduce((s, d) => s + d.margePrevisionnelleCts, 0),
+    margeReelleCts: margesDossiers.reduce((s, d) => s + d.margeReelleCts, 0),
+    creancesOuvertesCts: margesDossiers.reduce((s, d) => s + d.creancesCts, 0),
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-8 py-10">
       <div className="flex items-start justify-between gap-4">
@@ -307,6 +332,32 @@ export default async function DashboardPage() {
           </div>
         </Card>
       </section>
+
+      {peutVoirFinances && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900">Moteur financier</h2>
+            <Link href="/finances" className="flex items-center gap-1 text-sm text-slate-500 hover:text-emerald-700">
+              Voir /finances <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="CA contractuel actif" value={indicateursFinanciers.caContractuelActifCts} icon={TrendingUp} tone="slate" />
+            <StatCard label="Total à encaisser" value={indicateursFinanciers.totalAEncaisserCts} icon={Landmark} tone="blue" />
+            <StatCard label="Créances ouvertes" value={indicateursFinanciers.creancesOuvertesCts} icon={Wallet} tone="violet" />
+            <CountCard label="Encaissements en retard" value={indicateursFinanciers.encaissementsEnRetard} icon={AlertTriangle} tone="red" />
+            {peutVoirCoutsInternes && (
+              <StatCard label="Total à payer" value={indicateursFinanciers.totalAPayerCts} icon={HandCoins} tone="amber" />
+            )}
+            {peutVoirMarge && (
+              <StatCard label="Marge prévisionnelle" value={indicateursFinanciers.margePrevisionnelleCts} icon={TrendingUp} tone="emerald" />
+            )}
+            {peutVoirMarge && (
+              <StatCard label="Marge réelle disponible" value={indicateursFinanciers.margeReelleCts} icon={TrendingUp} tone="emerald" />
+            )}
+          </div>
+        </section>
+      )}
 
       {mandataire.count > 0 && (
         <section className="space-y-3">

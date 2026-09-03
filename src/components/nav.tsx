@@ -26,10 +26,16 @@ export async function Nav() {
   const session = await auth();
   if (!session?.user) return null;
 
-  const isAdmin = (session.user as { role?: string }).role === "ADMIN";
-  const allLinks = isAdmin
-    ? [...links, { href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }]
-    : links;
+  const role = (session.user as { role?: string }).role;
+  const isAdmin = role === "ADMIN";
+  // Section 21 du prompt P6 : /finances accessible à ADMIN/direction et aux
+  // rôles comptabilité (nom historique COMPTA conservé pour compatibilité).
+  const peutVoirFinances = isAdmin || role === "COMPTABILITE" || role === "COMPTA";
+  const allLinks = [
+    ...links,
+    ...(peutVoirFinances ? [{ href: "/finances", label: "Finances", icon: "finances" as const }] : []),
+    ...(isAdmin ? [{ href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }] : []),
+  ];
 
   const initial = session.user.name?.[0]?.toUpperCase() ?? "?";
   const logo = findLogo();
