@@ -93,7 +93,15 @@ export type Permission =
   | "VIEW_FINANCIAL_SUMMARY"
   | "VIEW_INTERNAL_COSTS"
   | "VIEW_MARGIN"
-  | "MANAGE_FINANCE";
+  | "MANAGE_FINANCE"
+  // P7 - moteur réglementaire (section 32). MANAGE_REGLEMENTATION couvre
+  // publier une version, modifier un barème, modifier un tarif délégataire
+  // et faire un override réglementaire - réservé à la direction. Les autres
+  // rôles internes (hors REGIE/SOUS_TRAITANT, sans accès global finance/
+  // réglementaire déjà en P6) peuvent simuler un calcul CEE sans rien
+  // modifier de la réglementation.
+  | "MANAGE_REGLEMENTATION"
+  | "SIMULATE_REGLEMENTATION";
 
 const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_ALL_ACTIONS: ["ADMIN"],
@@ -104,6 +112,8 @@ const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_INTERNAL_COSTS: ["ADMIN", "COMPTA", "COMPTABILITE"],
   VIEW_MARGIN: ["ADMIN", "COMPTA", "COMPTABILITE"],
   MANAGE_FINANCE: ["ADMIN", "COMPTA", "COMPTABILITE"],
+  MANAGE_REGLEMENTATION: ["ADMIN"],
+  SIMULATE_REGLEMENTATION: ["ADMIN", "COMMERCIAL", "COMPTA", "COMPTABILITE", "ADMINISTRATIF", "TECHNIQUE"],
 };
 
 export function hasPermission(ctx: UserContext, permission: Permission): boolean {

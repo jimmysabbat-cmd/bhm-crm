@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { calculerDelaiEtape } from "@/lib/workflow";
 import { calculateBlockedAmountForDossier, mouvementIsLate, mouvementJoursRetard } from "@/lib/finance";
+import { calculateCeeValuation } from "@/lib/reglementaire/valuation";
 import { typeDocumentLabels, categorieMouvementLabels } from "@/lib/dossier-labels";
-import type { Role } from "@/generated/prisma/enums";
+import type { Role, Precarite } from "@/generated/prisma/enums";
+
+function categorieCeeFromPrecarite(precarite: Precarite | null): "TRES_MODESTE" | "CLASSIQUE" {
+  return precarite === "TRES_MODESTE" ? "TRES_MODESTE" : "CLASSIQUE";
+}
 
 export const roleLabels: Record<string, string> = {
   ADMIN: "Direction",
@@ -16,7 +21,7 @@ export const roleLabels: Record<string, string> = {
 };
 
 export type NiveauUrgence = "BASSE" | "NORMALE" | "HAUTE" | "CRITIQUE";
-export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT";
+export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT" | "REGLEMENTAIRE_CEE";
 
 export type NextBestAction = {
   id: string;
@@ -114,6 +119,7 @@ function score(params: {
     TACHE: 5,
     MOUVEMENT_FINANCIER: 8,
     DOCUMENT_MANQUANT: 12,
+    REGLEMENTAIRE_CEE: 10,
   };
   total += urgencyBase[params.typeAction];
 
@@ -147,8 +153,9 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
     select: {
       id: true,
       reference: true,
-      client: { select: { prenom: true, nom: true } },
+      client: { select: { prenom: true, nom: true, precarite: true } },
       documents: { select: { type: true } },
+      delegataireCeeId: true,
       dossierEtapes: {
         where: { statut: { in: ["A_FAIRE", "EN_COURS", "BLOQUE"] } },
         include: {
@@ -162,6 +169,16 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
         include: { assigneA: { select: { id: true, name: true } } },
       },
       mouvementsFinanciers: { where: { statut: { notIn: ["RECU", "PAYE", "ANNULE"] } } },
+      postesTravaux: {
+        where: { ficheReglementaireCode: { not: null } },
+        select: {
+          id: true,
+          type: true,
+          ficheReglementaireCode: true,
+          createdAt: true,
+          calculReglementaireActif: { select: { statutEligibilite: true, kwhCumac: true, overrideStatutEligibilite: true } },
+        },
+      },
     },
   });
 
@@ -401,6 +418,155 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
         nombreRelances: 0,
         mouvementType: m.type,
       });
+    }
+
+    // --- Réglementaire CEE (P7, section 27) - uniquement pour les postes
+    // déjà rattachés à une fiche réglementaire (ficheReglementaireCode
+    // renseigné) : on ne remonte jamais d'action sur un poste qui n'a
+    // jamais utilisé le nouveau moteur, faute d'information fiable.
+    for (const poste of dossier.postesTravaux) {
+      if (!matchesScope(ctx, null, "ADMINISTRATIF" as Role)) continue;
+      const calcul = poste.calculReglementaireActif;
+      if (!calcul) continue;
+      const statutEffectif = calcul.overrideStatutEligibilite ?? calcul.statutEligibilite;
+
+      if (statutEffectif === "DONNEES_INSUFFISANTES" || statutEffectif === "A_CONFIRMER") {
+        const { total, reasons: scoreReasons } = score({
+          joursRetard: 0,
+          montantBloqueCts: 0,
+          bloque: false,
+          documentManquant: false,
+          typeAction: "REGLEMENTAIRE_CEE",
+          delaiAlerteDepasse: false,
+        });
+        scoreReasons.push(
+          statutEffectif === "DONNEES_INSUFFISANTES"
+            ? "Données CEE manquantes pour confirmer l'éligibilité"
+            : "Fiche CEE à confirmer (validation documentaire/qualification requise)"
+        );
+        actions.push({
+          id: `reglementaire:${poste.id}:donnees`,
+          sourceId: poste.id,
+          organisationId: ctx.organisationId,
+          dossierId: dossier.id,
+          client: clientLabel,
+          referenceDossier: dossier.reference,
+          typeAction: "REGLEMENTAIRE_CEE",
+          titre: `${poste.ficheReglementaireCode} : ${statutEffectif === "DONNEES_INSUFFISANTES" ? "données manquantes" : "à confirmer"}`,
+          description: null,
+          origine: "CalculReglementaire",
+          statut: statutEffectif,
+          responsableUserId: null,
+          responsableRole: "ADMINISTRATIF" as Role,
+          responsableLabel: roleLabels.ADMINISTRATIF,
+          dateCreation: poste.createdAt,
+          dateEcheance: null,
+          joursRetard: 0,
+          niveauUrgence: niveauFromScore(total),
+          montantBloqueCts: 0,
+          raisonMontantBloque: null,
+          route,
+          reasons: scoreReasons,
+          priorityScore: total,
+          flux: "CEE",
+          tacheRelanceId: null,
+          nombreRelances: 0,
+          mouvementType: null,
+        });
+        continue;
+      }
+
+      if (calcul.kwhCumac != null && calcul.kwhCumac > 0) {
+        if (!dossier.delegataireCeeId) {
+          const { total, reasons: scoreReasons } = score({
+            joursRetard: 0,
+            montantBloqueCts: 0,
+            bloque: false,
+            documentManquant: false,
+            typeAction: "REGLEMENTAIRE_CEE",
+            delaiAlerteDepasse: false,
+          });
+          scoreReasons.push(`${poste.ficheReglementaireCode} : cumac calculé mais aucun délégataire CEE choisi sur le dossier`);
+          actions.push({
+            id: `reglementaire:${poste.id}:delegataire`,
+            sourceId: poste.id,
+            organisationId: ctx.organisationId,
+            dossierId: dossier.id,
+            client: clientLabel,
+            referenceDossier: dossier.reference,
+            typeAction: "REGLEMENTAIRE_CEE",
+            titre: `${poste.ficheReglementaireCode} : aucun délégataire configuré`,
+            description: null,
+            origine: "CalculReglementaire",
+            statut: statutEffectif,
+            responsableUserId: null,
+            responsableRole: "ADMINISTRATIF" as Role,
+            responsableLabel: roleLabels.ADMINISTRATIF,
+            dateCreation: poste.createdAt,
+            dateEcheance: null,
+            joursRetard: 0,
+            niveauUrgence: niveauFromScore(total),
+            montantBloqueCts: 0,
+            raisonMontantBloque: null,
+            route,
+            reasons: scoreReasons,
+            priorityScore: total,
+            flux: "CEE",
+            tacheRelanceId: null,
+            nombreRelances: 0,
+            mouvementType: null,
+          });
+        } else {
+          const valuation = await calculateCeeValuation({
+            organisationId: ctx.organisationId,
+            kwhCumac: calcul.kwhCumac,
+            delegataireId: dossier.delegataireCeeId,
+            ficheCode: poste.ficheReglementaireCode!,
+            categorie: categorieCeeFromPrecarite(dossier.client.precarite),
+            date: new Date(),
+          });
+          if (!valuation) {
+            const { total, reasons: scoreReasons } = score({
+              joursRetard: 0,
+              montantBloqueCts: 0,
+              bloque: false,
+              documentManquant: false,
+              typeAction: "REGLEMENTAIRE_CEE",
+              delaiAlerteDepasse: false,
+            });
+            scoreReasons.push(`${poste.ficheReglementaireCode} : cumac calculé mais aucun tarif délégataire applicable (non valorisé)`);
+            actions.push({
+              id: `reglementaire:${poste.id}:valorisation`,
+              sourceId: poste.id,
+              organisationId: ctx.organisationId,
+              dossierId: dossier.id,
+              client: clientLabel,
+              referenceDossier: dossier.reference,
+              typeAction: "REGLEMENTAIRE_CEE",
+              titre: `${poste.ficheReglementaireCode} : CEE calculé mais non valorisé`,
+              description: null,
+              origine: "CalculReglementaire",
+              statut: statutEffectif,
+              responsableUserId: null,
+              responsableRole: "ADMINISTRATIF" as Role,
+              responsableLabel: roleLabels.ADMINISTRATIF,
+              dateCreation: poste.createdAt,
+              dateEcheance: null,
+              joursRetard: 0,
+              niveauUrgence: niveauFromScore(total),
+              montantBloqueCts: 0,
+              raisonMontantBloque: null,
+              route,
+              reasons: scoreReasons,
+              priorityScore: total,
+              flux: "CEE",
+              tacheRelanceId: null,
+              nombreRelances: 0,
+              mouvementType: null,
+            });
+          }
+        }
+      }
     }
   }
 

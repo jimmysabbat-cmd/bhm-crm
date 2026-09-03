@@ -35,6 +35,7 @@ import {
   statutMouvementLabels,
   partiePrenanteLabels,
   conditionExigibiliteLabels,
+  statutEligibiliteReglementaireLabels,
 } from "@/lib/dossier-labels";
 import {
   createTache,
@@ -70,6 +71,8 @@ import {
   marquerMouvementPaye,
   annulerMouvementFinancier,
 } from "../mouvement-actions";
+import { calculerReglementaireDossier, overrideCalculReglementaire } from "../reglementaire-actions";
+import { compareCeeDelegates } from "@/lib/reglementaire/valuation";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge, statutColor } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -179,7 +182,11 @@ export default async function DossierDetailPage({
         taches: { orderBy: { dateEcheance: "asc" } },
         postesTravaux: {
           orderBy: { createdAt: "asc" },
-          include: { sousTraitant: true, regie: true },
+          include: {
+            sousTraitant: true,
+            regie: true,
+            calculReglementaireActif: { include: { ruleVersion: { include: { regle: true } } } },
+          },
         },
         documents: { orderBy: { createdAt: "desc" } },
         mouvementsFinanciers: { orderBy: { createdAt: "desc" } },
@@ -232,6 +239,29 @@ export default async function DossierDetailPage({
         peutVoirCoutsInternes ? getDettesForDossier(dossier.id) : Promise.resolve([]),
       ])
     : [null, null, [], []];
+
+  // Section réglementaire (P7) - comparatif délégataires précalculé pour
+  // chaque poste ayant un cumac connu, pour éviter tout calcul dans le JSX.
+  const peutSimulerReglementaire = hasPermission(ctx, "SIMULATE_REGLEMENTATION");
+  const peutGererReglementaire = hasPermission(ctx, "MANAGE_REGLEMENTATION");
+  const categorieCeeDossier = dossier.client.precarite === "TRES_MODESTE" ? "TRES_MODESTE" : "CLASSIQUE";
+  const comparatifCeeParPoste = new Map<string, Awaited<ReturnType<typeof compareCeeDelegates>>>();
+  if (peutSimulerReglementaire) {
+    for (const poste of dossier.postesTravaux) {
+      if (poste.calculReglementaireActif?.kwhCumac != null && poste.ficheReglementaireCode) {
+        comparatifCeeParPoste.set(
+          poste.id,
+          await compareCeeDelegates({
+            organisationId: ctx.organisationId,
+            kwhCumac: poste.calculReglementaireActif.kwhCumac,
+            ficheCode: poste.ficheReglementaireCode,
+            categorie: categorieCeeDossier,
+            date: new Date(),
+          })
+        );
+      }
+    }
+  }
 
   const resteACharge = resteAChargeCents(dossier);
   const isRenoAmpleur = dossier.type.key.startsWith("RENOVATION_AMPLEUR");
@@ -1515,6 +1545,163 @@ export default async function DossierDetailPage({
                 </div>
               </form>
             ))}
+            {dossier.postesTravaux
+              .filter((poste) => poste.type === "PAC_AIR_EAU" && peutSimulerReglementaire)
+              .map((poste) => {
+                const calcul = poste.calculReglementaireActif;
+                const comparatif = comparatifCeeParPoste.get(poste.id) ?? [];
+                return (
+                  <div key={`${poste.id}-reglementaire`} className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
+                      <ClipboardCheck className="h-3.5 w-3.5" />
+                      Réglementaire CEE — BAR-TH-171 ({poste.surfaceM2 ?? "?"} m²)
+                    </p>
+
+                    {calcul ? (
+                      <div className="space-y-2 rounded-lg bg-white p-3 text-xs">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <span>
+                            <strong>Statut :</strong>{" "}
+                            {statutEligibiliteReglementaireLabels[calcul.overrideStatutEligibilite ?? calcul.statutEligibilite]}
+                          </span>
+                          <span>
+                            <strong>kWh cumac :</strong> {(calcul.overrideKwhCumac ?? calcul.kwhCumac)?.toLocaleString("fr-FR") ?? "—"}
+                          </span>
+                          <span>
+                            <strong>Version :</strong> {calcul.ruleVersion.regle.code} v{calcul.ruleVersion.numeroVersion}
+                          </span>
+                        </div>
+                        <p className="text-slate-500">
+                          Applicable du {calcul.ruleVersion.dateDebutEffet.toLocaleDateString("fr-FR")} au{" "}
+                          {calcul.ruleVersion.dateFinEffet ? calcul.ruleVersion.dateFinEffet.toLocaleDateString("fr-FR") : "aujourd'hui"} — source :{" "}
+                          {calcul.ruleVersion.sourceNom}.
+                        </p>
+                        {calcul.overrideReason && (
+                          <p className="text-amber-700">
+                            <strong>Override :</strong> {calcul.overrideReason}
+                          </p>
+                        )}
+                        {peutGererReglementaire && (
+                          <form
+                            action={overrideCalculReglementaire.bind(null, calcul.id)}
+                            className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2"
+                          >
+                            <div className="space-y-1">
+                              <label className={labelClass}>Override kWh cumac</label>
+                              <input
+                                name="overrideKwhCumac"
+                                type="number"
+                                className={smallInputClass}
+                                defaultValue={calcul.overrideKwhCumac ?? ""}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className={labelClass}>Override statut</label>
+                              <select
+                                name="overrideStatutEligibilite"
+                                className={smallInputClass}
+                                defaultValue={calcul.overrideStatutEligibilite ?? ""}
+                              >
+                                <option value="">—</option>
+                                {Object.entries(statutEligibiliteReglementaireLabels).map(([v, l]) => (
+                                  <option key={v} value={v}>
+                                    {l}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="min-w-[10rem] flex-1 space-y-1">
+                              <label className={labelClass}>Raison (obligatoire)</label>
+                              <input name="overrideReason" className={smallInputClass} defaultValue={calcul.overrideReason ?? ""} />
+                            </div>
+                            <Button type="submit" variant="ghost" className="text-xs">
+                              Override
+                            </Button>
+                          </form>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">Aucun calcul réglementaire enregistré pour ce poste.</p>
+                    )}
+
+                    <form action={calculerReglementaireDossier} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <input type="hidden" name="dossierId" value={dossier.id} />
+                      <input type="hidden" name="posteTravauxId" value={poste.id} />
+                      <input type="hidden" name="ficheCode" value="BAR-TH-171" />
+                      <select name="zoneClimatique" defaultValue={dossier.client.zoneClimatique ?? ""} className={smallInputClass}>
+                        <option value="">Zone…</option>
+                        <option value="H1">H1</option>
+                        <option value="H2">H2</option>
+                        <option value="H3">H3</option>
+                      </select>
+                      <input
+                        name="surfaceChauffeeM2"
+                        type="number"
+                        step="0.01"
+                        placeholder="Surface chauffée (m²)"
+                        defaultValue={poste.surfaceM2 ?? ""}
+                        className={smallInputClass}
+                      />
+                      <select name="etasBande" className={smallInputClass} defaultValue="">
+                        <option value="">ETAS…</option>
+                        <option value="111a140">111 % ≤ ETAS &lt; 140 %</option>
+                        <option value="plus140">ETAS ≥ 140 %</option>
+                      </select>
+                      <div className="flex gap-2">
+                        <Button
+                          type="submit"
+                          variant="secondary"
+                          className="text-xs"
+                          formAction={async (formData: FormData) => {
+                            "use server";
+                            formData.set("type", "SIMULATION");
+                            await calculerReglementaireDossier(formData);
+                          }}
+                        >
+                          Simuler
+                        </Button>
+                        <Button
+                          type="submit"
+                          className="text-xs"
+                          formAction={async (formData: FormData) => {
+                            "use server";
+                            formData.set("type", "OFFICIEL");
+                            await calculerReglementaireDossier(formData);
+                          }}
+                        >
+                          Enregistrer officiel
+                        </Button>
+                      </div>
+                    </form>
+
+                    {comparatif.length > 0 && (
+                      <div className="rounded-lg bg-white p-3 text-xs">
+                        <p className="mb-1.5 font-medium text-slate-700">Comparaison valorisation par délégataire</p>
+                        <table className="w-full text-xs">
+                          <thead className="text-left text-slate-400">
+                            <tr>
+                              <th className="py-1 pr-3">Délégataire</th>
+                              <th className="py-1 pr-3 text-right">Taux €/MWhc</th>
+                              <th className="py-1 pr-3 text-right">Prime</th>
+                              <th className="py-1 text-right">Délai paiement</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {comparatif.map((c) => (
+                              <tr key={c.delegataireId} className="border-t border-slate-100">
+                                <td className="py-1 pr-3">{c.delegataireNom}</td>
+                                <td className="py-1 pr-3 text-right">{(c.tauxCtsParMwhc / 100).toFixed(2)} €</td>
+                                <td className="py-1 pr-3 text-right font-medium">{formatCents(c.primeCts)}</td>
+                                <td className="py-1 text-right">{c.delaiPaiementJours ?? "—"} j</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             {dossier.postesTravaux.length === 0 && (
               <p className="text-sm text-slate-400">Aucun poste de travaux.</p>
             )}

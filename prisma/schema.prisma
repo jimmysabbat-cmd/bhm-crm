@@ -239,6 +239,8 @@ model Organisation {
   programmes           Programme[]
   dossierEtapes        DossierEtape[]
   reglesRelance        RegleRelance[]
+  calculsReglementaires CalculReglementaire[]
+  tarifsDelegataireCee  TarifDelegataireCee[]
 }
 
 model User {
@@ -259,6 +261,8 @@ model User {
   mouvementsCrees        MouvementFinancier[]
   auditLogs              AuditLog[]
   dossierEtapesAssignees DossierEtape[]
+  calculsReglementairesCrees    CalculReglementaire[] @relation("CalculReglementaireCreatedBy")
+  calculsReglementairesOverrides CalculReglementaire[] @relation("CalculReglementaireOverrideBy")
 
   @@index([organisationId])
 }
@@ -338,6 +342,7 @@ model DelegataireCee {
   delaiPaiementJours   Int?
 
   dossiers Dossier[]
+  tarifs   TarifDelegataireCee[]
 }
 
 // Statuts du suivi administratif ANAH (spécifique rénovation d'ampleur),
@@ -478,6 +483,7 @@ model Dossier {
   commandes            Commande[]
   mouvementsFinanciers MouvementFinancier[]
   dossierEtapes        DossierEtape[]
+  calculsReglementaires CalculReglementaire[]
 
   @@index([statutId])
   @@index([typeId])
@@ -511,6 +517,20 @@ model DossierPosteTravaux {
 
   montantMaterielHTCts  Int? // en centimes
   montantMaterielTTCCts Int? // en centimes
+
+  // Rattachement réglementaire (P7) - purement additif, les champs legacy
+  // montantCumac/montantPrimeCalculeCts ci-dessus restent la source utilisée
+  // par l'UI existante et ne sont jamais supprimés (section 12/33 du prompt
+  // P7). ficheReglementaireCode identifie la fiche CEE visée (ex.
+  // "BAR-TH-171") sans imposer qu'un calcul existe déjà. calculReglementaireActifId
+  // pointe vers LE CalculReglementaire retenu comme référence courante pour
+  // ce poste (peut être un calcul OFFICIEL ou une simulation retenue) -
+  // jamais écrasé silencieusement, cf. CalculReglementaire.
+  ficheReglementaireCode     String?
+  calculReglementaireActifId String?              @unique
+  calculReglementaireActif   CalculReglementaire? @relation("PosteCalculActif", fields: [calculReglementaireActifId], references: [id])
+
+  calculsReglementaires CalculReglementaire[] @relation("PosteCalculsHistorique")
 
   createdAt DateTime @default(now())
 
@@ -894,4 +914,193 @@ model DossierEtape {
   @@index([dossierId])
   @@index([etapeProgrammeId])
   @@index([statut])
+}
+
+// ============================================================
+// Moteur réglementaire versionné (P7).
+//
+// Principe : une règle réglementaire (ex. fiche CEE BAR-TH-171) n'est
+// jamais un simple if/else sans historique. RegleReglementaire est la
+// fiche elle-même (identité stable) ; RegleReglementaireVersion porte les
+// dates d'effet, la source officielle et le code de formule whitelisté ;
+// BaremeReglementaire porte les valeurs (coefficients/forfaits) de cette
+// version, jamais codées en dur dans une fonction. Une fois publiée et
+// utilisée par un calcul, une version reste figée pour toujours (section 1
+// du prompt) - un dossier historique garde le résultat produit par LA
+// version en vigueur à sa date d'engagement, jamais recalculé
+// silencieusement avec la version courante (section 9).
+//
+// RÈGLE OFFICIELLE GLOBALE (RegleReglementaire/Version/Bareme) - pas de
+// organisationId : une fiche CEE BAR-TH-171 et ses forfaits sont les mêmes
+// pour tout le monde, ce n'est pas une donnée commerciale (section 31).
+// Ne pas dupliquer une fiche réglementaire par organisation cliente du
+// SaaS. Seul TarifDelegataireCee (la valorisation commerciale négociée
+// avec un délégataire) est scopé par organisationId - cf. plus bas.
+// ============================================================
+
+enum SecteurReglementaire {
+  BAR
+  BAT
+  IND
+  AGRI
+  TRA
+  RES
+  AUTRE
+}
+
+enum StatutEligibiliteReglementaire {
+  ELIGIBLE
+  ELIGIBLE_PROBABLE
+  A_CONFIRMER
+  NON_ELIGIBLE
+  BLOQUE
+  DONNEES_INSUFFISANTES
+}
+
+enum TypeCalculReglementaire {
+  SIMULATION
+  OFFICIEL
+}
+
+model RegleReglementaire {
+  id          String               @id @default(cuid())
+  code        String               @unique // ex. "BAR-TH-171"
+  famille     String // ex. "CEE" - assez générique pour accueillir MPR/ANAH/autres plus tard (section 25)
+  secteur     SecteurReglementaire
+  nom         String
+  description String?
+  actif       Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  versions RegleReglementaireVersion[]
+}
+
+model RegleReglementaireVersion {
+  id            String    @id @default(cuid())
+  regleId       String
+  regle         RegleReglementaire @relation(fields: [regleId], references: [id])
+  numeroVersion String
+
+  dateDebutEffet DateTime
+  dateFinEffet   DateTime?
+  publie         Boolean   @default(false)
+
+  // Code de formule whitelisté (jamais de code arbitraire depuis l'UI -
+  // section 19) - doit correspondre à une clé de FORMULES dans
+  // src/lib/reglementaire/formulas.ts.
+  formulaCode String
+
+  sourceNom             String
+  sourceReference       String?
+  sourceUrl             String?
+  sourceDatePublication DateTime?
+  commentaire           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  baremes BaremeReglementaire[]
+  calculs CalculReglementaire[]
+
+  @@unique([regleId, numeroVersion])
+  @@index([regleId])
+}
+
+// Valeurs/forfaits d'une version - jamais un if/else zone caché dans le
+// code (section 6). `valeur` est un entier (kWh cumac ou tout autre
+// coefficient réglementaire entier) : aucune donnée réglementaire n'est
+// stockée en flottant.
+model BaremeReglementaire {
+  id            String                     @id @default(cuid())
+  ruleVersionId String
+  ruleVersion   RegleReglementaireVersion  @relation(fields: [ruleVersionId], references: [id], onDelete: Cascade)
+  cle           String
+  valeur        Int
+  metadata      Json?
+  createdAt     DateTime                   @default(now())
+
+  @@unique([ruleVersionId, cle])
+  @@index([ruleVersionId])
+}
+
+// Un calcul réglementaire enregistré (section 10) - la trace immuable de
+// "quelles données, quelle version, quel résultat". SIMULATION ne sert
+// jamais de référence officielle et peut être recalculée librement ;
+// OFFICIEL est celui retenu pour engager/transmettre un dossier et ne doit
+// jamais être écrasé (section 11) - un nouveau calcul officiel crée une
+// NOUVELLE ligne, il ne modifie pas l'ancienne.
+model CalculReglementaire {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  dossierId      String
+  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  posteTravauxId String?
+  posteTravaux   DossierPosteTravaux? @relation("PosteCalculsHistorique", fields: [posteTravauxId], references: [id])
+
+  ruleVersionId String
+  ruleVersion   RegleReglementaireVersion @relation(fields: [ruleVersionId], references: [id])
+
+  type           TypeCalculReglementaire
+  dateEngagement DateTime
+  inputs         Json
+  resultat       Json
+  kwhCumac       Int?
+
+  statutEligibilite StatutEligibiliteReglementaire
+
+  // Override manuel (section 24) - ne modifie JAMAIS la règle elle-même,
+  // seulement ce calcul précis. Une raison est obligatoire (appliqué au
+  // niveau Server Action, pas seulement en UI).
+  overrideStatutEligibilite StatutEligibiliteReglementaire?
+  overrideKwhCumac          Int?
+  overrideReason            String?
+  overrideById              String?
+  overrideBy                User?     @relation("CalculReglementaireOverrideBy", fields: [overrideById], references: [id])
+  overrideAt                DateTime?
+
+  createdById String?
+  createdBy   User?    @relation("CalculReglementaireCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  posteActifPour DossierPosteTravaux? @relation("PosteCalculActif")
+
+  @@index([organisationId])
+  @@index([dossierId])
+  @@index([posteTravauxId])
+  @@index([ruleVersionId])
+}
+
+// Valorisation commerciale (section 13/14) - SÉPARÉE du calcul
+// réglementaire : kWh cumac ≠ valeur €. Propre à l'organisation (les taux
+// négociés par BHM avec un délégataire ne concernent pas un autre client
+// SaaS). tauxCtsParMwhc en centimes d'euro par MWh cumac (entier, jamais
+// de flottant sur un montant monétaire, cf. section 14 du prompt).
+model TarifDelegataireCee {
+  id             String         @id @default(cuid())
+  organisationId String
+  organisation   Organisation   @relation(fields: [organisationId], references: [id])
+  delegataireId  String
+  delegataire    DelegataireCee @relation(fields: [delegataireId], references: [id])
+
+  // null = tarif générique applicable à toutes les fiches CEE de ce délégataire
+  ficheCode String?
+  // Catégorie du ménage/bénéficiaire - "TRES_MODESTE" | "CLASSIQUE" pour la
+  // fiche pilote (même distinction binaire que le calculateur existant),
+  // laissé en String libre pour rester extensible sans migration.
+  categorie String
+
+  tauxCtsParMwhc     Int
+  dateDebut          DateTime
+  dateFin            DateTime?
+  delaiPaiementJours Int?
+  actif              Boolean   @default(true)
+  commentaire        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organisationId])
+  @@index([delegataireId])
 }

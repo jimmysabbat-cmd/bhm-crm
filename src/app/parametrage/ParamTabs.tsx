@@ -34,6 +34,13 @@ const groups = [
     ],
   },
   {
+    label: "Réglementaire",
+    items: [
+      { href: "/parametrage/reglementaire", label: "Règles & versions" },
+      { href: "/parametrage/tarifs-cee", label: "Tarifs CEE" },
+    ],
+  },
+  {
     label: "Accès",
     items: [{ href: "/parametrage/equipe", label: "Équipe" }],
   },

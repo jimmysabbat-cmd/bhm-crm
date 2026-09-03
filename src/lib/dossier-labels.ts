@@ -9,6 +9,7 @@ import type {
   StatutMouvementFinancier,
   PartiePrenante,
   ConditionExigibilite,
+  StatutEligibiliteReglementaire,
 } from "@/generated/prisma/enums";
 
 export const precariteLabels: Record<Precarite, string> = {
@@ -136,6 +137,15 @@ export const conditionExigibiliteLabels: Record<ConditionExigibilite, string> = 
   A_L_ENCAISSEMENT_ANAH: "À l'encaissement ANAH",
   A_L_ENCAISSEMENT_CEE: "À l'encaissement CEE",
   MANUEL: "Manuel",
+};
+
+export const statutEligibiliteReglementaireLabels: Record<StatutEligibiliteReglementaire, string> = {
+  ELIGIBLE: "Éligible",
+  ELIGIBLE_PROBABLE: "Éligible (probable)",
+  A_CONFIRMER: "À confirmer",
+  NON_ELIGIBLE: "Non éligible",
+  BLOQUE: "Bloqué",
+  DONNEES_INSUFFISANTES: "Données insuffisantes",
 };
 
 export function resteAChargeCents(dossier: {
