@@ -440,12 +440,32 @@ function ligneLegacy(params: {
 }
 
 /**
+ * LA décision anti double-comptage (P6C, section 5 du prompt - nommée
+ * "useDetailedOrLegacyForCategory" dans le prompt ; renommée ici sans le
+ * préfixe "use" pour ne pas être confondue avec un React Hook par le linter,
+ * "ou équivalent" étant explicitement autorisé). Pour un flux legacy donné
+ * (CLIENT/MPR/CEE), source unique de vérité = MOUVEMENT si au moins un
+ * mouvement détaillé existe pour ce flux, sinon LEGACY_AGGREGATE.
+ * Jamais les deux additionnés. Fonction pure, exportée et testée isolément
+ * (scripts/test-financial-engine-p6c.ts) - c'est LE seul endroit du code où
+ * cette décision est prise ; financial-engine (getEntreeLignesForDossier),
+ * finance.ts (argent bloqué, réexporté depuis ici), /finances, le dashboard
+ * et Next Best Action en dépendent tous indirectement en appelant
+ * getEntreeLignesForDossier/ForOrganisation plutôt que de relire les
+ * agrégats ou les mouvements eux-mêmes.
+ */
+export function resolveEntreeSourceForFlux(params: { nombreMouvementsDetailles: number }): SourceLigne {
+  return params.nombreMouvementsDetailles > 0 ? "MOUVEMENT" : "LEGACY_AGGREGATE";
+}
+
+/**
  * LA fonction centrale des entrées d'un dossier (section 4 du prompt P6B) -
  * réutilisée par la fiche dossier, /finances, le dashboard et le cashflow.
  * Pour chacun des 3 flux legacy (CLIENT/MPR/CEE) : si au moins un
  * MouvementFinancier détaillé existe pour ce flux, il REMPLACE entièrement
  * le repli legacy (jamais une addition des deux - section 4 : "ne pas
- * ajouter le montant legacy correspondant"). Sinon, une ligne virtuelle
+ * ajouter le montant legacy correspondant", décision arbitrée par
+ * resolveEntreeSourceForFlux ci-dessus). Sinon, une ligne virtuelle
  * LEGACY_AGGREGATE est produite en lecture seule. Les catégories hors flux
  * legacy (financement partenaire, remboursement d'avance, autre) sont
  * toujours ajoutées telles quelles depuis les mouvements, sans équivalent
@@ -461,11 +481,11 @@ export async function getEntreeLignesForDossier(dossierId: string): Promise<Lign
   });
 
   const lignes: LigneEntreeUnifiee[] = [];
-  const fluxDetailles = new Set<FluxEntree>();
+  const mouvementsParFlux: Record<FluxEntree, number> = { CLIENT: 0, MPR: 0, CEE: 0, AUTRE: 0 };
 
   for (const m of mouvements) {
     const flux = fluxDe(m.categorie);
-    if (flux !== "AUTRE") fluxDetailles.add(flux);
+    mouvementsParFlux[flux] += 1;
     lignes.push({
       id: m.id,
       dossierId,
@@ -492,7 +512,7 @@ export async function getEntreeLignesForDossier(dossierId: string): Promise<Lign
     });
   }
 
-  if (!fluxDetailles.has("CLIENT")) {
+  if (resolveEntreeSourceForFlux({ nombreMouvementsDetailles: mouvementsParFlux.CLIENT }) === "LEGACY_AGGREGATE") {
     const prevuClient = resteAChargeCents(d);
     const resteClient = Math.max(prevuClient - d.montantEncaisseClient, 0);
     if (prevuClient > 0 || d.montantEncaisseClient > 0) {
@@ -501,7 +521,7 @@ export async function getEntreeLignesForDossier(dossierId: string): Promise<Lign
       );
     }
   }
-  if (!fluxDetailles.has("MPR")) {
+  if (resolveEntreeSourceForFlux({ nombreMouvementsDetailles: mouvementsParFlux.MPR }) === "LEGACY_AGGREGATE") {
     const resteMPR = Math.max(d.montantAideMPR - d.montantEncaisseMPR, 0);
     if (d.montantAideMPR > 0 || d.montantEncaisseMPR > 0) {
       lignes.push(
@@ -509,7 +529,7 @@ export async function getEntreeLignesForDossier(dossierId: string): Promise<Lign
       );
     }
   }
-  if (!fluxDetailles.has("CEE")) {
+  if (resolveEntreeSourceForFlux({ nombreMouvementsDetailles: mouvementsParFlux.CEE }) === "LEGACY_AGGREGATE") {
     const resteCEE = Math.max(d.montantAideCEE - d.montantEncaisseCEE, 0);
     if (d.montantAideCEE > 0 || d.montantEncaisseCEE > 0) {
       lignes.push(
