@@ -48,7 +48,45 @@ const STATUTS_ANAH = [
   { key: "DEMANDE_SOLDE_PAYEE", label: "Demande de solde payée" },
 ];
 
+const STATUTS_CEE = [
+  { key: "A_ETUDIER", label: "À étudier" },
+  { key: "ELIGIBILITE_A_CONFIRMER", label: "Éligibilité à confirmer" },
+  { key: "ELIGIBLE", label: "Éligible" },
+  { key: "NON_ELIGIBLE", label: "Non éligible" },
+  { key: "A_DEPOSER", label: "À déposer" },
+  { key: "DEPOSE", label: "Déposé" },
+  { key: "EN_CONTROLE", label: "En contrôle" },
+  { key: "VALIDE", label: "Validé" },
+  { key: "REFUSE", label: "Refusé" },
+  { key: "A_FACTURER", label: "À facturer" },
+  { key: "PAIEMENT_EN_ATTENTE", label: "Paiement en attente" },
+  { key: "PAYE", label: "Payé" },
+];
+
+const STATUTS_TRAVAUX = [
+  { key: "A_VISITER", label: "À visiter" },
+  { key: "VISITE_PLANIFIEE", label: "Visite planifiée" },
+  { key: "VISITE_EFFECTUEE", label: "Visite effectuée" },
+  { key: "VALIDE_TECHNIQUEMENT", label: "Validé techniquement" },
+  { key: "A_PLANIFIER", label: "À planifier" },
+  { key: "PLANIFIE", label: "Planifié" },
+  { key: "MATERIEL_A_COMMANDER", label: "Matériel à commander" },
+  { key: "MATERIEL_COMMANDE", label: "Matériel commandé" },
+  { key: "CHANTIER_EN_COURS", label: "Chantier en cours" },
+  { key: "CHANTIER_TERMINE", label: "Chantier terminé" },
+  { key: "RESERVES", label: "Réserves" },
+  { key: "CONTROLE", label: "Contrôle" },
+  { key: "CONFORME", label: "Conforme" },
+  { key: "SAV", label: "SAV" },
+];
+
 async function main() {
+  const organisation = await prisma.organisation.upsert({
+    where: { slug: "bhm" },
+    update: {},
+    create: { nom: "Le Bonheur d'Habiter Mieux", slug: "bhm" },
+  });
+
   for (let i = 0; i < DOSSIER_TYPES.length; i++) {
     const item = DOSSIER_TYPES[i];
     await prisma.dossierType.upsert({
@@ -81,8 +119,26 @@ async function main() {
       create: { key: item.key, label: item.label, ordre: i },
     });
   }
+  for (let i = 0; i < STATUTS_CEE.length; i++) {
+    const item = STATUTS_CEE[i];
+    await prisma.statutCee.upsert({
+      where: { key: item.key },
+      update: { label: item.label },
+      create: { key: item.key, label: item.label, ordre: i },
+    });
+  }
+  for (let i = 0; i < STATUTS_TRAVAUX.length; i++) {
+    const item = STATUTS_TRAVAUX[i];
+    await prisma.statutTravaux.upsert({
+      where: { key: item.key },
+      update: { label: item.label },
+      create: { key: item.key, label: item.label, ordre: i },
+    });
+  }
 
-  console.log("Listes de paramétrage prêtes (types, statuts, modes de paiement, statuts ANAH).");
+  console.log(
+    "Listes de paramétrage prêtes (types, statuts, modes de paiement, statuts ANAH/CEE/travaux)."
+  );
 
   const email = process.env.SEED_ADMIN_EMAIL ?? "horizonhabitatenergie@gmail.com";
   const password = process.env.SEED_ADMIN_PASSWORD ?? "changeme123";
@@ -97,6 +153,7 @@ async function main() {
       name: "Jimmy Sabbath",
       password: hashed,
       role: "ADMIN",
+      organisationId: organisation.id,
     },
   });
 

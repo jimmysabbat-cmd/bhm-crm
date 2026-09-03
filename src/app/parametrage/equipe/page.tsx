@@ -1,5 +1,6 @@
 import { UserPlus } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { createUser, toggleUserActif } from "../actions";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -10,10 +11,19 @@ const roleLabels: Record<string, string> = {
   ADMIN: "Administrateur",
   COMMERCIAL: "Commercial",
   COMPTA: "Comptabilité",
+  ADMINISTRATIF: "Administratif",
+  REGIE: "Régie",
+  SOUS_TRAITANT: "Sous-traitant",
+  COMPTABILITE: "Comptabilité",
+  TECHNIQUE: "Technique",
 };
 
 export default async function EquipePage() {
-  const users = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
+  const ctx = await requireUserContext();
+  const users = await prisma.user.findMany({
+    where: { organisationId: ctx.organisationId },
+    orderBy: { createdAt: "asc" },
+  });
 
   return (
     <div className="space-y-6">

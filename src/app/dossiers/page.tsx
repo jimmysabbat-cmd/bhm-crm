@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Plus, ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import { resteAChargeCents } from "@/lib/dossier-labels";
 import { Card } from "@/components/ui/Card";
@@ -13,10 +14,11 @@ export default async function DossiersPage({
   searchParams: Promise<{ statut?: string }>;
 }) {
   const { statut } = await searchParams;
+  const ctx = await requireUserContext();
 
   const [dossiers, statutFiltre] = await Promise.all([
     prisma.dossier.findMany({
-      where: statut ? { statutId: statut } : undefined,
+      where: { organisationId: ctx.organisationId, ...(statut ? { statutId: statut } : {}) },
       include: { client: true, type: true, statut: true },
       orderBy: { createdAt: "desc" },
     }),

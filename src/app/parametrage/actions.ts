@@ -3,14 +3,15 @@
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requireUserContext, type UserContext } from "@/lib/authz";
 import type { Role } from "@/generated/prisma/enums";
 
-async function requireAdmin() {
-  const session = await auth();
-  if ((session?.user as { role?: string } | undefined)?.role !== "ADMIN") {
+async function requireAdmin(): Promise<UserContext> {
+  const ctx = await requireUserContext();
+  if (ctx.role !== "ADMIN") {
     throw new Error("Accès réservé aux administrateurs.");
   }
+  return ctx;
 }
 
 function slugify(label: string): string {
@@ -155,6 +156,60 @@ export async function toggleStatutAnah(id: string, actif: boolean) {
   revalidatePath("/parametrage/statuts-anah");
 }
 
+// --- Statuts CEE ---
+
+export async function createStatutCee(formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  const count = await prisma.statutCee.count();
+  await prisma.statutCee.create({
+    data: { key: slugify(label) || `STATUT_CEE_${count + 1}`, label, ordre: count },
+  });
+  revalidatePath("/parametrage/statuts-cee");
+}
+
+export async function updateStatutCee(id: string, formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  await prisma.statutCee.update({ where: { id }, data: { label } });
+  revalidatePath("/parametrage/statuts-cee");
+}
+
+export async function toggleStatutCee(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.statutCee.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/statuts-cee");
+}
+
+// --- Statuts Travaux / Chantier ---
+
+export async function createStatutTravaux(formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  const count = await prisma.statutTravaux.count();
+  await prisma.statutTravaux.create({
+    data: { key: slugify(label) || `STATUT_TRAVAUX_${count + 1}`, label, ordre: count },
+  });
+  revalidatePath("/parametrage/statuts-travaux");
+}
+
+export async function updateStatutTravaux(id: string, formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  await prisma.statutTravaux.update({ where: { id }, data: { label } });
+  revalidatePath("/parametrage/statuts-travaux");
+}
+
+export async function toggleStatutTravaux(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.statutTravaux.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/statuts-travaux");
+}
+
 // --- Régie (équipes internes) ---
 
 export async function createRegie(formData: FormData) {
@@ -294,6 +349,8 @@ export async function reorder(
     | "modePaiement"
     | "mar"
     | "statutAnah"
+    | "statutCee"
+    | "statutTravaux"
     | "regie"
     | "delegataireCee",
   id: string,
@@ -320,6 +377,8 @@ export async function reorder(
     modePaiement: "/parametrage/modes-paiement",
     mar: "/parametrage/mar",
     statutAnah: "/parametrage/statuts-anah",
+    statutCee: "/parametrage/statuts-cee",
+    statutTravaux: "/parametrage/statuts-travaux",
     regie: "/parametrage/regie",
     delegataireCee: "/parametrage/delegataires-cee",
   };
@@ -333,6 +392,8 @@ export async function deleteItem(
     | "modePaiement"
     | "mar"
     | "statutAnah"
+    | "statutCee"
+    | "statutTravaux"
     | "regie"
     | "delegataireCee",
   id: string
@@ -355,6 +416,8 @@ export async function deleteItem(
     modePaiement: "/parametrage/modes-paiement",
     mar: "/parametrage/mar",
     statutAnah: "/parametrage/statuts-anah",
+    statutCee: "/parametrage/statuts-cee",
+    statutTravaux: "/parametrage/statuts-travaux",
     regie: "/parametrage/regie",
     delegataireCee: "/parametrage/delegataires-cee",
   };
@@ -364,7 +427,7 @@ export async function deleteItem(
 // --- Équipe ---
 
 export async function createUser(formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const name = String(formData.get("name")).trim();
   const email = String(formData.get("email")).trim().toLowerCase();
   const password = String(formData.get("password"));
@@ -375,13 +438,18 @@ export async function createUser(formData: FormData) {
 
   const hashed = await bcrypt.hash(password, 10);
   await prisma.user.create({
-    data: { name, email, password: hashed, role },
+    data: { name, email, password: hashed, role, organisationId: ctx.organisationId },
   });
   revalidatePath("/parametrage/equipe");
 }
 
 export async function toggleUserActif(id: string, actif: boolean) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  const target = await prisma.user.findFirst({
+    where: { id, organisationId: ctx.organisationId },
+    select: { id: true },
+  });
+  if (!target) throw new Error("Utilisateur introuvable.");
   await prisma.user.update({ where: { id }, data: { actif } });
   revalidatePath("/parametrage/equipe");
 }

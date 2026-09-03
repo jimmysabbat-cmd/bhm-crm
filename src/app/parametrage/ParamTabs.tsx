@@ -25,6 +25,8 @@ const groups = [
       { href: "/parametrage/regie", label: "Régie" },
       { href: "/parametrage/sous-traitants", label: "Sous-traitants" },
       { href: "/parametrage/delegataires-cee", label: "Délégataires CEE" },
+      { href: "/parametrage/statuts-cee", label: "Statuts CEE" },
+      { href: "/parametrage/statuts-travaux", label: "Statuts travaux" },
     ],
   },
   {

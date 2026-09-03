@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/authz";
+import { requireUserContext, assertDossierInOrg } from "@/lib/authz";
+import { logAudit } from "@/lib/audit";
 import { eurosToCents } from "@/lib/money";
 import { saveDocumentFile, deleteDocumentFile } from "@/lib/documents";
 import type { Precarite, ZoneClimatique, TypeTravaux, TypeDocument } from "@/generated/prisma/enums";
@@ -21,11 +22,11 @@ function generateReference(): string {
 }
 
 export async function createDossier(formData: FormData) {
-  const session = await requireAuth();
-  const createdById = (session.user as { id?: string } | undefined)?.id ?? null;
+  const ctx = await requireUserContext();
 
   const client = await prisma.client.create({
     data: {
+      organisationId: ctx.organisationId,
       prenom: String(formData.get("prenom")),
       nom: String(formData.get("nom")),
       email: (formData.get("email") as string) || null,
@@ -53,11 +54,12 @@ export async function createDossier(formData: FormData) {
 
   const dossier = await prisma.dossier.create({
     data: {
+      organisationId: ctx.organisationId,
       reference: generateReference(),
       clientId: client.id,
       typeId: String(formData.get("typeId")),
       statutId,
-      createdById,
+      createdById: ctx.userId,
       montantDevisTTC: eurosToCents(Number(formData.get("montantDevisTTC") || 0)),
       montantAideMPR: eurosToCents(Number(formData.get("montantAideMPR") || 0)),
       montantAideCEE: eurosToCents(Number(formData.get("montantAideCEE") || 0)),
@@ -113,12 +115,13 @@ export async function createDossier(formData: FormData) {
 }
 
 export async function updateClientInfo(formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
   const dossierId = String(formData.get("dossierId"));
-  const dossier = await prisma.dossier.findUniqueOrThrow({
-    where: { id: dossierId },
+  const dossier = await prisma.dossier.findFirst({
+    where: { id: dossierId, organisationId: ctx.organisationId },
     select: { clientId: true },
   });
+  if (!dossier) throw new Error("Dossier introuvable.");
 
   await prisma.client.update({
     where: { id: dossier.clientId },
@@ -151,8 +154,10 @@ export async function updateClientInfo(formData: FormData) {
 }
 
 export async function updateMontage(formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
   const dossierId = String(formData.get("dossierId"));
+  await assertDossierInOrg(dossierId, ctx.organisationId);
+
   await prisma.dossier.update({
     where: { id: dossierId },
     data: {
@@ -167,7 +172,8 @@ export async function updateMontage(formData: FormData) {
 }
 
 export async function updateStatut(dossierId: string, statutId: string) {
-  await requireAuth();
+  const ctx = await requireUserContext();
+  await assertDossierInOrg(dossierId, ctx.organisationId);
   await prisma.dossier.update({ where: { id: dossierId }, data: { statutId } });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/dossiers");
@@ -175,8 +181,10 @@ export async function updateStatut(dossierId: string, statutId: string) {
 }
 
 export async function updateAnahInfo(formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
   const dossierId = String(formData.get("dossierId"));
+  await assertDossierInOrg(dossierId, ctx.organisationId);
+
   await prisma.dossier.update({
     where: { id: dossierId },
     data: {
@@ -193,9 +201,39 @@ export async function updateAnahInfo(formData: FormData) {
   revalidatePath(`/dossiers/${dossierId}`);
 }
 
-export async function updateEncaissements(formData: FormData) {
-  await requireAuth();
+export async function updateCeeInfo(formData: FormData) {
+  const ctx = await requireUserContext();
   const dossierId = String(formData.get("dossierId"));
+  await assertDossierInOrg(dossierId, ctx.organisationId);
+
+  await prisma.dossier.update({
+    where: { id: dossierId },
+    data: {
+      statutCeeId: (formData.get("statutCeeId") as string) || null,
+    },
+  });
+  revalidatePath(`/dossiers/${dossierId}`);
+}
+
+export async function updateTravauxInfo(formData: FormData) {
+  const ctx = await requireUserContext();
+  const dossierId = String(formData.get("dossierId"));
+  await assertDossierInOrg(dossierId, ctx.organisationId);
+
+  await prisma.dossier.update({
+    where: { id: dossierId },
+    data: {
+      statutTravauxId: (formData.get("statutTravauxId") as string) || null,
+    },
+  });
+  revalidatePath(`/dossiers/${dossierId}`);
+}
+
+export async function updateEncaissements(formData: FormData) {
+  const ctx = await requireUserContext();
+  const dossierId = String(formData.get("dossierId"));
+  await assertDossierInOrg(dossierId, ctx.organisationId);
+
   await prisma.dossier.update({
     where: { id: dossierId },
     data: {
@@ -219,8 +257,10 @@ export async function updateEncaissements(formData: FormData) {
 }
 
 export async function createPosteTravaux(formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
   const dossierId = String(formData.get("dossierId"));
+  await assertDossierInOrg(dossierId, ctx.organisationId);
+
   await prisma.dossierPosteTravaux.create({
     data: {
       dossierId,
@@ -240,7 +280,13 @@ export async function createPosteTravaux(formData: FormData) {
 }
 
 export async function updatePosteTravaux(posteId: string, formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
+  const existing = await prisma.dossierPosteTravaux.findFirst({
+    where: { id: posteId, dossier: { organisationId: ctx.organisationId } },
+    select: { dossierId: true },
+  });
+  if (!existing) throw new Error("Poste de travaux introuvable.");
+
   const poste = await prisma.dossierPosteTravaux.update({
     where: { id: posteId },
     data: {
@@ -260,21 +306,39 @@ export async function updatePosteTravaux(posteId: string, formData: FormData) {
 }
 
 export async function deletePosteTravaux(posteId: string, dossierId: string) {
-  await requireAuth();
+  const ctx = await requireUserContext();
+  const poste = await prisma.dossierPosteTravaux.findFirst({
+    where: { id: posteId, dossierId, dossier: { organisationId: ctx.organisationId } },
+    select: { id: true, type: true },
+  });
+  if (!poste) throw new Error("Poste de travaux introuvable.");
+
   await prisma.dossierPosteTravaux.delete({ where: { id: posteId } });
+  await logAudit({
+    organisationId: ctx.organisationId,
+    userId: ctx.userId,
+    entityType: "DossierPosteTravaux",
+    entityId: posteId,
+    action: "DELETE",
+    metadata: { dossierId, type: poste.type },
+  });
   revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function uploadDocument(formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
   const dossierId = String(formData.get("dossierId"));
   const file = formData.get("file") as File;
   if (!file || file.size === 0) return;
 
-  // Le dossier doit exister en base avant toute écriture disque : dossierId
-  // vient du client et ne doit jamais être utilisé tel quel comme segment
-  // de chemin (risque de path traversal dans saveDocumentFile).
-  const dossier = await prisma.dossier.findUnique({ where: { id: dossierId }, select: { id: true } });
+  // Le dossier doit exister, dans l'organisation de l'utilisateur, avant
+  // toute écriture disque : dossierId vient du client et ne doit jamais
+  // être utilisé tel quel comme segment de chemin (risque de path
+  // traversal dans saveDocumentFile).
+  const dossier = await prisma.dossier.findFirst({
+    where: { id: dossierId, organisationId: ctx.organisationId },
+    select: { id: true },
+  });
   if (!dossier) throw new Error("Dossier introuvable.");
 
   const saved = await saveDocumentFile(dossier.id, file);
@@ -289,17 +353,30 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function deleteDocument(docId: string, dossierId: string) {
-  await requireAuth();
-  const doc = await prisma.dossierDocument.findUnique({ where: { id: docId } });
+  const ctx = await requireUserContext();
+  const doc = await prisma.dossierDocument.findFirst({
+    where: { id: docId, dossierId, dossier: { organisationId: ctx.organisationId } },
+  });
   if (!doc) return;
+
   await deleteDocumentFile(doc.cheminFichier);
   await prisma.dossierDocument.delete({ where: { id: docId } });
+  await logAudit({
+    organisationId: ctx.organisationId,
+    userId: ctx.userId,
+    entityType: "DossierDocument",
+    entityId: docId,
+    action: "DELETE",
+    metadata: { dossierId, nomFichier: doc.nomFichier },
+  });
   revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function createTache(formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
   const dossierId = String(formData.get("dossierId"));
+  await assertDossierInOrg(dossierId, ctx.organisationId);
+
   await prisma.tache.create({
     data: {
       dossierId,
@@ -313,7 +390,13 @@ export async function createTache(formData: FormData) {
 }
 
 export async function toggleTache(tacheId: string, done: boolean) {
-  await requireAuth();
+  const ctx = await requireUserContext();
+  const existing = await prisma.tache.findFirst({
+    where: { id: tacheId, dossier: { organisationId: ctx.organisationId } },
+    select: { dossierId: true },
+  });
+  if (!existing) throw new Error("Tâche introuvable.");
+
   const tache = await prisma.tache.update({
     where: { id: tacheId },
     data: { statut: done ? "FAIT" : "A_FAIRE" },
@@ -324,7 +407,13 @@ export async function toggleTache(tacheId: string, done: boolean) {
 }
 
 export async function updateTache(tacheId: string, formData: FormData) {
-  await requireAuth();
+  const ctx = await requireUserContext();
+  const existing = await prisma.tache.findFirst({
+    where: { id: tacheId, dossier: { organisationId: ctx.organisationId } },
+    select: { dossierId: true },
+  });
+  if (!existing) throw new Error("Tâche introuvable.");
+
   const tache = await prisma.tache.update({
     where: { id: tacheId },
     data: {
@@ -339,8 +428,22 @@ export async function updateTache(tacheId: string, formData: FormData) {
 }
 
 export async function deleteTache(tacheId: string, dossierId: string) {
-  await requireAuth();
+  const ctx = await requireUserContext();
+  const tache = await prisma.tache.findFirst({
+    where: { id: tacheId, dossierId, dossier: { organisationId: ctx.organisationId } },
+    select: { id: true, titre: true },
+  });
+  if (!tache) throw new Error("Tâche introuvable.");
+
   await prisma.tache.delete({ where: { id: tacheId } });
+  await logAudit({
+    organisationId: ctx.organisationId,
+    userId: ctx.userId,
+    entityType: "Tache",
+    entityId: tacheId,
+    action: "DELETE",
+    metadata: { dossierId, titre: tache.titre },
+  });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/taches");
   revalidatePath("/");

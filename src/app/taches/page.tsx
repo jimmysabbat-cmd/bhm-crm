@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { toggleTache, deleteTache } from "../dossiers/actions";
 import { Card } from "@/components/ui/Card";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmit";
 
 export default async function TachesPage() {
+  const ctx = await requireUserContext();
   const taches = await prisma.tache.findMany({
-    where: { statut: "A_FAIRE" },
+    where: { statut: "A_FAIRE", dossier: { organisationId: ctx.organisationId } },
     include: { dossier: { include: { client: true } } },
     orderBy: { dateEcheance: "asc" },
   });

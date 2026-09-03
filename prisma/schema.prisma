@@ -10,10 +10,20 @@ datasource db {
   provider = "mysql"
 }
 
+// Rôles existants (ADMIN, COMMERCIAL, COMPTA) conservés tels quels pour ne
+// rien casser sur les comptes déjà créés. Nouveaux rôles ajoutés en vue du
+// futur requireRole()/hasPermission() (non implémenté dans cette étape) :
+// COMPTABILITE est le nom canonique désormais pour ce rôle - COMPTA reste
+// valide uniquement pour compatibilité avec des comptes existants.
 enum Role {
   ADMIN
   COMMERCIAL
   COMPTA
+  ADMINISTRATIF
+  REGIE
+  SOUS_TRAITANT
+  COMPTABILITE
+  TECHNIQUE
 }
 
 enum Precarite {
@@ -90,6 +100,56 @@ enum TypeDocument {
   AUTRE
 }
 
+enum TypeMouvementFinancier {
+  ENTREE
+  SORTIE
+}
+
+enum CategorieMouvementFinancier {
+  ENCAISSEMENT_CLIENT
+  ENCAISSEMENT_ANAH
+  ENCAISSEMENT_MPR
+  ENCAISSEMENT_CEE
+  PAIEMENT_SOUS_TRAITANT
+  PAIEMENT_FOURNISSEUR
+  COMMISSION_COMMERCIALE
+  COMMISSION_REGIE
+  COMMISSION_APPORTEUR
+  AUTRE_ENTREE
+  AUTRE_SORTIE
+}
+
+enum StatutMouvementFinancier {
+  PREVU
+  A_RECEVOIR
+  A_PAYER
+  PARTIEL
+  RECU
+  PAYE
+  ANNULE
+  EN_RETARD
+}
+
+// Une entreprise/organisation cliente de la plateforme. Une seule
+// organisation active aujourd'hui (BHM), mais toutes les entités
+// structurantes (User, Client, Dossier) y sont déjà rattachées pour
+// permettre un cloisonnement multi-entreprise ultérieur sans nouvelle
+// migration lourde.
+model Organisation {
+  id        String   @id @default(cuid())
+  nom       String
+  slug      String   @unique
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                User[]
+  clients              Client[]
+  dossiers             Dossier[]
+  mouvementsFinanciers MouvementFinancier[]
+  auditLogs            AuditLog[]
+}
+
 model User {
   id        String   @id @default(cuid())
   name      String
@@ -100,8 +160,15 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
   tachesAssignees Tache[]
   dossiersCrees   Dossier[]
+  mouvementsCrees MouvementFinancier[]
+  auditLogs       AuditLog[]
+
+  @@index([organisationId])
 }
 
 // Listes paramétrables depuis /parametrage - remplacent d'anciens enums figés
@@ -194,6 +261,32 @@ model StatutAnah {
   dossiers Dossier[]
 }
 
+// Statut du flux CEE, indépendant du statut général et du statut ANAH -
+// même pattern paramétrable que StatutAnah (géré depuis /parametrage).
+model StatutCee {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
+}
+
+// Statut du flux travaux/chantier, indépendant des autres flux - même
+// pattern paramétrable que StatutAnah.
+model StatutTravaux {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  dossiers Dossier[]
+}
+
 model Client {
   id             String          @id @default(cuid())
   prenom         String
@@ -210,10 +303,15 @@ model Client {
   surfaceHabitableM2 Int?
   anneeConstruction  Int?
 
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   dossiers Dossier[]
+
+  @@index([organisationId])
 }
 
 model Dossier {
@@ -222,9 +320,16 @@ model Dossier {
   clientId  String
   client    Client @relation(fields: [clientId], references: [id])
 
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
   typeId String
   type   DossierType @relation(fields: [typeId], references: [id])
 
+  // Statut général du dossier - vue synthétique/legacy conservée pour la V1.
+  // Les vrais sous-processus vivent progressivement dans leurs propres flux
+  // (statutAnahId, statutCeeId, statutTravauxId ci-dessous, puis un futur
+  // flux commercial paramétrable avec le moteur de programmes).
   statutId String
   statut   DossierStatus @relation(fields: [statutId], references: [id])
 
@@ -254,6 +359,13 @@ model Dossier {
   dateDepotAnah  DateTime?
   dateOctroiAnah DateTime?
 
+  // Flux CEE et flux travaux/chantier - indépendants du statut général et
+  // du suivi ANAH, sur le même principe (optionnels, paramétrables).
+  statutCeeId      String?
+  statutCee        StatutCee? @relation(fields: [statutCeeId], references: [id])
+  statutTravauxId  String?
+  statutTravaux    StatutTravaux? @relation(fields: [statutTravauxId], references: [id])
+
   dateSignatureDevis DateTime?
   dateDebutTravaux   DateTime?
   dateFinTravaux     DateTime?
@@ -261,14 +373,18 @@ model Dossier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  postesTravaux DossierPosteTravaux[]
-  documents     DossierDocument[]
-  taches        Tache[]
-  commandes     Commande[]
+  postesTravaux        DossierPosteTravaux[]
+  documents            DossierDocument[]
+  taches               Tache[]
+  commandes            Commande[]
+  mouvementsFinanciers MouvementFinancier[]
 
   @@index([statutId])
   @@index([typeId])
   @@index([clientId])
+  @@index([organisationId])
+  @@index([statutCeeId])
+  @@index([statutTravauxId])
 }
 
 model DossierPosteTravaux {
@@ -384,4 +500,68 @@ model Tache {
 
   @@index([dossierId])
   @@index([statut, dateEcheance])
+}
+
+// Mouvement financier daté et traçable, unitaire (un encaissement, un
+// paiement, une commission...). Coexiste avec les compteurs cumulés déjà
+// présents sur Dossier (montantEncaisseClient/MPR/CEE) qui restent la
+// source utilisée par l'UI actuelle - ce modèle est la fondation d'un
+// futur grand livre détaillé, pas encore branché nulle part par défaut.
+model MouvementFinancier {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  dossierId      String
+  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  type      TypeMouvementFinancier
+  categorie CategorieMouvementFinancier
+
+  payeur       String? // libellé libre : "Client", "ANAH", "Délégataire CEE X"...
+  beneficiaire String?
+
+  montantPrevuCts Int?
+  montantReelCts  Int?
+  datePrevue      DateTime?
+  dateReelle      DateTime?
+
+  statut StatutMouvementFinancier @default(PREVU)
+  // Origine libre - utiliser la valeur "SOURCE_EXISTANTE_AGREGEE" pour tout
+  // mouvement reconstitué depuis les compteurs agrégés existants (sans date
+  // métier réelle connue), afin de ne jamais le confondre avec un mouvement
+  // réellement daté et tracé.
+  origine     String?
+  commentaire String?
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dossierId])
+  @@index([organisationId])
+  @@index([statut])
+}
+
+// Journal d'audit minimal - qui a fait quoi, quand. entityId est une chaîne
+// libre (pas de FK) car une même ligne peut référencer n'importe quel type
+// d'entité (document, tâche, poste de travaux...) sans imposer une relation
+// Prisma par type audité.
+model AuditLog {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+
+  entityType String
+  entityId   String
+  action     String
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organisationId])
+  @@index([entityType, entityId])
 }

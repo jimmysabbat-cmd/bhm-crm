@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Users, Landmark, Zap, TrendingUp, AlertTriangle, ArrowRight, Plus, HandCoins } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -8,8 +9,9 @@ import { Button } from "@/components/ui/Button";
 import { statutColor } from "@/components/ui/Badge";
 
 export default async function DashboardPage() {
+  const ctx = await requireUserContext();
   const dossiers = await prisma.dossier.findMany({
-    where: { statut: { key: { not: "CLOTURE" } } },
+    where: { organisationId: ctx.organisationId, statut: { key: { not: "CLOTURE" } } },
     select: {
       statutId: true,
       statut: { select: { label: true, key: true } },
@@ -119,7 +121,11 @@ export default async function DashboardPage() {
   const maxStatutCount = Math.max(1, ...statutEntries.map(([, v]) => v.count));
 
   const tachesEnRetard = await prisma.tache.findMany({
-    where: { statut: "A_FAIRE", dateEcheance: { lt: new Date() } },
+    where: {
+      statut: "A_FAIRE",
+      dateEcheance: { lt: new Date() },
+      dossier: { organisationId: ctx.organisationId },
+    },
     include: { dossier: { include: { client: true } } },
     orderBy: { dateEcheance: "asc" },
     take: 10,

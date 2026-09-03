@@ -12,8 +12,11 @@ import {
   User,
   Lock,
   Clock,
+  Zap,
+  Hammer,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import {
   precariteLabels,
@@ -29,6 +32,8 @@ import {
   updateMontage,
   updateStatut,
   updateAnahInfo,
+  updateCeeInfo,
+  updateTravauxInfo,
   toggleTache,
   updateTache,
   deleteTache,
@@ -63,37 +68,53 @@ export default async function DossierDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const ctx = await requireUserContext();
 
-  const [dossier, statuts, mars, statutsAnah, sousTraitants, regies, delegatairesCee, types, modesPaiement] =
-    await Promise.all([
-      prisma.dossier.findUnique({
-        where: { id },
-        include: {
-          client: true,
-          type: true,
-          statut: true,
-          createdBy: true,
-          modePaiementAide: true,
-          mar: true,
-          statutAnah: true,
-          delegataireCee: true,
-          taches: { orderBy: { dateEcheance: "asc" } },
-          postesTravaux: {
-            orderBy: { createdAt: "asc" },
-            include: { sousTraitant: true, regie: true },
-          },
-          documents: { orderBy: { createdAt: "desc" } },
+  const [
+    dossier,
+    statuts,
+    mars,
+    statutsAnah,
+    statutsCee,
+    statutsTravaux,
+    sousTraitants,
+    regies,
+    delegatairesCee,
+    types,
+    modesPaiement,
+  ] = await Promise.all([
+    prisma.dossier.findFirst({
+      where: { id, organisationId: ctx.organisationId },
+      include: {
+        client: true,
+        type: true,
+        statut: true,
+        createdBy: true,
+        modePaiementAide: true,
+        mar: true,
+        statutAnah: true,
+        statutCee: true,
+        statutTravaux: true,
+        delegataireCee: true,
+        taches: { orderBy: { dateEcheance: "asc" } },
+        postesTravaux: {
+          orderBy: { createdAt: "asc" },
+          include: { sousTraitant: true, regie: true },
         },
-      }),
-      prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-      prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-      prisma.statutAnah.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-      prisma.sousTraitant.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
-      prisma.regie.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-      prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-      prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-      prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    ]);
+        documents: { orderBy: { createdAt: "desc" } },
+      },
+    }),
+    prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.statutAnah.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.statutCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.statutTravaux.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.sousTraitant.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
+    prisma.regie.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+  ]);
 
   if (!dossier) notFound();
 
@@ -569,6 +590,62 @@ export default async function DossierDetailPage({
           </form>
         </Card>
       )}
+
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        {!noCee && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-emerald-600" />
+                <CardTitle>Flux CEE</CardTitle>
+              </div>
+            </CardHeader>
+            <form action={updateCeeInfo} className="space-y-3 p-5">
+              <input type="hidden" name="dossierId" value={dossier.id} />
+              <div className="space-y-1">
+                <label className={labelClass}>Statut CEE</label>
+                <select name="statutCeeId" defaultValue={dossier.statutCeeId ?? ""} className={inputClass}>
+                  <option value="">—</option>
+                  {statutsCee.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button type="submit">Enregistrer</Button>
+            </form>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Hammer className="h-4 w-4 text-emerald-600" />
+              <CardTitle>Flux Travaux / Chantier</CardTitle>
+            </div>
+          </CardHeader>
+          <form action={updateTravauxInfo} className="space-y-3 p-5">
+            <input type="hidden" name="dossierId" value={dossier.id} />
+            <div className="space-y-1">
+              <label className={labelClass}>Statut travaux</label>
+              <select
+                name="statutTravauxId"
+                defaultValue={dossier.statutTravauxId ?? ""}
+                className={inputClass}
+              >
+                <option value="">—</option>
+                {statutsTravaux.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button type="submit">Enregistrer</Button>
+          </form>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>
