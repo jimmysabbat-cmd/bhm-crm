@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Plus, ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext } from "@/lib/authz";
+import { requireUserContext, isPartnerRole } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import { resteAChargeCents } from "@/lib/dossier-labels";
 import { Card } from "@/components/ui/Card";
@@ -15,6 +16,9 @@ export default async function DossiersPage({
 }) {
   const { statut } = await searchParams;
   const ctx = await requireUserContext();
+  // P11 (section 23/24) - un compte partenaire ne voit jamais la liste
+  // complète des dossiers de l'organisation.
+  if (isPartnerRole(ctx)) redirect("/partenaire");
 
   const [dossiers, statutFiltre] = await Promise.all([
     prisma.dossier.findMany({

@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowRight, RefreshCcw } from "lucide-react";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireUserContext, hasPermission, isPartnerRole } from "@/lib/authz";
 import { getNextBestActions, estAujourdhui, estCetteSemaine, roleLabels } from "@/lib/next-best-action";
 import { evaluateRelanceRules } from "@/lib/relances";
 import { formatCents } from "@/lib/money";
@@ -39,6 +40,7 @@ export default async function TachesPage({
   const filtre: Filtre = FILTRES.includes(filtreRaw as Filtre) ? (filtreRaw as Filtre) : "aujourdhui";
 
   const ctx = await requireUserContext();
+  if (isPartnerRole(ctx)) redirect("/partenaire");
   const peutVoirTout = hasPermission(ctx, "VIEW_ALL_ACTIONS");
   const scope = peutVoirTout && vue === "tout" ? "all" : "mine";
 

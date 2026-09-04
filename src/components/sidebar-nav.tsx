@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Wallet, PhoneCall, FileCheck } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Wallet, PhoneCall, FileCheck, Bell, Workflow, Handshake } from "lucide-react";
 
 const icons = {
   tresorerie: LayoutDashboard,
@@ -12,12 +12,18 @@ const icons = {
   parametrage: Settings,
   leads: PhoneCall,
   documents: FileCheck,
+  notifications: Bell,
+  automations: Workflow,
+  partenaire: Handshake,
 };
 
 export type SidebarLink = {
   href: string;
   label: string;
   icon: keyof typeof icons;
+  // Compteur optionnel (ex. notifications non lues) - rafraîchi au
+  // rechargement de page standard, pas de websocket (P11, section 15).
+  badge?: number;
 };
 
 export function SidebarNav({ links }: { links: SidebarLink[] }) {
@@ -40,7 +46,10 @@ export function SidebarNav({ links }: { links: SidebarLink[] }) {
             }`}
           >
             <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
-            {link.label}
+            <span className="flex-1">{link.label}</span>
+            {!!link.badge && (
+              <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">{link.badge > 99 ? "99+" : link.badge}</span>
+            )}
           </Link>
         );
       })}

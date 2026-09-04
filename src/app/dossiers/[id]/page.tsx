@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   Wallet,
   ClipboardCheck,
@@ -19,13 +19,15 @@ import {
   Banknote,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, canAccessDossierStudy } from "@/lib/authz";
+import { requireUserContext, hasPermission, canAccessDossierStudy, canAccessDossierCommunication, isPartnerRole } from "@/lib/authz";
 import { buildStudyContext, isStudyStale } from "@/lib/etude/engine";
 import { sanitizeScenariosForRole } from "@/lib/etude/redact";
 import type { StudyContext, StudyScenario } from "@/lib/etude/types";
 import { EtudeStudyPanel } from "../EtudeStudyPanel";
 import { getDocumentChecklistForDossier } from "@/lib/documents/checklist";
 import { DocumentChecklistPanel } from "../DocumentChecklistPanel";
+import { CommunicationsPanel } from "../CommunicationsPanel";
+import { getMissingDocumentsRelanceData } from "@/lib/documents/relance";
 import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
 import { mouvementIsLate, mouvementJoursRetard, calculateBlockedAmountForDossier } from "@/lib/finance";
 import { getFinancialSummaryForDossier, getCreancesForDossier, getDettesForDossier, financialDataQualityLabels } from "@/lib/financial-engine";
@@ -145,6 +147,10 @@ export default async function DossierDetailPage({
 }) {
   const { id } = await params;
   const ctx = await requireUserContext();
+  // P11 (section 23/24) - la fiche dossier complète (marge, finances,
+  // documents hors package...) n'est jamais accessible à un partenaire,
+  // même sur un dossier où il a un poste assigné.
+  if (isPartnerRole(ctx)) redirect("/partenaire");
 
   // Le moteur de workflow est idempotent : le rappeler à chaque affichage
   // garantit une vue toujours à jour (étapes promues, tâches auto créées)
@@ -347,6 +353,33 @@ export default async function DossierDetailPage({
       createdAt: p.createdAt.toISOString(),
       documentsCount: p._count.documents,
     }));
+  }
+
+  // Bloc COMMUNICATIONS (P11, section 21) - même principe que les blocs
+  // ci-dessus : ne charge que si l'utilisateur a la permission ET l'accès
+  // par instance (canAccessDossierCommunication - un COMMERCIAL ne prépare
+  // que sur SES dossiers).
+  const peutVoirCommunications = canAccessDossierCommunication(ctx, dossier);
+  let communicationsProps: {
+    drafts: { id: string; sujet: string; destinataire: string; statut: string; createdAt: string }[];
+    logs: { id: string; sujet: string; destinataire: string; statut: string; sentAt: string; erreur: string | null }[];
+    relanceCount: number;
+    lastRelanceAt: string | null;
+    documentsManquants: number;
+  } | null = null;
+  if (peutVoirCommunications) {
+    const [drafts, logs, relance] = await Promise.all([
+      prisma.emailDraft.findMany({ where: { dossierId: dossier.id, statut: "BROUILLON" }, orderBy: { createdAt: "desc" } }),
+      prisma.emailSendLog.findMany({ where: { dossierId: dossier.id }, orderBy: { sentAt: "desc" }, take: 20 }),
+      getMissingDocumentsRelanceData(dossier.id, ctx.organisationId).catch(() => null),
+    ]);
+    communicationsProps = {
+      drafts: drafts.map((d) => ({ id: d.id, sujet: d.sujet, destinataire: d.destinataire, statut: d.statut, createdAt: d.createdAt.toISOString() })),
+      logs: logs.map((l) => ({ id: l.id, sujet: l.sujet, destinataire: l.destinataire, statut: l.statut, sentAt: l.sentAt.toISOString(), erreur: l.erreur })),
+      relanceCount: relance?.relanceCount ?? 0,
+      lastRelanceAt: relance?.lastRelanceAt?.toISOString() ?? null,
+      documentsManquants: relance?.documentsManquants.length ?? 0,
+    };
   }
 
   const resteACharge = resteAChargeCents(dossier);
@@ -1193,6 +1226,19 @@ export default async function DossierDetailPage({
             peutCreerPackage: hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE"),
             peutTelechargerPackage: hasPermission(ctx, "DOWNLOAD_TRANSMISSION_PACKAGE"),
           }}
+        />
+      )}
+
+      {communicationsProps && (
+        <CommunicationsPanel
+          dossierId={dossier.id}
+          drafts={communicationsProps.drafts}
+          logs={communicationsProps.logs}
+          relanceCount={communicationsProps.relanceCount}
+          lastRelanceAt={communicationsProps.lastRelanceAt}
+          documentsManquants={communicationsProps.documentsManquants}
+          peutPreparer={hasPermission(ctx, "PREPARE_COMMUNICATIONS")}
+          peutEnvoyer={hasPermission(ctx, "SEND_EMAIL_ACTION")}
         />
       )}
 

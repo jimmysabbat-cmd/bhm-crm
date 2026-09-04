@@ -4,6 +4,7 @@ import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
 import { calculateLeadQualification } from "@/lib/leads/qualification";
 import { canViewStudyCostsAndMargin } from "@/lib/etude/redact";
 import { QualificationWorkspace } from "../../QualificationWorkspace";
+import { LeadCommunicationsPanel } from "../../LeadCommunicationsPanel";
 
 export default async function LeadQualificationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -42,11 +43,12 @@ export default async function LeadQualificationPage({ params }: { params: Promis
       })
     : null;
 
-  const [statuts, sources, resultats, users] = await Promise.all([
+  const [statuts, sources, resultats, users, emailDrafts] = await Promise.all([
     prisma.leadPipelineStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.leadSource.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.resultatAppel.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.user.findMany({ where: { organisationId: ctx.organisationId, actif: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.emailDraft.findMany({ where: { leadId: lead.id, statut: "BROUILLON" }, orderBy: { createdAt: "desc" } }),
   ]);
 
   const questionsObligatoires = questionnaireVersion?.questions.filter((q) => q.obligatoire) ?? [];
@@ -67,7 +69,8 @@ export default async function LeadQualificationPage({ params }: { params: Promis
   const claimActifAutre = lead.claimedById != null && lead.claimedById !== ctx.userId && lead.claimExpiresAt != null && lead.claimExpiresAt > now;
 
   return (
-    <QualificationWorkspace
+    <div>
+      <QualificationWorkspace
       lead={{
         id: lead.id,
         prenom: lead.prenom,
@@ -151,6 +154,16 @@ export default async function LeadQualificationPage({ params }: { params: Promis
         peutSimulerEtude: hasPermission(ctx, "RUN_LEAD_STUDY"),
         peutVoirCoutsMarge: canViewStudyCostsAndMargin(ctx),
       }}
-    />
+      />
+      <div className="mx-auto max-w-4xl px-4 pb-8 sm:px-8">
+        <LeadCommunicationsPanel
+          leadId={lead.id}
+          hasEmail={lead.email != null}
+          drafts={emailDrafts.map((d) => ({ id: d.id, sujet: d.sujet, destinataire: d.destinataire, createdAt: d.createdAt.toISOString() }))}
+          peutPreparer={hasPermission(ctx, "PREPARE_COMMUNICATIONS")}
+          peutEnvoyer={hasPermission(ctx, "SEND_EMAIL_ACTION")}
+        />
+      </div>
+    </div>
   );
 }

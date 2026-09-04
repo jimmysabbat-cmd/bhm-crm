@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { buildTransmissionPackagePreview, createTransmissionPackage, type TransmissionPackagePreview } from "@/lib/documents/transmission";
+import { emitDomainEvent } from "@/lib/webhooks/service";
 import type { DestinationTransmission } from "@/generated/prisma/enums";
 
 // ============================================================
@@ -36,14 +37,25 @@ export async function createTransmissionPackageAction(
   dossierId: string,
   destination: DestinationTransmission,
   destinationName: string | null,
-  comment: string | null
+  comment: string | null,
+  destinationSousTraitantId?: string | null,
+  destinationDelegataireCeeId?: string | null
 ): Promise<{ ok: true; packageId: string } | { ok: false; error: string }> {
   try {
     const ctx = await requireUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
     await loadOwnedDossier(dossierId, ctx.organisationId);
 
-    const packageId = await createTransmissionPackage({ dossierId, organisationId: ctx.organisationId, destination, destinationName, comment, createdById: ctx.userId });
+    const packageId = await createTransmissionPackage({
+      dossierId,
+      organisationId: ctx.organisationId,
+      destination,
+      destinationName,
+      comment,
+      createdById: ctx.userId,
+      destinationSousTraitantId: destinationSousTraitantId ?? null,
+      destinationDelegataireCeeId: destinationDelegataireCeeId ?? null,
+    });
 
     await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "TransmissionPackage", entityId: packageId, action: "PACKAGE_CREE", metadata: { dossierId, destination } });
 
@@ -69,6 +81,7 @@ export async function markTransmissionPackagePret(packageId: string): Promise<{ 
 
     await prisma.transmissionPackage.update({ where: { id: pkg.id }, data: { status: "PRET" } });
     await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "TransmissionPackage", entityId: pkg.id, action: "PACKAGE_PRET", metadata: { dossierId: pkg.dossierId } });
+    await emitDomainEvent(ctx.organisationId, "PACKAGE_READY", { packageId: pkg.id, dossierId: pkg.dossierId, destinationType: pkg.destinationType });
 
     revalidatePath(`/dossiers/${pkg.dossierId}`);
     return { ok: true };

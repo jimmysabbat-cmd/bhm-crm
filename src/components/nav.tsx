@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { LogOut, Zap } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
+import { getUnreadNotificationCount } from "@/lib/notifications/service";
 import { SidebarNav, type SidebarLink } from "./sidebar-nav";
 
 // Dès qu'un fichier public/logo-bhm.(png|svg|jpg) est ajouté, il remplace
@@ -22,31 +23,8 @@ const links: SidebarLink[] = [
   { href: "/taches", label: "Tâches & relances", icon: "taches" },
 ];
 
-export async function Nav() {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const role = (session.user as { role?: string }).role;
-  const isAdmin = role === "ADMIN";
-  // Section 21 du prompt P6 : /finances accessible à ADMIN/direction et aux
-  // rôles comptabilité (nom historique COMPTA conservé pour compatibilité).
-  const peutVoirFinances = isAdmin || role === "COMPTABILITE" || role === "COMPTA";
-  // P9 : VIEW_LEADS (ADMIN/COMMERCIAL/TELEPROSPECTEUR/ADMINISTRATIF) - liste
-  // dupliquée volontairement ici plutôt qu'un import de authz.ts (Nav est un
-  // Server Component très en amont, garder le calcul du menu simple et
-  // local comme peutVoirFinances ci-dessus).
-  const peutVoirLeads = ["ADMIN", "COMMERCIAL", "TELEPROSPECTEUR", "ADMINISTRATIF"].includes(role ?? "");
-  // P10 : VIEW_DOCUMENTS (ADMIN/ADMINISTRATIF/COMMERCIAL/TECHNIQUE/COMPTA/COMPTABILITE).
-  const peutVoirDocuments = ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "TECHNIQUE", "COMPTA", "COMPTABILITE"].includes(role ?? "");
-  const allLinks = [
-    ...links,
-    ...(peutVoirLeads ? [{ href: "/leads", label: "Leads", icon: "leads" as const }] : []),
-    ...(peutVoirDocuments ? [{ href: "/documents/a-verifier", label: "Documents", icon: "documents" as const }] : []),
-    ...(peutVoirFinances ? [{ href: "/finances", label: "Finances", icon: "finances" as const }] : []),
-    ...(isAdmin ? [{ href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }] : []),
-  ];
-
-  const initial = session.user.name?.[0]?.toUpperCase() ?? "?";
+function NavShell({ links, userName, userEmail }: { links: SidebarLink[]; userName: string; userEmail: string }) {
+  const initial = userName[0]?.toUpperCase() ?? "?";
   const logo = findLogo();
 
   return (
@@ -66,7 +44,7 @@ export async function Nav() {
         </div>
       </div>
 
-      <SidebarNav links={allLinks} />
+      <SidebarNav links={links} />
 
       <div className="mt-auto border-t border-white/5 p-3">
         <div className="flex items-center gap-3 rounded-lg px-2 py-2">
@@ -74,8 +52,8 @@ export async function Nav() {
             {initial}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-100">{session.user.name}</p>
-            <p className="truncate text-xs text-slate-500">{session.user.email}</p>
+            <p className="truncate text-sm font-medium text-slate-100">{userName}</p>
+            <p className="truncate text-xs text-slate-500">{userEmail}</p>
           </div>
           <form
             action={async () => {
@@ -95,4 +73,52 @@ export async function Nav() {
       </div>
     </aside>
   );
+}
+
+export async function Nav() {
+  const session = await auth();
+  if (!session?.user) return null;
+
+  const userId = (session.user as { id?: string }).id;
+  const role = (session.user as { role?: string }).role;
+  const userName = session.user.name ?? "?";
+  const userEmail = session.user.email ?? "";
+  const isAdmin = role === "ADMIN";
+  const isAdministratif = role === "ADMINISTRATIF";
+
+  // P11 (section 23/24) - un compte partenaire n'a JAMAIS accès aux liens
+  // internes (dossiers/finances/leads/paramétrage...), même masqués : un
+  // menu dédié et volontairement minimal.
+  if (role === "SOUS_TRAITANT" || role === "DELEGATAIRE_CEE") {
+    return <NavShell links={[{ href: "/partenaire", label: "Espace partenaire", icon: "partenaire" }]} userName={userName} userEmail={userEmail} />;
+  }
+
+  // Section 21 du prompt P6 : /finances accessible à ADMIN/direction et aux
+  // rôles comptabilité (nom historique COMPTA conservé pour compatibilité).
+  const peutVoirFinances = isAdmin || role === "COMPTABILITE" || role === "COMPTA";
+  // P9 : VIEW_LEADS (ADMIN/COMMERCIAL/TELEPROSPECTEUR/ADMINISTRATIF) - liste
+  // dupliquée volontairement ici plutôt qu'un import de authz.ts (Nav est un
+  // Server Component très en amont, garder le calcul du menu simple et
+  // local comme peutVoirFinances ci-dessus).
+  const peutVoirLeads = ["ADMIN", "COMMERCIAL", "TELEPROSPECTEUR", "ADMINISTRATIF"].includes(role ?? "");
+  // P10 : VIEW_DOCUMENTS (ADMIN/ADMINISTRATIF/COMMERCIAL/TECHNIQUE/COMPTA/COMPTABILITE).
+  const peutVoirDocuments = ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "TECHNIQUE", "COMPTA", "COMPTABILITE"].includes(role ?? "");
+  // P11 : VIEW_AUTOMATIONS (ADMIN/ADMINISTRATIF), VIEW_NOTIFICATIONS (tout
+  // rôle interne).
+  const peutVoirAutomations = isAdmin || isAdministratif;
+  const peutVoirNotifications = role != null && role !== "SOUS_TRAITANT" && role !== "DELEGATAIRE_CEE";
+
+  const unreadCount = userId && peutVoirNotifications ? await getUnreadNotificationCount(userId) : 0;
+
+  const allLinks: SidebarLink[] = [
+    ...links,
+    ...(peutVoirLeads ? [{ href: "/leads", label: "Leads", icon: "leads" as const }] : []),
+    ...(peutVoirDocuments ? [{ href: "/documents/a-verifier", label: "Documents", icon: "documents" as const }] : []),
+    ...(peutVoirFinances ? [{ href: "/finances", label: "Finances", icon: "finances" as const }] : []),
+    ...(peutVoirAutomations ? [{ href: "/automations", label: "Automatisations", icon: "automations" as const }] : []),
+    ...(peutVoirNotifications ? [{ href: "/notifications", label: "Notifications", icon: "notifications" as const, badge: unreadCount }] : []),
+    ...(isAdmin ? [{ href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }] : []),
+  ];
+
+  return <NavShell links={allLinks} userName={userName} userEmail={userEmail} />;
 }

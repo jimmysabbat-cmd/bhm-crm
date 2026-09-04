@@ -49,6 +49,10 @@ const groups = [
     ],
   },
   {
+    label: "Automatisations",
+    items: [{ href: "/parametrage/automations", label: "Règles & templates" }],
+  },
+  {
     label: "Accès",
     items: [{ href: "/parametrage/equipe", label: "Équipe" }],
   },

@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { saveDocumentFile, deleteDocumentFile } from "@/lib/documents";
 import { computeExpirationDate } from "@/lib/documents/expiration";
 import { getMissingDocumentsRelanceData, type RelanceDocumentaireData } from "@/lib/documents/relance";
+import { emitDomainEvent } from "@/lib/webhooks/service";
 import type { PorteeDocument, SourceDonnee } from "@/generated/prisma/enums";
 
 // ============================================================
@@ -105,6 +106,7 @@ export async function validateDossierDocument(docId: string, comment?: string): 
     });
 
     await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "DossierDocument", entityId: doc.id, action: "DOCUMENT_VALIDE", metadata: { dossierId: doc.dossierId } });
+    await emitDomainEvent(ctx.organisationId, "DOCUMENT_VALIDATED", { documentId: doc.id, dossierId: doc.dossierId });
 
     revalidatePath(`/dossiers/${doc.dossierId}`);
     return { ok: true };

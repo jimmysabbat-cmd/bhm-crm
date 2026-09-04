@@ -157,6 +157,10 @@ export async function createTransmissionPackage(params: {
   destinationName: string | null;
   comment: string | null;
   createdById: string;
+  // P11 (section 23/24) - rattachement précis à un partenaire pour un
+  // scoping d'accès fiable, jamais déduit de destinationName.
+  destinationSousTraitantId?: string | null;
+  destinationDelegataireCeeId?: string | null;
 }): Promise<string> {
   const preview = await buildTransmissionPackagePreview(params);
 
@@ -166,6 +170,8 @@ export async function createTransmissionPackage(params: {
       dossierId: params.dossierId,
       destinationType: params.destination,
       destinationName: params.destinationName,
+      destinationSousTraitantId: params.destinationSousTraitantId ?? null,
+      destinationDelegataireCeeId: params.destinationDelegataireCeeId ?? null,
       status: "BROUILLON",
       snapshot: JSON.parse(JSON.stringify(preview)),
       comment: params.comment,

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   Users,
   Landmark,
@@ -14,7 +15,7 @@ import {
   FileCheck,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireUserContext, hasPermission, isPartnerRole } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { getNextBestActions, estCetteSemaine } from "@/lib/next-best-action";
@@ -27,6 +28,10 @@ import { Badge, statutColor } from "@/components/ui/Badge";
 
 export default async function DashboardPage() {
   const ctx = await requireUserContext();
+  // P11 (section 23/24) - un compte partenaire n'a jamais accès au
+  // tableau de bord interne (marge, finances, tous dossiers...) : il est
+  // redirigé vers son espace très restreint.
+  if (isPartnerRole(ctx)) redirect("/partenaire");
   const dossiers = await prisma.dossier.findMany({
     where: { organisationId: ctx.organisationId, statut: { key: { not: "CLOTURE" } } },
     select: {

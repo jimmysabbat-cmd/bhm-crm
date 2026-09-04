@@ -5,6 +5,7 @@ import { dbConfigFromUrl } from "../src/lib/db-config";
 import { seedReglementaireDemo } from "./seed-reglementaire";
 import { seedLeadReferentiels, seedQuestionnaireQualification } from "./seed-leads";
 import { seedDocumentReferentiel } from "./seed-documents";
+import { seedAutomations } from "./seed-automations";
 import bcrypt from "bcryptjs";
 
 const adapter = new PrismaMariaDb(dbConfigFromUrl(process.env.DATABASE_URL as string));
@@ -288,6 +289,7 @@ async function main() {
   await seedLeadReferentiels(prisma);
   await seedQuestionnaireQualification(prisma);
   await seedDocumentReferentiel(prisma);
+  await seedAutomations(prisma, organisation.id);
 
   const email = process.env.SEED_ADMIN_EMAIL ?? "horizonhabitatenergie@gmail.com";
   const password = process.env.SEED_ADMIN_PASSWORD ?? "changeme123";

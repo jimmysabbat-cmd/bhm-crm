@@ -18,6 +18,13 @@ export type UserContext = {
   userId: string;
   organisationId: string;
   role: Role;
+  // P11 - renseignés uniquement pour un compte partenaire (rôle
+  // SOUS_TRAITANT/DELEGATAIRE_CEE) rattaché à son entité référentielle ;
+  // absents/null pour tout compte interne. Optionnels pour ne pas casser
+  // les UserContext construits à la main par les scripts de test P5-P10
+  // (aucun besoin d'accès partenaire dans ces suites).
+  sousTraitantId?: string | null;
+  delegataireCeeId?: string | null;
 };
 
 // Contexte utilisateur fiable pour toute requête métier scoping par
@@ -35,13 +42,19 @@ export async function requireUserContext(): Promise<UserContext> {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { organisationId: true, role: true, actif: true },
+    select: { organisationId: true, role: true, actif: true, sousTraitantId: true, delegataireCeeId: true },
   });
   if (!user || !user.actif) {
     throw new Error("Non autorisé : compte introuvable ou désactivé.");
   }
 
-  return { userId, organisationId: user.organisationId, role: user.role };
+  return {
+    userId,
+    organisationId: user.organisationId,
+    role: user.role,
+    sousTraitantId: user.sousTraitantId,
+    delegataireCeeId: user.delegataireCeeId,
+  };
 }
 
 // Vérifie qu'un dossier existe ET appartient à l'organisation donnée, avant
@@ -151,7 +164,23 @@ export type Permission =
   | "VALIDATE_DOCUMENTS"
   | "VIEW_SENSITIVE_DOCUMENTS"
   | "CREATE_TRANSMISSION_PACKAGE"
-  | "DOWNLOAD_TRANSMISSION_PACKAGE";
+  | "DOWNLOAD_TRANSMISSION_PACKAGE"
+  // P11 - automatisations (section 45). VIEW_AUTOMATIONS/MANAGE_AUTOMATIONS
+  // couvrent le tableau de bord et le paramétrage des règles/templates -
+  // réservés à la direction/l'administratif (jamais accessibles à un
+  // compte partenaire). PREPARE_COMMUNICATIONS permet à un commercial de
+  // préparer un email pour SES dossiers (restriction par instance vérifiée
+  // via canAccessDossierCommunication, même principe que canAccessLead) ;
+  // SEND_EMAIL_ACTION autorise l'envoi réel d'un brouillon déjà préparé.
+  // VIEW_NOTIFICATIONS couvre le centre de notifications interne - jamais
+  // un compte partenaire (SOUS_TRAITANT/DELEGATAIRE_CEE), qui n'a pas de
+  // notifications internes.
+  | "VIEW_AUTOMATIONS"
+  | "MANAGE_AUTOMATIONS"
+  | "PREPARE_COMMUNICATIONS"
+  | "SEND_EMAIL_ACTION"
+  | "VIEW_NOTIFICATIONS"
+  | "MANAGE_WEBHOOKS";
 
 const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_ALL_ACTIONS: ["ADMIN"],
@@ -180,6 +209,12 @@ const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_SENSITIVE_DOCUMENTS: ["ADMIN", "ADMINISTRATIF", "COMPTA", "COMPTABILITE"],
   CREATE_TRANSMISSION_PACKAGE: ["ADMIN", "ADMINISTRATIF"],
   DOWNLOAD_TRANSMISSION_PACKAGE: ["ADMIN", "ADMINISTRATIF"],
+  VIEW_AUTOMATIONS: ["ADMIN", "ADMINISTRATIF"],
+  MANAGE_AUTOMATIONS: ["ADMIN"],
+  PREPARE_COMMUNICATIONS: ["ADMIN", "ADMINISTRATIF", "COMMERCIAL"],
+  SEND_EMAIL_ACTION: ["ADMIN", "ADMINISTRATIF", "COMMERCIAL"],
+  VIEW_NOTIFICATIONS: ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "TECHNIQUE", "COMPTA", "COMPTABILITE", "TELEPROSPECTEUR", "REGIE"],
+  MANAGE_WEBHOOKS: ["ADMIN"],
 };
 
 export function hasPermission(ctx: UserContext, permission: Permission): boolean {
@@ -212,4 +247,53 @@ export function canAccessLead(
   if (hasPermission(ctx, "VIEW_TEAM_LEADS")) return true;
   if (ctx.role === "ADMINISTRATIF") return lead.dossierId != null;
   return lead.commercialId === ctx.userId || lead.teleprospecteurId === ctx.userId || lead.createdById === ctx.userId;
+}
+
+// P11 (section 33/45) - même restriction par instance que
+// canAccessDossierStudy/canAccessLead : un COMMERCIAL ne prépare/envoie une
+// communication QUE sur SES dossiers (créateur), jamais ceux d'un autre
+// commercial. ADMIN/ADMINISTRATIF voient tout dès lors qu'ils ont la
+// permission.
+export function canAccessDossierCommunication(ctx: UserContext, dossier: { createdById: string | null }): boolean {
+  if (!hasPermission(ctx, "PREPARE_COMMUNICATIONS")) return false;
+  if (ctx.role === "COMMERCIAL") return dossier.createdById === ctx.userId;
+  return true;
+}
+
+// P11 (section 23/24) - un compte SOUS_TRAITANT ou DELEGATAIRE_CEE est un
+// accès partenaire TRÈS limité, jamais un rôle interne : il ne voit RIEN
+// par défaut, seulement ce qui est explicitement rattaché à son entité
+// (User.sousTraitantId/delegataireCeeId - jamais déduit d'un nom ou d'une
+// simple correspondance texte). Un compte interne (n'importe quel autre
+// rôle) n'est jamais un partenaire, même si son entité liée existait par
+// erreur en base.
+export function isPartnerRole(ctx: UserContext): boolean {
+  return ctx.role === "SOUS_TRAITANT" || ctx.role === "DELEGATAIRE_CEE";
+}
+
+// Un dossier est visible pour un partenaire uniquement s'il a au moins un
+// poste de travaux qui lui est assigné (sous-traitant) - le délégataire
+// CEE, lui, n'est jamais assigné à un poste : son périmètre est uniquement
+// les packages qui lui sont explicitement destinés (cf.
+// canAccessPackageAsPartner), jamais "tous les dossiers où il perçoit du
+// CEE" (fuite potentielle d'informations hors packages validés).
+export function canAccessDossierAsPartner(
+  ctx: UserContext,
+  dossier: { postesTravaux: { sousTraitantId: string | null }[] }
+): boolean {
+  if (ctx.role !== "SOUS_TRAITANT" || !ctx.sousTraitantId) return false;
+  return dossier.postesTravaux.some((p) => p.sousTraitantId === ctx.sousTraitantId);
+}
+
+// Un package n'est visible pour un partenaire QUE s'il lui est
+// explicitement destiné via destinationSousTraitantId/
+// destinationDelegataireCeeId (jamais via destinationName, une chaîne
+// libre non fiable pour une décision de sécurité).
+export function canAccessPackageAsPartner(
+  ctx: UserContext,
+  pkg: { destinationSousTraitantId: string | null; destinationDelegataireCeeId: string | null }
+): boolean {
+  if (ctx.role === "SOUS_TRAITANT") return ctx.sousTraitantId != null && pkg.destinationSousTraitantId === ctx.sousTraitantId;
+  if (ctx.role === "DELEGATAIRE_CEE") return ctx.delegataireCeeId != null && pkg.destinationDelegataireCeeId === ctx.delegataireCeeId;
+  return false;
 }

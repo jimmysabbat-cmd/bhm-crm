@@ -2,23 +2,23 @@ import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { documentFilePath } from "@/lib/documents";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireUserContext, hasPermission, canAccessPackageAsPartner } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { buildZip, cleanExportFileName } from "@/lib/documents/zip";
 
-// Export ZIP d'un package de transmission (P10, section 19) - noms de
-// fichiers propres appliqués UNIQUEMENT dans le ZIP (le fichier stocké sur
-// disque n'est jamais renommé, section 20). Réutilise documentFilePath()
-// (protections de chemin P0) pour chaque pièce incluse.
+// Export ZIP d'un package de transmission (P10, section 19 ; P11, section
+// 23/24) - noms de fichiers propres appliqués UNIQUEMENT dans le ZIP (le
+// fichier stocké sur disque n'est jamais renommé, section 20). Réutilise
+// documentFilePath() (protections de chemin P0) pour chaque pièce incluse.
+// Accessible soit à un interne avec DOWNLOAD_TRANSMISSION_PACKAGE, soit à
+// un partenaire (sous-traitant/délégataire CEE) UNIQUEMENT si ce package
+// lui est explicitement destiné.
 export async function GET(_request: Request, { params }: { params: Promise<{ packageId: string }> }) {
   let ctx;
   try {
     ctx = await requireUserContext();
   } catch {
     return new NextResponse("Non autorisé", { status: 401 });
-  }
-  if (!hasPermission(ctx, "DOWNLOAD_TRANSMISSION_PACKAGE")) {
-    return new NextResponse("Accès refusé", { status: 403 });
   }
 
   const { packageId } = await params;
@@ -30,6 +30,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pac
     },
   });
   if (!pkg) return new NextResponse("Introuvable", { status: 404 });
+
+  const isInternal = hasPermission(ctx, "DOWNLOAD_TRANSMISSION_PACKAGE");
+  const isPartner = canAccessPackageAsPartner(ctx, pkg);
+  if (!isInternal && !isPartner) {
+    return new NextResponse("Accès refusé", { status: 403 });
+  }
+  // Un package non encore transmis (BROUILLON) reste un usage interne
+  // uniquement - un partenaire ne télécharge que ce qui a été explicitement
+  // marqué PRÊT ou TRANSMIS, jamais un brouillon en cours de préparation.
+  if (isPartner && !isInternal && pkg.status === "BROUILLON") {
+    return new NextResponse("Package pas encore prêt.", { status: 403 });
+  }
 
   const entries = [];
   for (let i = 0; i < pkg.documents.length; i++) {

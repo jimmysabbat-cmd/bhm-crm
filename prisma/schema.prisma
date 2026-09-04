@@ -28,6 +28,10 @@ enum Role {
   // questionnaire, journalise les interactions. Pas d'accès financier/
   // réglementaire (mêmes exclusions que COMMERCIAL sur VIEW_MARGIN etc.)
   TELEPROSPECTEUR
+  // P11 - accès partenaire (section 24) : compte externe rattaché à un
+  // DelegataireCee via User.delegataireCeeId, même logique restreinte que
+  // SOUS_TRAITANT (aucun accès interne, uniquement ses dossiers/packages).
+  DELEGATAIRE_CEE
 }
 
 enum Precarite {
@@ -235,32 +239,42 @@ model Organisation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users                User[]
-  clients              Client[]
-  dossiers             Dossier[]
-  mouvementsFinanciers MouvementFinancier[]
-  auditLogs            AuditLog[]
-  programmes           Programme[]
-  dossierEtapes        DossierEtape[]
-  reglesRelance        RegleRelance[]
+  users                 User[]
+  clients               Client[]
+  dossiers              Dossier[]
+  mouvementsFinanciers  MouvementFinancier[]
+  auditLogs             AuditLog[]
+  programmes            Programme[]
+  dossierEtapes         DossierEtape[]
+  reglesRelance         RegleRelance[]
   calculsReglementaires CalculReglementaire[]
   tarifsDelegataireCee  TarifDelegataireCee[]
   etudesDossier         EtudeDossier[]
 
   // P9
-  leads                  Lead[]
-  logements              Logement[]
-  champsProvenance       ChampProvenance[]
-  questionnaires         Questionnaire[]
-  reponsesQuestionnaire  ReponseQuestionnaire[]
+  leads                    Lead[]
+  logements                Logement[]
+  champsProvenance         ChampProvenance[]
+  questionnaires           Questionnaire[]
+  reponsesQuestionnaire    ReponseQuestionnaire[]
   interactionsCommerciales InteractionCommerciale[]
-  rdvs                   Rdv[]
+  rdvs                     Rdv[]
 
   // P10
-  dossierDocuments        DossierDocument[]
+  dossierDocuments         DossierDocument[]
   typeDocumentReferentiels TypeDocumentReferentiel[]
-  documentRequirements    DocumentRequirement[]
-  transmissionPackages    TransmissionPackage[]
+  documentRequirements     DocumentRequirement[]
+  transmissionPackages     TransmissionPackage[]
+
+  // P11
+  automationRules      AutomationRule[]
+  automationExecutions AutomationExecution[]
+  emailTemplates       EmailTemplate[]
+  emailDrafts          EmailDraft[]
+  emailSendLogs        EmailSendLog[]
+  notifications        Notification[]
+  webhookEndpoints     WebhookEndpoint[]
+  webhookDeliveries    WebhookDelivery[]
 }
 
 model User {
@@ -276,34 +290,51 @@ model User {
   organisationId String
   organisation   Organisation @relation(fields: [organisationId], references: [id])
 
-  tachesAssignees        Tache[]
-  dossiersCrees          Dossier[]
-  mouvementsCrees        MouvementFinancier[]
-  auditLogs              AuditLog[]
-  dossierEtapesAssignees DossierEtape[]
-  calculsReglementairesCrees    CalculReglementaire[] @relation("CalculReglementaireCreatedBy")
+  // P11 - accès partenaire (section 23/24) : un compte de rôle
+  // SOUS_TRAITANT ou DELEGATAIRE_CEE (Role existant) rattaché à l'entité
+  // référentielle correspondante pour un scoping fiable (jamais déduit du
+  // nom). Nul pour un compte interne normal.
+  sousTraitantId           String?
+  sousTraitant             SousTraitant?   @relation(fields: [sousTraitantId], references: [id])
+  delegataireCeeId         String?
+  delegataireCeePartenaire DelegataireCee? @relation(fields: [delegataireCeeId], references: [id])
+
+  tachesAssignees                Tache[]
+  dossiersCrees                  Dossier[]
+  mouvementsCrees                MouvementFinancier[]
+  auditLogs                      AuditLog[]
+  dossierEtapesAssignees         DossierEtape[]
+  calculsReglementairesCrees     CalculReglementaire[] @relation("CalculReglementaireCreatedBy")
   calculsReglementairesOverrides CalculReglementaire[] @relation("CalculReglementaireOverrideBy")
-  etudesDossierCrees            EtudeDossier[]
-  etudesDossierSelectionnees    EtudeDossier[] @relation("EtudeDossierSelectedBy")
+  etudesDossierCrees             EtudeDossier[]
+  etudesDossierSelectionnees     EtudeDossier[]        @relation("EtudeDossierSelectedBy")
 
   // P9
-  leadsCommercial        Lead[] @relation("LeadCommercial")
-  leadsTeleprospecteur   Lead[] @relation("LeadTeleprospecteur")
-  leadsClaimedBy         Lead[] @relation("LeadClaimedBy")
-  leadsCreated           Lead[] @relation("LeadCreatedBy")
-  champsProvenanceAcceptees ChampProvenance[] @relation("ChampProvenanceAcceptedBy")
-  interactionsCommerciales InteractionCommerciale[]
-  rdvsCommercial         Rdv[] @relation("RdvCommercial")
-  rdvsCrees              Rdv[] @relation("RdvCreatedBy")
-  leadStatusChanges      LeadStatusHistory[]
+  leadsCommercial           Lead[]                   @relation("LeadCommercial")
+  leadsTeleprospecteur      Lead[]                   @relation("LeadTeleprospecteur")
+  leadsClaimedBy            Lead[]                   @relation("LeadClaimedBy")
+  leadsCreated              Lead[]                   @relation("LeadCreatedBy")
+  champsProvenanceAcceptees ChampProvenance[]        @relation("ChampProvenanceAcceptedBy")
+  interactionsCommerciales  InteractionCommerciale[]
+  rdvsCommercial            Rdv[]                    @relation("RdvCommercial")
+  rdvsCrees                 Rdv[]                    @relation("RdvCreatedBy")
+  leadStatusChanges         LeadStatusHistory[]
 
   // P10
-  dossierDocumentsValidees DossierDocument[] @relation("DossierDocumentValidatedBy")
-  dossierDocumentsCreees   DossierDocument[] @relation("DossierDocumentCreatedBy")
+  dossierDocumentsValidees     DossierDocument[]     @relation("DossierDocumentValidatedBy")
+  dossierDocumentsCreees       DossierDocument[]     @relation("DossierDocumentCreatedBy")
   transmissionPackagesTransmis TransmissionPackage[] @relation("TransmissionPackageTransmittedBy")
   transmissionPackagesCrees    TransmissionPackage[] @relation("TransmissionPackageCreatedBy")
 
+  // P11
+  notifications         Notification[]
+  emailDraftsCreees     EmailDraft[]     @relation("EmailDraftCreatedBy")
+  emailsEnvoyes         EmailSendLog[]   @relation("EmailSendLogSentBy")
+  automationRulesCreees AutomationRule[] @relation("AutomationRuleCreatedBy")
+
   @@index([organisationId])
+  @@index([sousTraitantId])
+  @@index([delegataireCeeId])
 }
 
 // Listes paramétrables depuis /parametrage - remplacent d'anciens enums figés
@@ -382,6 +413,10 @@ model DelegataireCee {
 
   dossiers Dossier[]
   tarifs   TarifDelegataireCee[]
+
+  // P11 - accès partenaire (section 24), même logique que SousTraitant.
+  utilisateurs     User[]
+  packagesDestines TransmissionPackage[]
 }
 
 // Statuts du suivi administratif ANAH (spécifique rénovation d'ampleur),
@@ -488,12 +523,12 @@ model Dossier {
   montantEncaisseMPR    Int @default(0)
   montantEncaisseCEE    Int @default(0)
 
-  modePaiementAideId String?
-  modePaiementAide   ModePaiement? @relation(fields: [modePaiementAideId], references: [id])
-  marId              String?
-  mar                Mar? @relation(fields: [marId], references: [id])
-  delegataireCeeId   String?
-  delegataireCee     DelegataireCee? @relation(fields: [delegataireCeeId], references: [id])
+  modePaiementAideId      String?
+  modePaiementAide        ModePaiement?   @relation(fields: [modePaiementAideId], references: [id])
+  marId                   String?
+  mar                     Mar?            @relation(fields: [marId], references: [id])
+  delegataireCeeId        String?
+  delegataireCee          DelegataireCee? @relation(fields: [delegataireCeeId], references: [id])
   dateDepotDelegataireCee DateTime?
 
   // Suivi administratif ANAH (rénovation d'ampleur uniquement)
@@ -504,10 +539,10 @@ model Dossier {
 
   // Flux CEE et flux travaux/chantier - indépendants du statut général et
   // du suivi ANAH, sur le même principe (optionnels, paramétrables).
-  statutCeeId      String?
-  statutCee        StatutCee? @relation(fields: [statutCeeId], references: [id])
-  statutTravauxId  String?
-  statutTravaux    StatutTravaux? @relation(fields: [statutTravauxId], references: [id])
+  statutCeeId     String?
+  statutCee       StatutCee?     @relation(fields: [statutCeeId], references: [id])
+  statutTravauxId String?
+  statutTravaux   StatutTravaux? @relation(fields: [statutTravauxId], references: [id])
 
   // Programme/workflow paramétrable (optionnel - un dossier créé avant ou
   // sans programme n'en a pas). La version est figée à l'affectation : si
@@ -523,14 +558,14 @@ model Dossier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  postesTravaux        DossierPosteTravaux[]
-  documents            DossierDocument[]
-  taches               Tache[]
-  commandes            Commande[]
-  mouvementsFinanciers MouvementFinancier[]
-  dossierEtapes        DossierEtape[]
+  postesTravaux         DossierPosteTravaux[]
+  documents             DossierDocument[]
+  taches                Tache[]
+  commandes             Commande[]
+  mouvementsFinanciers  MouvementFinancier[]
+  dossierEtapes         DossierEtape[]
   calculsReglementaires CalculReglementaire[]
-  etudesDossier        EtudeDossier[]
+  etudesDossier         EtudeDossier[]
 
   // P9
   lead     Lead?
@@ -539,6 +574,10 @@ model Dossier {
 
   // P10
   transmissionPackages TransmissionPackage[]
+
+  // P11
+  emailDrafts   EmailDraft[]
+  emailSendLogs EmailSendLog[]
 
   @@index([statutId])
   @@index([typeId])
@@ -567,7 +606,7 @@ model DossierPosteTravaux {
   montantPoseSousTraitanceCts Int? // montant confié au sous-traitant, en centimes
 
   regieId         String?
-  regie           Regie? @relation(fields: [regieId], references: [id])
+  regie           Regie?  @relation(fields: [regieId], references: [id])
   montantRegieCts Int? // montant de la pose en régie, en centimes
 
   montantMaterielHTCts  Int? // en centimes
@@ -610,6 +649,11 @@ model SousTraitant {
 
   commandes     Commande[]
   postesTravaux DossierPosteTravaux[]
+
+  // P11 - accès partenaire (section 23) : comptes utilisateurs rattachés à
+  // ce sous-traitant, et packages qui lui sont explicitement destinés.
+  utilisateurs     User[]
+  packagesDestines TransmissionPackage[]
 }
 
 // Documents et photos attachés à un dossier (devis, audit, photos de visite
@@ -637,16 +681,16 @@ model DossierDocument {
   organisationId String?
   organisation   Organisation? @relation(fields: [organisationId], references: [id])
 
-  typeDocumentId String?
+  typeDocumentId  String?
   typeDocumentRef TypeDocumentReferentiel? @relation(fields: [typeDocumentId], references: [id])
-  requirementId  String?
-  requirement    DocumentRequirement? @relation(fields: [requirementId], references: [id])
+  requirementId   String?
+  requirement     DocumentRequirement?     @relation(fields: [requirementId], references: [id])
 
   // Portée (section 9) - à qui/quoi se rattache précisément cette pièce
   // (au-delà du dossier lui-même).
-  portee         PorteeDocument @default(DOSSIER)
+  portee         PorteeDocument       @default(DOSSIER)
   clientId       String?
-  client         Client? @relation(fields: [clientId], references: [id])
+  client         Client?              @relation(fields: [clientId], references: [id])
   posteTravauxId String?
   posteTravaux   DossierPosteTravaux? @relation(fields: [posteTravauxId], references: [id])
 
@@ -766,19 +810,19 @@ model TypeDocumentReferentiel {
 // à une ancienne RegleReglementaireVersion (section 13/14) : chaque version
 // a ses propres DocumentRequirement, jamais partagés/mutés entre versions.
 model DocumentRequirement {
-  id             String                   @id @default(cuid())
+  id             String                  @id @default(cuid())
   organisationId String?
-  organisation   Organisation?            @relation(fields: [organisationId], references: [id])
+  organisation   Organisation?           @relation(fields: [organisationId], references: [id])
   typeDocumentId String
-  typeDocument   TypeDocumentReferentiel  @relation(fields: [typeDocumentId], references: [id])
+  typeDocument   TypeDocumentReferentiel @relation(fields: [typeDocumentId], references: [id])
 
   etapeProgrammeId String?
-  etapeProgramme   EtapeProgramme? @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
+  etapeProgramme   EtapeProgramme?            @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
   regleVersionId   String?
   regleVersion     RegleReglementaireVersion? @relation(fields: [regleVersionId], references: [id])
   typeTravaux      TypeTravaux?
 
-  obligatoire      Boolean                @default(true)
+  obligatoire      Boolean                  @default(true)
   // Condition d'applicabilité libre (ex. "precarite=TRES_MODESTE") -
   // interprétée par le moteur de checklist, jamais évaluée via eval().
   condition        String?
@@ -786,18 +830,18 @@ model DocumentRequirement {
   responsable      ResponsableDocument?
   destination      DestinationTransmission?
   validiteJours    Int?
-  multipleAutorise Boolean                @default(false)
-  minCount         Int                    @default(1)
+  multipleAutorise Boolean                  @default(false)
+  minCount         Int                      @default(1)
   maxCount         Int?
-  portee           PorteeDocument         @default(DOSSIER)
+  portee           PorteeDocument           @default(DOSSIER)
   // Une exigence bloquante empêche la transmission/le passage d'étape tant
   // qu'elle n'est pas satisfaite (section 11/12) - jamais bloquant par
   // défaut pour toutes les étapes, seulement quand explicitement configuré.
-  blocking         Boolean                @default(false)
-  ordre            Int                    @default(0)
+  blocking         Boolean                  @default(false)
+  ordre            Int                      @default(0)
   commentaire      String?
-  actif            Boolean                @default(true)
-  createdAt        DateTime               @default(now())
+  actif            Boolean                  @default(true)
+  createdAt        DateTime                 @default(now())
 
   dossierDocuments DossierDocument[]
 
@@ -825,8 +869,15 @@ model TransmissionPackage {
   dossierId      String
   dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
 
-  destinationType DestinationTransmission
-  destinationName String?
+  destinationType             DestinationTransmission
+  destinationName             String?
+  // Rattachement précis (P11, section 23/24) - au-delà du destinationName
+  // libre, permet un scoping d'accès partenaire fiable (jamais une
+  // comparaison de chaîne). Nul pour toute destination non partenaire.
+  destinationSousTraitantId   String?
+  destinationSousTraitant     SousTraitant?           @relation(fields: [destinationSousTraitantId], references: [id])
+  destinationDelegataireCeeId String?
+  destinationDelegataireCee   DelegataireCee?         @relation(fields: [destinationDelegataireCeeId], references: [id])
 
   status   StatutTransmissionPackage @default(BROUILLON)
   // Contenu exact au moment de la création (section 29) - jamais recalculé
@@ -847,18 +898,20 @@ model TransmissionPackage {
 
   @@index([organisationId])
   @@index([dossierId])
+  @@index([destinationSousTraitantId])
+  @@index([destinationDelegataireCeeId])
 }
 
 model TransmissionPackageDocument {
-  id                String                  @id @default(cuid())
+  id                String                   @id @default(cuid())
   packageId         String
-  package           TransmissionPackage     @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package           TransmissionPackage      @relation(fields: [packageId], references: [id], onDelete: Cascade)
   dossierDocumentId String
-  dossierDocument   DossierDocument         @relation(fields: [dossierDocumentId], references: [id])
+  dossierDocument   DossierDocument          @relation(fields: [dossierDocumentId], references: [id])
   typeDocumentId    String?
   typeDocument      TypeDocumentReferentiel? @relation(fields: [typeDocumentId], references: [id])
   version           Int
-  ordre             Int                     @default(0)
+  ordre             Int                      @default(0)
 
   @@index([packageId])
   @@index([dossierDocumentId])
@@ -923,11 +976,11 @@ model Tache {
   // et se met à jour à chaque relance plutôt que d'en créer une nouvelle -
   // regleRelanceId + la contrainte unique ci-dessous garantissent qu'une
   // même règle ne crée jamais deux tâches pour la même étape.
-  derniereRelanceAt DateTime?
-  nombreRelances    Int       @default(0)
+  derniereRelanceAt  DateTime?
+  nombreRelances     Int           @default(0)
   prochaineRelanceAt DateTime?
-  regleRelanceId    String?
-  regleRelance      RegleRelance? @relation(fields: [regleRelanceId], references: [id])
+  regleRelanceId     String?
+  regleRelance       RegleRelance? @relation(fields: [regleRelanceId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -944,21 +997,21 @@ model Tache {
 // suivantes. evaluateRelanceRules() est idempotent - à appeler manuellement
 // ou à l'ouverture du dashboard pour cette V1, pas de cron.
 model RegleRelance {
-  id                String        @id @default(cuid())
-  organisationId    String
-  organisation      Organisation  @relation(fields: [organisationId], references: [id])
-  nom               String
-  typeFlux          TypeFluxEtape
+  id              String        @id @default(cuid())
+  organisationId  String
+  organisation    Organisation  @relation(fields: [organisationId], references: [id])
+  nom             String
+  typeFlux        TypeFluxEtape
   // Code d'une EtapeProgramme précise (ex. "INSTRUCTION_ANAH") pour cibler
   // une étape exacte ; laisser vide pour matcher tout étape du typeFlux.
-  typeAction        String?
-  apresJours        Int
-  recurrenceJours   Int?
-  maxRelances       Int?
-  roleResponsable   Role?
-  actif             Boolean       @default(true)
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  typeAction      String?
+  apresJours      Int
+  recurrenceJours Int?
+  maxRelances     Int?
+  roleResponsable Role?
+  actif           Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   taches Tache[]
 
@@ -980,8 +1033,8 @@ model MouvementFinancier {
   type      TypeMouvementFinancier
   categorie CategorieMouvementFinancier
 
-  payeur       String? // libellé libre : "Client", "ANAH", "Délégataire CEE X"...
-  beneficiaire String?
+  payeur           String? // libellé libre : "Client", "ANAH", "Délégataire CEE X"...
+  beneficiaire     String?
   // Type de partie prenante (P6) - complète payeur/beneficiaire (le nom
   // libre) sans les remplacer, pour permettre les agrégations génériques
   // (créances = ENTREE où payeurType = CLIENT, dettes = SORTIE non soldée...).
@@ -997,7 +1050,7 @@ model MouvementFinancier {
   // pour la V1, non branché à un moteur événementiel automatique.
   exigibleQuand ConditionExigibilite?
 
-  statut StatutMouvementFinancier @default(PREVU)
+  statut      StatutMouvementFinancier @default(PREVU)
   // Origine libre - utiliser la valeur "SOURCE_EXISTANTE_AGREGEE" pour tout
   // mouvement reconstitué depuis les compteurs agrégés existants (sans date
   // métier réelle connue), afin de ne jamais le confondre avec un mouvement
@@ -1107,13 +1160,13 @@ model EtapeProgramme {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  dossierEtapes   DossierEtape[]
+  dossierEtapes        DossierEtape[]
   // Étapes dont CETTE étape dépend (doivent être TERMINE avant elle).
-  dependances     EtapeDependance[] @relation("Etape")
+  dependances          EtapeDependance[]     @relation("Etape")
   // Étapes qui dépendent de CETTE étape.
-  dependuesPar    EtapeDependance[] @relation("DependsOn")
-  documentsRequis EtapeDocumentRequis[]
-  modelesTaches   ModeleTacheEtape[]
+  dependuesPar         EtapeDependance[]     @relation("DependsOn")
+  documentsRequis      EtapeDocumentRequis[]
+  modelesTaches        ModeleTacheEtape[]
   documentRequirements DocumentRequirement[]
 
   @@unique([programmeVersionId, code])
@@ -1271,7 +1324,7 @@ model RegleReglementaire {
 }
 
 model RegleReglementaireVersion {
-  id            String    @id @default(cuid())
+  id            String             @id @default(cuid())
   regleId       String
   regle         RegleReglementaire @relation(fields: [regleId], references: [id])
   numeroVersion String
@@ -1294,8 +1347,8 @@ model RegleReglementaireVersion {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  baremes BaremeReglementaire[]
-  calculs CalculReglementaire[]
+  baremes              BaremeReglementaire[]
+  calculs              CalculReglementaire[]
   documentRequirements DocumentRequirement[]
 
   @@unique([regleId, numeroVersion])
@@ -1307,13 +1360,13 @@ model RegleReglementaireVersion {
 // coefficient réglementaire entier) : aucune donnée réglementaire n'est
 // stockée en flottant.
 model BaremeReglementaire {
-  id            String                     @id @default(cuid())
+  id            String                    @id @default(cuid())
   ruleVersionId String
-  ruleVersion   RegleReglementaireVersion  @relation(fields: [ruleVersionId], references: [id], onDelete: Cascade)
+  ruleVersion   RegleReglementaireVersion @relation(fields: [ruleVersionId], references: [id], onDelete: Cascade)
   cle           String
   valeur        Int
   metadata      Json?
-  createdAt     DateTime                   @default(now())
+  createdAt     DateTime                  @default(now())
 
   @@unique([ruleVersionId, cle])
   @@index([ruleVersionId])
@@ -1326,11 +1379,11 @@ model BaremeReglementaire {
 // jamais être écrasé (section 11) - un nouveau calcul officiel crée une
 // NOUVELLE ligne, il ne modifie pas l'ancienne.
 model CalculReglementaire {
-  id             String       @id @default(cuid())
+  id             String               @id @default(cuid())
   organisationId String
-  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  organisation   Organisation         @relation(fields: [organisationId], references: [id])
   dossierId      String
-  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  dossier        Dossier              @relation(fields: [dossierId], references: [id], onDelete: Cascade)
   posteTravauxId String?
   posteTravaux   DossierPosteTravaux? @relation("PosteCalculsHistorique", fields: [posteTravauxId], references: [id])
 
@@ -1352,7 +1405,7 @@ model CalculReglementaire {
   overrideKwhCumac          Int?
   overrideReason            String?
   overrideById              String?
-  overrideBy                User?     @relation("CalculReglementaireOverrideBy", fields: [overrideById], references: [id])
+  overrideBy                User?                           @relation("CalculReglementaireOverrideBy", fields: [overrideById], references: [id])
   overrideAt                DateTime?
 
   createdById String?
@@ -1435,7 +1488,7 @@ model EtudeDossier {
   // 29) - permet de détecter l'obsolescence sans recalculer, jamais un
   // simple timestamp (un dossier peut être touché sans que rien de
   // pertinent pour l'étude ne change).
-  inputHash String
+  inputHash       String
 
   recommendedScenarioId String?
 
@@ -1493,10 +1546,10 @@ model LeadPipelineStatus {
   actif     Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  leads Lead[]
+  leads                      Lead[]
   resultatsAppelPropositions ResultatAppel[]
-  historiqueAncienStatut LeadStatusHistory[] @relation("LeadStatusHistoryOld")
-  historiqueNouveauStatut LeadStatusHistory[] @relation("LeadStatusHistoryNew")
+  historiqueAncienStatut     LeadStatusHistory[] @relation("LeadStatusHistoryOld")
+  historiqueNouveauStatut    LeadStatusHistory[] @relation("LeadStatusHistoryNew")
 }
 
 // Résultat d'un appel/contact (section 18) - peut proposer un enchaînement
@@ -1504,17 +1557,17 @@ model LeadPipelineStatus {
 // une simple valeur par défaut que l'action d'enregistrement applique si
 // l'utilisateur ne la modifie pas explicitement.
 model ResultatAppel {
-  id                      String   @id @default(cuid())
-  key                     String   @unique
+  id                      String              @id @default(cuid())
+  key                     String              @unique
   label                   String
-  ordre                   Int      @default(0)
-  actif                   Boolean  @default(true)
+  ordre                   Int                 @default(0)
+  actif                   Boolean             @default(true)
   proposeStatutId         String?
   proposeStatut           LeadPipelineStatus? @relation(fields: [proposeStatutId], references: [id])
   proposeDelaiRappelJours Int?
-  createdAt               DateTime @default(now())
+  createdAt               DateTime            @default(now())
 
-  leadsDernierResultat Lead[] @relation("LeadDernierResultat")
+  leadsDernierResultat Lead[]                   @relation("LeadDernierResultat")
   interactions         InteractionCommerciale[]
 }
 
@@ -1542,9 +1595,9 @@ model Lead {
   ville              String?
 
   commercialId      String?
-  commercial        User? @relation("LeadCommercial", fields: [commercialId], references: [id])
+  commercial        User?   @relation("LeadCommercial", fields: [commercialId], references: [id])
   teleprospecteurId String?
-  teleprospecteur   User? @relation("LeadTeleprospecteur", fields: [teleprospecteurId], references: [id])
+  teleprospecteur   User?   @relation("LeadTeleprospecteur", fields: [teleprospecteurId], references: [id])
 
   statutId          String
   statut            LeadPipelineStatus @relation(fields: [statutId], references: [id])
@@ -1581,6 +1634,10 @@ model Lead {
   rdvs                  Rdv[]
   reponsesQuestionnaire ReponseQuestionnaire[]
   statusHistory         LeadStatusHistory[]
+
+  // P11
+  emailDrafts   EmailDraft[]
+  emailSendLogs EmailSendLog[]
 
   @@index([organisationId])
   @@index([commercialId])
@@ -1737,7 +1794,7 @@ model ChampProvenance {
   referenceExterne String?
   recupereeAt      DateTime?
   accepteeById     String?
-  accepteeBy       User?     @relation("ChampProvenanceAcceptedBy", fields: [accepteeById], references: [id])
+  accepteeBy       User?         @relation("ChampProvenanceAcceptedBy", fields: [accepteeById], references: [id])
   accepteeAt       DateTime?
   refuseeAt        DateTime?
 
@@ -1967,4 +2024,308 @@ model Rdv {
   @@index([organisationId])
   @@index([leadId])
   @@index([dossierId])
+}
+
+// ============================================================
+// Automatisations opérationnelles (P11) - moteur central simple et
+// déterministe qui ORCHESTRE des actions déjà décidées par les moteurs
+// existants (réglementaire, financier, documentaire, NBA...). Il ne
+// contient aucune règle métier propre : il détecte des déclencheurs déjà
+// calculables ailleurs et prépare/exécute des actions prédéfinies.
+// ============================================================
+
+enum AutomationTriggerType {
+  DOSSIER_STATUS_CHANGED
+  WORKFLOW_STEP_READY
+  WORKFLOW_STEP_LATE
+  DOCUMENT_MISSING
+  DOCUMENT_REJECTED
+  DOCUMENT_EXPIRED
+  TRANSMISSION_READY
+  LEAD_STATUS_CHANGED
+  LEAD_CALLBACK_DUE
+  APPOINTMENT_UPCOMING
+  FINANCIAL_PAYMENT_DUE
+  FINANCIAL_PAYMENT_LATE
+  CEE_READY
+  ANAH_STATUS_CHANGED
+  STUDY_STALE
+  MANUAL_TRIGGER
+}
+
+enum AutomationActionType {
+  CREATE_TASK
+  CREATE_NOTIFICATION
+  PREPARE_EMAIL
+  SEND_EMAIL
+  PREPARE_DOCUMENT_REQUEST
+  PREPARE_TRANSMISSION
+  MARK_FLAG
+  ASSIGN_USER
+  UPDATE_STATUS_IF_SAFE
+  WEBHOOK_OUTGOING
+}
+
+// MANUAL : ne se déclenche jamais seule via le scheduler, uniquement via
+// MANUAL_TRIGGER (bouton "Tester"/"Exécuter"). AUTO : le scheduler exécute
+// l'action réellement, y compris ses effets externes (SEND_EMAIL envoie
+// vraiment, WEBHOOK_OUTGOING émet vraiment). PREPARE_ONLY (mode par défaut,
+// le plus sûr) : le scheduler s'exécute automatiquement mais toute action à
+// effet externe reste à l'état préparé (SEND_EMAIL ne produit qu'un
+// EmailDraft BROUILLON, jamais un envoi réel ; WEBHOOK_OUTGOING n'est
+// jamais émis) - cf. section 5 du prompt P11.
+enum AutomationRuleMode {
+  MANUAL
+  AUTO
+  PREPARE_ONLY
+}
+
+enum AutomationExecutionStatus {
+  SUCCESS
+  SKIPPED
+  ERROR
+  DRY_RUN
+}
+
+model AutomationRule {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  code           String
+  nom            String
+  actif          Boolean      @default(true)
+
+  triggerType   AutomationTriggerType
+  // Détails du déclencheur (ex. {"statusKey":"SIGNE"} pour
+  // DOSSIER_STATUS_CHANGED) - interprété par triggers.ts, jamais évalué via
+  // eval()/Function() : uniquement des comparaisons de champs whitelistées.
+  triggerConfig Json?
+
+  actionType   AutomationActionType
+  // Détails de l'action (ex. {"templateCode":"DEMANDE_PIECES"}).
+  actionConfig Json?
+
+  // Délai après détection du déclencheur avant exécution (section 4/9) -
+  // sert notamment à cadencer les relances documentaires (J0/J+3/J+7/J+14) :
+  // plusieurs règles de même triggerType avec des délais croissants.
+  delayMinutes Int?
+  delayJours   Int?
+
+  // Conditions additionnelles simples interprétées par le moteur (ex.
+  // {"stepIndex": 1}) - jamais du code arbitraire.
+  conditions Json?
+
+  mode AutomationRuleMode @default(PREPARE_ONLY)
+
+  createdById String?
+  createdBy   User?    @relation("AutomationRuleCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  executions AutomationExecution[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@index([triggerType])
+}
+
+// Garantit l'idempotence (section 4, point absolument critique du prompt) :
+// une même règle ne produit jamais deux fois le même effet pour la même
+// entité/le même "pas" de cadence (triggerKey). Rejouer le scheduler 100
+// fois de suite ne doit jamais créer de doublon.
+model AutomationExecution {
+  id             String         @id @default(cuid())
+  ruleId         String
+  rule           AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  organisationId String
+  organisation   Organisation   @relation(fields: [organisationId], references: [id])
+
+  entityType String
+  entityId   String
+  // Clé stable identifiant CE passage précis (ex. "step-0", un jour ISO...)
+  // - combinée à ruleId/entityType/entityId via la contrainte unique
+  // ci-dessous, c'est elle qui empêche tout doublon.
+  triggerKey String
+
+  status     AutomationExecutionStatus
+  result     Json?
+  error      String?                   @db.Text
+  executedAt DateTime                  @default(now())
+
+  @@unique([ruleId, entityType, entityId, triggerKey])
+  @@index([organisationId])
+  @@index([entityType, entityId])
+  @@index([executedAt])
+}
+
+// ============================================================
+// Emails (P11, sections 6-13) - templates configurables à variables
+// whitelistées, jamais de code injectable. Un email "préparé" (EmailDraft)
+// est toujours distinct d'un email "envoyé" (EmailSendLog) : la préparation
+// ne déclenche jamais un envoi implicite.
+// ============================================================
+
+model EmailTemplate {
+  id             String        @id @default(cuid())
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  code           String
+  nom            String
+  sujetTemplate  String
+  bodyTemplate   String        @db.Text
+  actif          Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  drafts EmailDraft[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+}
+
+enum StatutEmailDraft {
+  BROUILLON
+  ENVOYE
+  ANNULE
+}
+
+model EmailDraft {
+  id             String         @id @default(cuid())
+  organisationId String
+  organisation   Organisation   @relation(fields: [organisationId], references: [id])
+  templateId     String?
+  template       EmailTemplate? @relation(fields: [templateId], references: [id])
+
+  dossierId String?
+  dossier   Dossier? @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  destinataire String
+  sujet        String
+  corps        String           @db.Text
+  statut       StatutEmailDraft @default(BROUILLON)
+
+  createdById String?
+  createdBy   User?    @relation("EmailDraftCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sendLog EmailSendLog?
+
+  @@index([organisationId])
+  @@index([dossierId])
+  @@index([leadId])
+}
+
+enum StatutEmailEnvoi {
+  ENVOYE
+  ERREUR
+}
+
+// Journal d'envoi (section 12) - toujours écrit, succès ou échec, jamais
+// silencieux.
+model EmailSendLog {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  draftId        String?      @unique
+  draft          EmailDraft?  @relation(fields: [draftId], references: [id])
+
+  dossierId String?
+  dossier   Dossier? @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  destinataire      String
+  sujet             String
+  provider          String
+  providerMessageId String?
+  statut            StatutEmailEnvoi
+  erreur            String?
+
+  sentById String?
+  sentBy   User?    @relation("EmailSendLogSentBy", fields: [sentById], references: [id])
+  sentAt   DateTime @default(now())
+
+  @@index([organisationId])
+  @@index([dossierId])
+  @@index([leadId])
+}
+
+// ============================================================
+// Notifications internes (P11, section 14/15) - centre simple,
+// rafraîchissement page standard, pas de websocket en V1.
+// ============================================================
+
+model Notification {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  type    String
+  title   String
+  message String
+
+  entityType String?
+  entityId   String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([organisationId])
+}
+
+// ============================================================
+// Webhooks sortants (P11, sections 26-28) - préparé mais pas d'API
+// publique entrante. Signature HMAC (section 27), retry borné (section 28).
+// ============================================================
+
+model WebhookEndpoint {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  url            String
+  // Secret HMAC - jamais loggé en clair (cf. audit.ts / webhooks.ts).
+  secret         String
+  // Liste des codes d'événement écoutés (ex. ["PACKAGE_READY"]).
+  eventTypes     Json
+  actif          Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@index([organisationId])
+}
+
+enum StatutWebhookDelivery {
+  EN_ATTENTE
+  ENVOYE
+  ECHEC
+}
+
+model WebhookDelivery {
+  id             String          @id @default(cuid())
+  endpointId     String
+  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  organisationId String
+  organisation   Organisation    @relation(fields: [organisationId], references: [id])
+
+  event          String
+  payload        Json
+  attempts       Int                   @default(0)
+  responseStatus Int?
+  error          String?               @db.Text
+  statut         StatutWebhookDelivery @default(EN_ATTENTE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([endpointId])
+  @@index([organisationId])
+  @@index([statut])
 }

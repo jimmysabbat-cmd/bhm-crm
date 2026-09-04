@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "automations:run": "tsx scripts/run-automations.ts"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.10.0",
