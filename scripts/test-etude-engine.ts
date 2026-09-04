@@ -95,8 +95,8 @@ async function main() {
   const poste = await prisma.dossierPosteTravaux.create({
     data: { dossierId: dossier.id, type: "PAC_AIR_EAU", surfaceM2: 80, montantMaterielTTCCts: 1_500_000 },
   });
-  const delegataire1 = await prisma.delegataireCee.create({ data: { nom: "Test Délégataire 1", actif: true } });
-  const delegataire2 = await prisma.delegataireCee.create({ data: { nom: "Test Délégataire 2", actif: true } });
+  const delegataire1 = await prisma.delegataireCee.create({ data: { organisationId: org.id, nom: "Test Délégataire 1", actif: true } });
+  const delegataire2 = await prisma.delegataireCee.create({ data: { organisationId: org.id, nom: "Test Délégataire 2", actif: true } });
   await prisma.tarifDelegataireCee.create({
     data: { organisationId: org.id, delegataireId: delegataire1.id, ficheCode: "BAR-TH-171", categorie: "CLASSIQUE", tauxCtsParMwhc: 7_400, dateDebut: new Date("2026-01-01"), delaiPaiementJours: 45, actif: true },
   });

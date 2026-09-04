@@ -1,44 +1,35 @@
-import { mkdir, writeFile, unlink } from "node:fs/promises";
-import path from "node:path";
-import crypto from "node:crypto";
+import { getDocumentStorageProvider } from "./storage";
 
-// Stockés hors de /public pour ne pas être servis directement sans
-// authentification - toujours passer par /api/documents/[docId].
-const UPLOAD_ROOT = path.join(process.cwd(), "uploads", "dossiers");
-
-function assertInsideUploadRoot(target: string): void {
-  const resolved = path.resolve(target);
-  if (resolved !== UPLOAD_ROOT && !resolved.startsWith(UPLOAD_ROOT + path.sep)) {
-    throw new Error("Chemin de fichier invalide.");
-  }
-}
+// ============================================================
+// P12 (section 7) : ces fonctions ne touchent plus DIRECTEMENT le
+// filesystem - elles délèguent au DocumentStorageProvider actif
+// (local par défaut, S3-compatible via STORAGE_PROVIDER=s3). Signatures
+// inchangées pour ne rien casser des appelants existants (P10/P11) ;
+// `cheminFichier` reste le nom de colonne DB historique mais sa valeur est
+// désormais une clé opaque de stockage, pas nécessairement un chemin
+// filesystem réel (dépend du provider actif).
+// ============================================================
 
 export async function saveDocumentFile(dossierId: string, file: File) {
-  const dir = path.join(UPLOAD_ROOT, dossierId);
-  assertInsideUploadRoot(dir);
-  await mkdir(dir, { recursive: true });
-
-  const ext = path.extname(file.name);
-  const storedName = `${crypto.randomUUID()}${ext}`;
-  const fullPath = path.join(dir, storedName);
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(fullPath, buffer);
-
+  const stored = await getDocumentStorageProvider().save(dossierId, file);
   return {
-    cheminFichier: path.join(dossierId, storedName),
-    nomFichier: file.name,
-    mimeType: file.type || "application/octet-stream",
-    tailleOctets: buffer.length,
+    cheminFichier: stored.key,
+    nomFichier: stored.nomFichier,
+    mimeType: stored.mimeType,
+    tailleOctets: stored.tailleOctets,
   };
 }
 
-export function documentFilePath(cheminFichier: string): string {
-  const full = path.join(UPLOAD_ROOT, cheminFichier);
-  assertInsideUploadRoot(full);
-  return full;
+/** Lit le contenu d'un document (P12) - remplace l'ancien accès direct via documentFilePath()+readFile(). */
+export async function readDocumentFile(cheminFichier: string): Promise<Buffer> {
+  return getDocumentStorageProvider().read(cheminFichier);
 }
 
 export async function deleteDocumentFile(cheminFichier: string): Promise<void> {
-  await unlink(documentFilePath(cheminFichier)).catch(() => {});
+  await getDocumentStorageProvider().delete(cheminFichier);
+}
+
+/** URL signée courte durée (P12, section 9) - null si le provider actif ne le supporte pas (ex. local : téléchargement via le backend à la place). */
+export async function getSignedDocumentUrl(cheminFichier: string, expiresInSeconds = 300): Promise<string | null> {
+  return getDocumentStorageProvider().getSignedUrl(cheminFichier, expiresInSeconds);
 }

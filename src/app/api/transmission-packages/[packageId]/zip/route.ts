@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { documentFilePath } from "@/lib/documents";
+import { readDocumentFile } from "@/lib/documents";
 import { requireUserContext, hasPermission, canAccessPackageAsPartner } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { buildZip, cleanExportFileName } from "@/lib/documents/zip";
@@ -46,7 +45,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pac
   const entries = [];
   for (let i = 0; i < pkg.documents.length; i++) {
     const d = pkg.documents[i];
-    const buffer = await readFile(documentFilePath(d.dossierDocument.cheminFichier)).catch(() => null);
+    const buffer = await readDocumentFile(d.dossierDocument.cheminFichier).catch(() => null);
     if (!buffer) continue;
     const name = cleanExportFileName(i + 1, d.typeDocument?.nom ?? "Document", d.dossierDocument.nomFichier);
     entries.push({ name, data: buffer });

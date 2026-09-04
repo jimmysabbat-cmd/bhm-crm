@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "automations:run": "tsx scripts/run-automations.ts"
+    "postinstall": "prisma generate",
+    "automations:run": "tsx scripts/run-automations.ts",
+    "platform:create-admin": "tsx scripts/platform-create-admin.ts",
+    "seed:production": "tsx prisma/seed-production.ts",
+    "production:check": "tsx scripts/production-check.ts"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.10.0",

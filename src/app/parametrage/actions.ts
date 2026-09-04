@@ -6,6 +6,13 @@ import { prisma } from "@/lib/prisma";
 import { requireUserContext, type UserContext } from "@/lib/authz";
 import type { Role } from "@/generated/prisma/enums";
 
+// P12 (section 23) : sous-ensemble de reorder()/deleteItem() dont le
+// modèle est TENANT_SPECIFIC (les autres - dossierType/dossierStatus/
+// modePaiement/statutAnah/statutCee/statutTravaux/leadSource/
+// leadPipelineStatus/resultatAppel - restent volontairement
+// PLATFORM_GLOBAL, cf. audit go-live P12).
+const TENANT_SCOPED_PARAM_MODELS = new Set(["mar", "regie", "delegataireCee"]);
+
 async function requireAdmin(): Promise<UserContext> {
   const ctx = await requireUserContext();
   if (ctx.role !== "ADMIN") {
@@ -105,26 +112,38 @@ export async function toggleModePaiement(id: string, actif: boolean) {
 }
 
 // --- MAR (accompagnateurs Rénov) ---
+// P12 (section 23) : TENANT_SPECIFIC - toute lecture/écriture doit être
+// scopée à l'organisation de l'admin (ownership vérifiée par findFirst
+// avant update, même principe que loadOwnedDossier ailleurs) - jamais un
+// update({where:{id}}) sur un id fourni par le client sans vérifier qu'il
+// appartient bien au tenant courant.
+
+async function assertOwnedMar(id: string, organisationId: string) {
+  const row = await prisma.mar.findFirst({ where: { id, organisationId }, select: { id: true } });
+  if (!row) throw new Error("Introuvable.");
+}
 
 export async function createMar(formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
-  const count = await prisma.mar.count();
-  await prisma.mar.create({ data: { nom, ordre: count } });
+  const count = await prisma.mar.count({ where: { organisationId: ctx.organisationId } });
+  await prisma.mar.create({ data: { nom, ordre: count, organisationId: ctx.organisationId } });
   revalidatePath("/parametrage/mar");
 }
 
 export async function updateMar(id: string, formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
+  await assertOwnedMar(id, ctx.organisationId);
   await prisma.mar.update({ where: { id }, data: { nom } });
   revalidatePath("/parametrage/mar");
 }
 
 export async function toggleMar(id: string, actif: boolean) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  await assertOwnedMar(id, ctx.organisationId);
   await prisma.mar.update({ where: { id }, data: { actif } });
   revalidatePath("/parametrage/mar");
 }
@@ -210,40 +229,53 @@ export async function toggleStatutTravaux(id: string, actif: boolean) {
   revalidatePath("/parametrage/statuts-travaux");
 }
 
-// --- Régie (équipes internes) ---
+// --- Régie (équipes internes) --- TENANT_SPECIFIC (P12, section 23)
+
+async function assertOwnedRegie(id: string, organisationId: string) {
+  const row = await prisma.regie.findFirst({ where: { id, organisationId }, select: { id: true } });
+  if (!row) throw new Error("Introuvable.");
+}
 
 export async function createRegie(formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
-  const count = await prisma.regie.count();
-  await prisma.regie.create({ data: { nom, ordre: count } });
+  const count = await prisma.regie.count({ where: { organisationId: ctx.organisationId } });
+  await prisma.regie.create({ data: { nom, ordre: count, organisationId: ctx.organisationId } });
   revalidatePath("/parametrage/regie");
 }
 
 export async function updateRegie(id: string, formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
+  await assertOwnedRegie(id, ctx.organisationId);
   await prisma.regie.update({ where: { id }, data: { nom } });
   revalidatePath("/parametrage/regie");
 }
 
 export async function toggleRegie(id: string, actif: boolean) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  await assertOwnedRegie(id, ctx.organisationId);
   await prisma.regie.update({ where: { id }, data: { actif } });
   revalidatePath("/parametrage/regie");
 }
 
-// --- Sous-traitants ---
+// --- Sous-traitants --- TENANT_SPECIFIC (P12, section 23)
+
+async function assertOwnedSousTraitant(id: string, organisationId: string) {
+  const row = await prisma.sousTraitant.findFirst({ where: { id, organisationId }, select: { id: true } });
+  if (!row) throw new Error("Introuvable.");
+}
 
 export async function createSousTraitant(formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
   await prisma.sousTraitant.create({
     data: {
       nom,
+      organisationId: ctx.organisationId,
       typeTravaux: (formData.get("typeTravaux") as never) || null,
       telephone: (formData.get("telephone") as string) || null,
       email: (formData.get("email") as string) || null,
@@ -256,9 +288,10 @@ export async function createSousTraitant(formData: FormData) {
 }
 
 export async function updateSousTraitant(id: string, formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
+  await assertOwnedSousTraitant(id, ctx.organisationId);
   await prisma.sousTraitant.update({
     where: { id },
     data: {
@@ -275,13 +308,15 @@ export async function updateSousTraitant(id: string, formData: FormData) {
 }
 
 export async function toggleSousTraitant(id: string, actif: boolean) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  await assertOwnedSousTraitant(id, ctx.organisationId);
   await prisma.sousTraitant.update({ where: { id }, data: { actif } });
   revalidatePath("/parametrage/sous-traitants");
 }
 
 export async function deleteSousTraitant(id: string) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  await assertOwnedSousTraitant(id, ctx.organisationId);
   try {
     await prisma.sousTraitant.delete({ where: { id } });
   } catch {
@@ -290,22 +325,30 @@ export async function deleteSousTraitant(id: string) {
   revalidatePath("/parametrage/sous-traitants");
 }
 
-// --- Délégataires CEE ---
+// --- Délégataires CEE --- TENANT_SPECIFIC (P12, section 23) : un tarif
+// négocié par un tenant ne doit jamais s'appliquer/être visible pour un
+// autre (BLOCKER identifié à l'audit go-live).
 
 function optionalRachatCts(value: FormDataEntryValue | null): number | undefined {
   if (!value || String(value).trim() === "") return undefined;
   return Math.round(Number(value) * 100);
 }
 
+async function assertOwnedDelegataireCee(id: string, organisationId: string) {
+  const row = await prisma.delegataireCee.findFirst({ where: { id, organisationId }, select: { id: true } });
+  if (!row) throw new Error("Introuvable.");
+}
+
 export async function createDelegataireCee(formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
-  const count = await prisma.delegataireCee.count();
+  const count = await prisma.delegataireCee.count({ where: { organisationId: ctx.organisationId } });
   await prisma.delegataireCee.create({
     data: {
       nom,
       ordre: count,
+      organisationId: ctx.organisationId,
       rachatTresModesteCts: optionalRachatCts(formData.get("rachatTresModeste")),
       rachatClassiqueCts: optionalRachatCts(formData.get("rachatClassique")),
       delaiPaiementJours: formData.get("delaiPaiementJours")
@@ -317,9 +360,10 @@ export async function createDelegataireCee(formData: FormData) {
 }
 
 export async function updateDelegataireCee(id: string, formData: FormData) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
   if (!nom) return;
+  await assertOwnedDelegataireCee(id, ctx.organisationId);
   await prisma.delegataireCee.update({
     where: { id },
     data: {
@@ -335,7 +379,8 @@ export async function updateDelegataireCee(id: string, formData: FormData) {
 }
 
 export async function toggleDelegataireCee(id: string, actif: boolean) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  await assertOwnedDelegataireCee(id, ctx.organisationId);
   await prisma.delegataireCee.update({ where: { id }, data: { actif } });
   revalidatePath("/parametrage/delegataires-cee");
 }
@@ -436,12 +481,15 @@ export async function reorder(
   id: string,
   direction: "up" | "down"
 ) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const delegate = prisma[model] as {
     findMany: (args: unknown) => Promise<{ id: string; ordre: number }[]>;
     update: (args: unknown) => Promise<unknown>;
   };
-  const items = await delegate.findMany({ orderBy: { ordre: "asc" } });
+  // P12 (section 23) : mar/regie/delegataireCee sont désormais
+  // TENANT_SPECIFIC - jamais réordonnés/mélangés entre organisations.
+  const where = TENANT_SCOPED_PARAM_MODELS.has(model) ? { organisationId: ctx.organisationId } : {};
+  const items = await delegate.findMany({ where, orderBy: { ordre: "asc" } });
   const index = items.findIndex((i) => i.id === id);
   const swapWith = direction === "up" ? index - 1 : index + 1;
   if (index === -1 || swapWith < 0 || swapWith >= items.length) return;
@@ -484,7 +532,18 @@ export async function deleteItem(
     | "resultatAppel",
   id: string
 ) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  // P12 (section 23) : vérifie l'appartenance tenant avant toute
+  // suppression/archivage pour mar/regie/delegataireCee - jamais un
+  // delete({where:{id}}) sur un id fourni par le client sans vérifier
+  // qu'il appartient au tenant courant.
+  if (TENANT_SCOPED_PARAM_MODELS.has(model)) {
+    const owned = await (prisma[model] as { findFirst: (args: unknown) => Promise<{ id: string } | null> }).findFirst({
+      where: { id, organisationId: ctx.organisationId },
+      select: { id: true },
+    });
+    if (!owned) throw new Error("Introuvable.");
+  }
   const delegate = prisma[model] as {
     delete: (args: unknown) => Promise<unknown>;
     update: (args: unknown) => Promise<unknown>;
@@ -541,4 +600,64 @@ export async function toggleUserActif(id: string, actif: boolean) {
   if (!target) throw new Error("Utilisateur introuvable.");
   await prisma.user.update({ where: { id }, data: { actif } });
   revalidatePath("/parametrage/equipe");
+}
+
+// P12 (section 19) - modifier le rôle d'un utilisateur EXISTANT, jamais
+// sur un autre tenant (findFirst scopé avant update, même principe que
+// toggleUserActif ci-dessus). Ne permet jamais de désigner un
+// isPlatformSuperAdmin (colonne jamais exposée ici - section 30).
+export async function updateUserRoleAction(id: string, role: Role): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireAdmin();
+    const target = await prisma.user.findFirst({ where: { id, organisationId: ctx.organisationId }, select: { id: true } });
+    if (!target) throw new Error("Utilisateur introuvable.");
+    await prisma.user.update({ where: { id }, data: { role } });
+    revalidatePath("/parametrage/equipe");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
+}
+
+// P12 (sections 19/28/55) - invitation par lien (jamais de mot de passe
+// choisi par l'admin à la place de l'invité) : retourne le lien EN CLAIR
+// une seule fois, à transmettre manuellement (aucun provider email requis
+// pour P12).
+export async function inviteUserAction(formData: FormData): Promise<{ ok: true; link: string } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireAdmin();
+    const email = String(formData.get("email") ?? "").trim().toLowerCase();
+    const role = formData.get("role") as Role;
+    if (!email || !role) throw new Error("Email et rôle requis.");
+
+    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (existing) throw new Error("Un compte existe déjà avec cet email.");
+
+    const { createInvitation } = await import("@/lib/invitations/service");
+    const token = await createInvitation({ organisationId: ctx.organisationId, email, role, invitedById: ctx.userId });
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    revalidatePath("/parametrage/equipe");
+    return { ok: true, link: `${appUrl}/invitations/${token}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
+}
+
+// P12 (sections 28/56) - l'admin obtient un lien de réinitialisation pour
+// un membre de SON équipe (utile s'il a oublié son mot de passe et n'a pas
+// encore de provider email réel branché) - jamais pour un utilisateur
+// d'une autre organisation.
+export async function adminGeneratePasswordResetLinkAction(userId: string): Promise<{ ok: true; link: string } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireAdmin();
+    const target = await prisma.user.findFirst({ where: { id: userId, organisationId: ctx.organisationId }, select: { id: true } });
+    if (!target) throw new Error("Utilisateur introuvable.");
+
+    const { createPasswordResetToken } = await import("@/lib/invitations/service");
+    const token = await createPasswordResetToken(target.id);
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    return { ok: true, link: `${appUrl}/reinitialiser/${token}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
 }

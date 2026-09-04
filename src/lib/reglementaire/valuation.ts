@@ -118,7 +118,7 @@ export async function compareCeeDelegates(params: {
   categorie: string;
   date: Date;
 }): Promise<CeeDelegateComparison[]> {
-  const delegataires = await prisma.delegataireCee.findMany({ where: { actif: true } });
+  const delegataires = await prisma.delegataireCee.findMany({ where: { actif: true, organisationId: params.organisationId } });
 
   const resultats: CeeDelegateComparison[] = [];
   for (const d of delegataires) {

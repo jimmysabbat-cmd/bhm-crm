@@ -1,22 +1,12 @@
 import { UserPlus } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
-import { createUser, toggleUserActif } from "../actions";
+import { createUser } from "../actions";
 import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { inputClass, labelClass } from "@/components/ui/field";
-
-const roleLabels: Record<string, string> = {
-  ADMIN: "Administrateur",
-  COMMERCIAL: "Commercial",
-  COMPTA: "Comptabilité",
-  ADMINISTRATIF: "Administratif",
-  REGIE: "Régie",
-  SOUS_TRAITANT: "Sous-traitant",
-  COMPTABILITE: "Comptabilité",
-  TECHNIQUE: "Technique",
-};
+import { InviteUserForm } from "./InviteUserForm";
+import { UserRoleSelect, UserRowActions } from "./UserRow";
 
 export default async function EquipePage() {
   const ctx = await requireUserContext();
@@ -55,16 +45,10 @@ export default async function EquipePage() {
                 </td>
                 <td className="px-5 py-3.5 text-slate-600">{u.email}</td>
                 <td className="px-5 py-3.5">
-                  <Badge color={u.role === "ADMIN" ? "violet" : "slate"}>
-                    {roleLabels[u.role] ?? u.role}
-                  </Badge>
+                  <UserRoleSelect userId={u.id} role={u.role} />
                 </td>
                 <td className="px-5 py-3.5 text-right">
-                  <form action={async () => { "use server"; await toggleUserActif(u.id, !u.actif); }}>
-                    <button type="submit" className="text-xs font-medium text-slate-400 hover:text-red-600">
-                      {u.actif ? "Désactiver" : "Réactiver"}
-                    </button>
-                  </form>
+                  <UserRowActions userId={u.id} actif={u.actif} />
                 </td>
               </tr>
             ))}
@@ -101,6 +85,21 @@ export default async function EquipePage() {
           Créer le compte
         </Button>
       </form>
+
+      <InviteUserForm />
+
+      <Card className="p-5">
+        <h2 className="text-sm font-semibold text-slate-900">Export des données (P12)</h2>
+        <p className="mt-1 text-xs text-slate-500">Export basique clients/leads/dossiers de votre organisation - aucun document inclus.</p>
+        <div className="mt-3 flex gap-3">
+          <a href="/api/export/tenant?format=json" className="text-xs font-medium text-emerald-700 hover:underline">
+            Télécharger en JSON
+          </a>
+          <a href="/api/export/tenant?format=csv" className="text-xs font-medium text-emerald-700 hover:underline">
+            Télécharger en CSV
+          </a>
+        </div>
+      </Card>
     </div>
   );
 }

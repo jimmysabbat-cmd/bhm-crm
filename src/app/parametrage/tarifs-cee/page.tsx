@@ -19,7 +19,7 @@ export default async function TarifsCeePage() {
       include: { delegataire: true },
       orderBy: [{ delegataireId: "asc" }, { dateDebut: "desc" }],
     }),
-    prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.delegataireCee.findMany({ where: { actif: true, organisationId: ctx.organisationId }, orderBy: { ordre: "asc" } }),
   ]);
 
   return (

@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { documentFilePath } from "@/lib/documents";
+import { readDocumentFile } from "@/lib/documents";
 import { requireUserContext, hasPermission } from "@/lib/authz";
 import { isSensitiveTypeDocumentCode } from "@/lib/documents/sensitive";
 import { logAudit } from "@/lib/audit";
@@ -41,7 +40,7 @@ export async function GET(
     await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "DossierDocument", entityId: doc.id, action: "TELECHARGEMENT_PIECE_SENSIBLE", metadata: { nomFichier: doc.nomFichier } });
   }
 
-  const buffer = await readFile(documentFilePath(doc.cheminFichier)).catch(() => null);
+  const buffer = await readDocumentFile(doc.cheminFichier).catch(() => null);
   if (!buffer) {
     return new NextResponse("Fichier introuvable", { status: 404 });
   }

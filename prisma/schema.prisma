@@ -231,13 +231,35 @@ enum TypeDependanceEtape {
 // structurantes (User, Client, Dossier) y sont déjà rattachées pour
 // permettre un cloisonnement multi-entreprise ultérieur sans nouvelle
 // migration lourde.
+// Statut plateforme (P12, section 15) - distinct de `actif` (conservé pour
+// compatibilité, non utilisé pour bloquer l'accès). SUSPENDED bloque
+// proprement la connexion/l'usage des utilisateurs du tenant (jamais une
+// suppression de données). ARCHIVED = tenant définitivement clos mais ses
+// données restent consultables par le PLATFORM SUPER ADMIN.
+enum OrganisationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
 model Organisation {
-  id        String   @id @default(cuid())
-  nom       String
-  slug      String   @unique
-  actif     Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String             @id @default(cuid())
+  nom           String
+  slug          String             @unique
+  actif         Boolean            @default(true)
+  // P12 - infos "tenant SaaS" (section 14) - aucune obligatoire au-delà de
+  // nom/slug, pour ne pas bloquer la création d'un tenant dont on ne
+  // connaît pas encore tous les détails légaux.
+  status        OrganisationStatus @default(ACTIVE)
+  raisonSociale String?
+  siret         String?
+  tva           String?
+  adresse       String?
+  email         String?
+  telephone     String?
+  logoUrl       String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   users                 User[]
   clients               Client[]
@@ -275,6 +297,14 @@ model Organisation {
   notifications        Notification[]
   webhookEndpoints     WebhookEndpoint[]
   webhookDeliveries    WebhookDelivery[]
+
+  // P12
+  invitations     UserInvitation[]
+  mars            Mar[]
+  regies          Regie[]
+  delegatairesCee DelegataireCee[]
+  sousTraitants   SousTraitant[]
+  fournisseurs    Fournisseur[]
 }
 
 model User {
@@ -289,6 +319,16 @@ model User {
 
   organisationId String
   organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  // P12 (section 0) - NIVEAU complètement séparé des rôles tenant : un
+  // PLATFORM SUPER ADMIN administre la plateforme SaaS elle-même, jamais
+  // détourné de Role.ADMIN (qui reste un rôle TENANT). organisationId
+  // ci-dessus reste renseigné même pour ce compte (contrainte FK
+  // obligatoire) mais n'est JAMAIS utilisé pour son autorisation réelle :
+  // son contexte tenant actif est entièrement piloté par la session
+  // "Entrer dans <tenant>" (cf. src/lib/platform/tenant-context.ts),
+  // jamais par cette colonne - voir requireUserContext().
+  isPlatformSuperAdmin Boolean @default(false)
 
   // P11 - accès partenaire (section 23/24) : un compte de rôle
   // SOUS_TRAITANT ou DELEGATAIRE_CEE (Role existant) rattaché à l'entité
@@ -332,9 +372,50 @@ model User {
   emailsEnvoyes         EmailSendLog[]   @relation("EmailSendLogSentBy")
   automationRulesCreees AutomationRule[] @relation("AutomationRuleCreatedBy")
 
+  // P12
+  invitationsEnvoyees UserInvitation[]     @relation("InvitationInvitedBy")
+  passwordResetTokens PasswordResetToken[]
+
   @@index([organisationId])
   @@index([sousTraitantId])
   @@index([delegataireCeeId])
+}
+
+// ============================================================
+// Invitations et réinitialisation de mot de passe (P12, sections 28/29) -
+// tokens ALÉATOIRES cryptographiquement, jamais stockés en clair
+// (tokenHash uniquement), expiration + usage unique obligatoires. Aucun
+// envoi email réel requis en P12 : l'admin obtient un lien à transmettre
+// manuellement (EMAIL_SEND_ENABLED gouverne un futur envoi automatique
+// sans refonte, cf. P11 src/lib/email/provider.ts).
+// ============================================================
+
+model UserInvitation {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  email          String
+  role           Role
+  tokenHash      String       @unique
+  invitedById    String
+  invitedBy      User         @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([organisationId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // Listes paramétrables depuis /parametrage - remplacent d'anciens enums figés
@@ -374,36 +455,55 @@ model ModePaiement {
 
 // Accompagnateurs Rénov (MAR) - gérés depuis /parametrage, choisis sur les
 // dossiers de rénovation d'ampleur.
+// P12 (section 23) - historiquement 100% globale (aucun organisationId) :
+// un mélange réel entre tenants (BHM verrait/modifierait les MAR de RUA et
+// vice-versa). Nullable pour rester compatible avec les lignes existantes
+// (backfillées vers l'organisation réelle actuelle par le script de
+// migration) - désormais TENANT_SPECIFIC : organisationId doit être
+// renseigné pour toute nouvelle ligne créée depuis /parametrage.
 model Mar {
-  id        String   @id @default(cuid())
-  nom       String
-  ordre     Int      @default(0)
-  actif     Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id             String        @id @default(cuid())
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  nom            String
+  ordre          Int           @default(0)
+  actif          Boolean       @default(true)
+  createdAt      DateTime      @default(now())
 
   dossiers Dossier[]
+
+  @@index([organisationId])
 }
 
 // Équipes internes ("régie") - alternative à la sous-traitance pour la pose
-// d'un poste de travaux, gérées depuis /parametrage.
+// d'un poste de travaux, gérées depuis /parametrage. TENANT_SPECIFIC
+// (P12, section 23) - même raisonnement que Mar ci-dessus.
 model Regie {
-  id        String   @id @default(cuid())
-  nom       String
-  ordre     Int      @default(0)
-  actif     Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id             String        @id @default(cuid())
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  nom            String
+  ordre          Int           @default(0)
+  actif          Boolean       @default(true)
+  createdAt      DateTime      @default(now())
 
   postesTravaux DossierPosteTravaux[]
+
+  @@index([organisationId])
 }
 
 // Délégataires CEE - gérés depuis /parametrage, chaque dossier avec de la
-// prime CEE en a un (obligatoire pour percevoir la prime).
+// prime CEE en a un (obligatoire pour percevoir la prime). TENANT_SPECIFIC
+// (P12, section 23) - un taux négocié par BHM ne doit jamais s'appliquer à
+// RUA (BLOCKER identifié go-live : aucun organisationId avant P12).
 model DelegataireCee {
-  id        String   @id @default(cuid())
-  nom       String
-  ordre     Int      @default(0)
-  actif     Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id             String        @id @default(cuid())
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  nom            String
+  ordre          Int           @default(0)
+  actif          Boolean       @default(true)
+  createdAt      DateTime      @default(now())
 
   // Taux de rachat CEE (€ par MCumac, en centimes) proposés par ce
   // délégataire, et délai de paiement après dépôt du dossier chez lui.
@@ -417,6 +517,8 @@ model DelegataireCee {
   // P11 - accès partenaire (section 24), même logique que SousTraitant.
   utilisateurs     User[]
   packagesDestines TransmissionPackage[]
+
+  @@index([organisationId])
 }
 
 // Statuts du suivi administratif ANAH (spécifique rénovation d'ampleur),
@@ -634,18 +736,22 @@ model DossierPosteTravaux {
   @@index([dossierId])
 }
 
+// TENANT_SPECIFIC (P12, section 23) - un sous-traitant/ses tarifs négociés
+// par BHM n'ont aucune raison d'être visibles/utilisables par RUA.
 model SousTraitant {
-  id                 String       @id @default(cuid())
+  id                 String        @id @default(cuid())
+  organisationId     String?
+  organisation       Organisation? @relation(fields: [organisationId], references: [id])
   nom                String
   typeTravaux        TypeTravaux?
   tarifM2Cts         Int? // tarif au m2, en centimes
   tarifFixeCts       Int? // tarif fixe, en centimes
-  fourniPose         Boolean      @default(false)
+  fourniPose         Boolean       @default(false)
   telephone          String?
   email              String?
   delaiPaiementJours Int? // délai de paiement après fin de travaux
-  actif              Boolean      @default(true)
-  createdAt          DateTime     @default(now())
+  actif              Boolean       @default(true)
+  createdAt          DateTime      @default(now())
 
   commandes     Commande[]
   postesTravaux DossierPosteTravaux[]
@@ -654,6 +760,8 @@ model SousTraitant {
   // ce sous-traitant, et packages qui lui sont explicitement destinés.
   utilisateurs     User[]
   packagesDestines TransmissionPackage[]
+
+  @@index([organisationId])
 }
 
 // Documents et photos attachés à un dossier (devis, audit, photos de visite
@@ -917,15 +1025,20 @@ model TransmissionPackageDocument {
   @@index([dossierDocumentId])
 }
 
+// TENANT_SPECIFIC (P12, section 23) - même raisonnement que SousTraitant.
 model Fournisseur {
-  id                 String   @id @default(cuid())
+  id                 String        @id @default(cuid())
+  organisationId     String?
+  organisation       Organisation? @relation(fields: [organisationId], references: [id])
   nom                String
   delaiPaiementJours Int?
   telephone          String?
   email              String?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime      @default(now())
 
   commandes Commande[]
+
+  @@index([organisationId])
 }
 
 model Commande {

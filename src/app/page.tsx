@@ -15,7 +15,7 @@ import {
   FileCheck,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, isPartnerRole } from "@/lib/authz";
+import { requireUserContext, hasPermission, isPartnerRole, NoActiveTenantError, TenantSuspendedError } from "@/lib/authz";
 import { formatCents } from "@/lib/money";
 import { typeTacheLabels } from "@/lib/dossier-labels";
 import { getNextBestActions, estCetteSemaine } from "@/lib/next-best-action";
@@ -27,7 +27,30 @@ import { Button } from "@/components/ui/Button";
 import { Badge, statutColor } from "@/components/ui/Badge";
 
 export default async function DashboardPage() {
-  const ctx = await requireUserContext();
+  let ctx;
+  try {
+    ctx = await requireUserContext();
+  } catch (error) {
+    // P12 - un PLATFORM SUPER ADMIN sans tenant actif n'a pas de tableau de
+    // bord "métier" : on le renvoie vers /platform plutôt que l'écran d'erreur.
+    if (error instanceof NoActiveTenantError) redirect("/platform");
+    // P12 (section 54) - un tenant suspendu doit bloquer proprement ses
+    // utilisateurs, sans écran d'erreur générique.
+    if (error instanceof TenantSuspendedError) {
+      return (
+        <div className="flex h-full min-h-[60vh] items-center justify-center">
+          <div className="max-w-md rounded-xl border border-amber-200 bg-amber-50 p-8 text-center">
+            <h1 className="text-lg font-semibold text-amber-900">Accès suspendu</h1>
+            <p className="mt-2 text-sm text-amber-800">
+              L&apos;accès de votre organisation a été temporairement suspendu. Contactez votre
+              administrateur pour plus d&apos;informations.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    throw error;
+  }
   // P11 (section 23/24) - un compte partenaire n'a jamais accès au
   // tableau de bord interne (marge, finances, tous dossiers...) : il est
   // redirigé vers son espace très restreint.

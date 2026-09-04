@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getActiveTenantIdCookie } from "@/lib/platform/tenant-context";
 import type { Role } from "@/generated/prisma/enums";
 
 // Rappel (cf. doc Next.js locale sur proxy.js) : le garde d'accès au niveau
@@ -25,7 +26,26 @@ export type UserContext = {
   // (aucun besoin d'accès partenaire dans ces suites).
   sousTraitantId?: string | null;
   delegataireCeeId?: string | null;
+  // P12 (section 0/17/18) : true uniquement quand ce contexte représente
+  // un PLATFORM SUPER ADMIN actuellement "entré" dans un tenant.
+  // organisationId reflète alors le tenant ENTRÉ, jamais la ligne User du
+  // super admin lui-même (cf. src/lib/platform/tenant-context.ts).
+  isPlatformSuperAdmin?: boolean;
 };
+
+export class TenantSuspendedError extends Error {
+  constructor() {
+    super("Cette organisation est suspendue. Contactez votre administrateur.");
+    this.name = "TenantSuspendedError";
+  }
+}
+
+export class NoActiveTenantError extends Error {
+  constructor() {
+    super("Aucune organisation active sélectionnée - entrez dans un tenant depuis /platform.");
+    this.name = "NoActiveTenantError";
+  }
+}
 
 // Contexte utilisateur fiable pour toute requête métier scoping par
 // organisation : userId, organisationId et role sont toujours dérivés
@@ -33,6 +53,13 @@ export type UserContext = {
 // fournie par le client (formulaire, argument d'action...). Toute nouvelle
 // requête qui filtre par organisation doit passer par ce helper plutôt que
 // de faire confiance à un organisationId reçu du client.
+//
+// P12 (section 0/18) : pour un PLATFORM SUPER ADMIN, organisationId ne
+// vient JAMAIS de sa propre ligne User (structurellement non pertinente
+// pour son autorisation - simple contrainte FK) mais du tenant qu'il a
+// explicitement "entré" (cookie, revalidé ici). S'il n'a rien entré, cette
+// fonction lève NoActiveTenantError plutôt que de deviner un tenant -
+// aucune page tenant ne doit jamais s'afficher "par défaut" pour lui.
 export async function requireUserContext(): Promise<UserContext> {
   const session = await requireAuth();
   const userId = (session.user as { id?: string } | undefined)?.id;
@@ -42,10 +69,33 @@ export async function requireUserContext(): Promise<UserContext> {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { organisationId: true, role: true, actif: true, sousTraitantId: true, delegataireCeeId: true },
+    select: {
+      organisationId: true,
+      role: true,
+      actif: true,
+      sousTraitantId: true,
+      delegataireCeeId: true,
+      isPlatformSuperAdmin: true,
+      organisation: { select: { status: true } },
+    },
   });
   if (!user || !user.actif) {
     throw new Error("Non autorisé : compte introuvable ou désactivé.");
+  }
+
+  if (user.isPlatformSuperAdmin) {
+    const activeTenantId = await getActiveTenantIdCookie();
+    if (!activeTenantId) throw new NoActiveTenantError();
+    const tenant = await prisma.organisation.findUnique({ where: { id: activeTenantId }, select: { id: true, status: true } });
+    if (!tenant || tenant.status === "ARCHIVED") throw new Error("Organisation introuvable ou archivée.");
+    // Le PLATFORM SUPER ADMIN peut délibérément entrer dans un tenant
+    // SUSPENDED pour le réactiver/l'auditer (section 17) - jamais bloqué
+    // comme le serait un utilisateur tenant normal ci-dessous.
+    return { userId, organisationId: tenant.id, role: user.role, sousTraitantId: null, delegataireCeeId: null, isPlatformSuperAdmin: true };
+  }
+
+  if (user.organisation.status === "SUSPENDED") {
+    throw new TenantSuspendedError();
   }
 
   return {
@@ -54,7 +104,29 @@ export async function requireUserContext(): Promise<UserContext> {
     role: user.role,
     sousTraitantId: user.sousTraitantId,
     delegataireCeeId: user.delegataireCeeId,
+    isPlatformSuperAdmin: false,
   };
+}
+
+// P12 (section 20) - garde dédiée aux pages/actions /platform. Ne dépend
+// JAMAIS de Role.ADMIN (un ADMIN tenant n'est PAS platform admin) : lit
+// isPlatformSuperAdmin directement, indépendamment de tout tenant
+// entré/sorti.
+export type PlatformContext = { userId: string; name: string; email: string };
+
+export async function requirePlatformContext(): Promise<PlatformContext> {
+  const session = await requireAuth();
+  const userId = (session.user as { id?: string } | undefined)?.id;
+  if (!userId) throw new Error("Non autorisé : session invalide.");
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true, actif: true, isPlatformSuperAdmin: true },
+  });
+  if (!user || !user.actif || !user.isPlatformSuperAdmin) {
+    throw new Error("Accès refusé : réservé au Platform Super Admin.");
+  }
+  return { userId: user.id, name: user.name, email: user.email };
 }
 
 // Vérifie qu'un dossier existe ET appartient à l'organisation donnée, avant

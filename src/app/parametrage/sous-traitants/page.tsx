@@ -1,5 +1,6 @@
 import { Plus, Phone, Mail, Clock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { typeTravauxLabels } from "@/lib/dossier-labels";
 import { createSousTraitant, updateSousTraitant, toggleSousTraitant, deleteSousTraitant } from "../actions";
 import { Card } from "@/components/ui/Card";
@@ -9,7 +10,8 @@ import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmit";
 import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
 
 export default async function SousTraitantsPage() {
-  const sousTraitants = await prisma.sousTraitant.findMany({ orderBy: { createdAt: "asc" } });
+  const ctx = await requireUserContext();
+  const sousTraitants = await prisma.sousTraitant.findMany({ where: { organisationId: ctx.organisationId }, orderBy: { createdAt: "asc" } });
 
   return (
     <div className="space-y-6">

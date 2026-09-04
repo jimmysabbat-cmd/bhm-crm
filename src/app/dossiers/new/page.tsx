@@ -2,17 +2,19 @@ import { User, FileText } from "lucide-react";
 import { createDossier } from "../actions";
 import { precariteLabels } from "@/lib/dossier-labels";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { DossierFields } from "./dossier-fields";
 import { inputClass, labelClass } from "@/components/ui/field";
 import { Button } from "@/components/ui/Button";
 
 export default async function NewDossierPage() {
+  const ctx = await requireUserContext();
   const [types, modesPaiement, mars, statutsAnah, delegatairesCee, statuts] = await Promise.all([
     prisma.dossierType.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.modePaiement.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    prisma.mar.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.mar.findMany({ where: { actif: true, organisationId: ctx.organisationId }, orderBy: { ordre: "asc" } }),
     prisma.statutAnah.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    prisma.delegataireCee.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.delegataireCee.findMany({ where: { actif: true, organisationId: ctx.organisationId }, orderBy: { ordre: "asc" } }),
     prisma.dossierStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
   ]);
   const statutParDefaut = statuts.find((s) => s.key === "DEVIS_SIGNE")?.id ?? statuts[0]?.id ?? "";

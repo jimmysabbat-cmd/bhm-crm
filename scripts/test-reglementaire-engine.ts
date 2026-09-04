@@ -211,8 +211,8 @@ async function main() {
   // ============================================================
   console.log("\n=== TARIFS CEE ===");
   const orgTarif = await prisma.organisation.create({ data: { nom: "Test Tarifs CEE", slug: `test-tarifs-cee-${Date.now()}` } });
-  const delegataireTest = await prisma.delegataireCee.create({ data: { nom: `Test Délégataire ${Date.now()}`, actif: true } });
-  const delegataireTest2 = await prisma.delegataireCee.create({ data: { nom: `Test Délégataire 2 ${Date.now()}`, actif: true } });
+  const delegataireTest = await prisma.delegataireCee.create({ data: { organisationId: orgTarif.id, nom: `Test Délégataire ${Date.now()}`, actif: true } });
+  const delegataireTest2 = await prisma.delegataireCee.create({ data: { organisationId: orgTarif.id, nom: `Test Délégataire 2 ${Date.now()}`, actif: true } });
   {
     // 100 MWhc à 74 €/MWhc = 7 400 €
     await prisma.tarifDelegataireCee.create({

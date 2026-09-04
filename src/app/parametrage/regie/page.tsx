@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { createRegie, updateRegie, toggleRegie, deleteItem } from "../actions";
 import { ParamList } from "../ParamList";
 
 export default async function RegiePage() {
-  const equipes = await prisma.regie.findMany({ orderBy: { ordre: "asc" } });
+  const ctx = await requireUserContext();
+  const equipes = await prisma.regie.findMany({ where: { organisationId: ctx.organisationId }, orderBy: { ordre: "asc" } });
 
   return (
     <ParamList

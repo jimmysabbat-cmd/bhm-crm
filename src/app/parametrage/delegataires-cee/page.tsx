@@ -1,5 +1,6 @@
 import { Plus, Clock, Coins } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { requireUserContext } from "@/lib/authz";
 import { createDelegataireCee, updateDelegataireCee, toggleDelegataireCee, deleteItem } from "../actions";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -11,7 +12,8 @@ function centsToRate(cts: number | null): string {
 }
 
 export default async function DelegatairesCeePage() {
-  const delegataires = await prisma.delegataireCee.findMany({ orderBy: { ordre: "asc" } });
+  const ctx = await requireUserContext();
+  const delegataires = await prisma.delegataireCee.findMany({ where: { organisationId: ctx.organisationId }, orderBy: { ordre: "asc" } });
 
   return (
     <div className="space-y-6">
