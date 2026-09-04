@@ -19,17 +19,21 @@ export const roleLabels: Record<string, string> = {
   SOUS_TRAITANT: "Sous-traitant",
   COMPTABILITE: "Comptabilité",
   TECHNIQUE: "Technique",
+  TELEPROSPECTEUR: "Téléprospection",
 };
 
 export type NiveauUrgence = "BASSE" | "NORMALE" | "HAUTE" | "CRITIQUE";
-export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT" | "REGLEMENTAIRE_CEE" | "ETUDE_SCENARIO";
+export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT" | "REGLEMENTAIRE_CEE" | "ETUDE_SCENARIO" | "LEAD";
 
 export type NextBestAction = {
   id: string;
-  /** id brut de l'enregistrement source (DossierEtape/Tache/MouvementFinancier) pour les actions rapides. */
+  /** id brut de l'enregistrement source (DossierEtape/Tache/MouvementFinancier/Lead) pour les actions rapides. */
   sourceId: string;
   organisationId: string;
-  dossierId: string;
+  // P9 : une action LEAD pré-conversion n'a pas encore de dossier -
+  // dossierId reste alors null (jamais une chaîne vide qui pourrait être
+  // confondue avec un id réel).
+  dossierId: string | null;
   client: string;
   referenceDossier: string;
   typeAction: TypeNextBestAction;
@@ -122,6 +126,7 @@ function score(params: {
     DOCUMENT_MANQUANT: 12,
     REGLEMENTAIRE_CEE: 10,
     ETUDE_SCENARIO: 8,
+    LEAD: 8,
   };
   total += urgencyBase[params.typeAction];
 
@@ -625,6 +630,98 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
           mouvementType: null,
         });
       }
+    }
+  }
+
+  // --- Leads (P9, section 31) - file distincte des dossiers ci-dessus,
+  // même moteur (getNextBestActions), jamais une deuxième queue. Un lead
+  // déjà converti (dossierId renseigné) peut encore remonter une action
+  // "devis à relancer"/"étude à lancer" tant qu'il n'est ni SIGNE ni PERDU.
+  const now = new Date();
+  const leads = await prisma.lead.findMany({
+    where: { organisationId: ctx.organisationId, statut: { key: { notIn: ["SIGNE", "PERDU"] } } },
+    select: {
+      id: true,
+      prenom: true,
+      nom: true,
+      statut: { select: { key: true, label: true } },
+      prochainContactAt: true,
+      commercialId: true,
+      teleprospecteurId: true,
+      createdAt: true,
+      dossierId: true,
+      dossier: { select: { reference: true } },
+      _count: { select: { interactions: true } },
+    },
+  });
+
+  for (const lead of leads) {
+    const responsableUserId = lead.teleprospecteurId ?? lead.commercialId;
+    if (!matchesScope(ctx, responsableUserId, null)) continue;
+
+    const clientLabel = `${lead.prenom} ${lead.nom}`;
+    const route = `/leads/${lead.id}/qualification`;
+    const referenceDossier = lead.dossier?.reference ?? "(non converti)";
+
+    function pushLeadAction(suffix: string, titre: string, reasons: string[], scoreTotal: number) {
+      actions.push({
+        id: `lead:${lead.id}:${suffix}`,
+        sourceId: lead.id,
+        organisationId: ctx.organisationId,
+        dossierId: lead.dossierId,
+        client: clientLabel,
+        referenceDossier,
+        typeAction: "LEAD",
+        titre,
+        description: null,
+        origine: "Lead",
+        statut: lead.statut.key,
+        responsableUserId,
+        responsableRole: null,
+        responsableLabel: "Commercial/téléprospection",
+        dateCreation: lead.createdAt,
+        dateEcheance: lead.prochainContactAt,
+        joursRetard: lead.prochainContactAt && lead.prochainContactAt < now ? Math.floor((now.getTime() - lead.prochainContactAt.getTime()) / 86_400_000) : 0,
+        niveauUrgence: niveauFromScore(scoreTotal),
+        montantBloqueCts: 0,
+        raisonMontantBloque: null,
+        route,
+        reasons,
+        priorityScore: scoreTotal,
+        flux: "LEAD",
+        tacheRelanceId: null,
+        nombreRelances: 0,
+        mouvementType: null,
+      });
+    }
+
+    if (lead.prochainContactAt && lead.prochainContactAt <= now) {
+      const joursRetard = Math.max(0, Math.floor((now.getTime() - lead.prochainContactAt.getTime()) / 86_400_000));
+      const { total, reasons } = score({ joursRetard, montantBloqueCts: 0, bloque: false, documentManquant: false, typeAction: "LEAD", delaiAlerteDepasse: false });
+      reasons.push(joursRetard > 0 ? "Rappel de lead en retard" : "Rappel de lead prévu aujourd'hui");
+      pushLeadAction("rappel", `Rappeler ${clientLabel}`, reasons, total);
+      continue;
+    }
+
+    if ((lead.statut.key === "NOUVEAU" || lead.statut.key === "A_CONTACTER") && lead._count.interactions === 0) {
+      const joursAnciennete = Math.floor((now.getTime() - lead.createdAt.getTime()) / 86_400_000);
+      if (joursAnciennete >= 2) {
+        const { total, reasons } = score({ joursRetard: joursAnciennete, montantBloqueCts: 0, bloque: false, documentManquant: false, typeAction: "LEAD", delaiAlerteDepasse: false });
+        reasons.push("Lead jamais contacté - qualification incomplète");
+        pushLeadAction("qualification", `Qualifier ${clientLabel}`, reasons, total);
+      }
+    }
+
+    if (lead.statut.key === "ETUDE_A_FAIRE") {
+      const { total, reasons } = score({ joursRetard: 0, montantBloqueCts: 0, bloque: false, documentManquant: false, typeAction: "LEAD", delaiAlerteDepasse: false });
+      reasons.push("Étude P8 prête à être lancée pour ce lead");
+      pushLeadAction("etude", `Lancer l'étude pour ${clientLabel}`, reasons, total);
+    }
+
+    if (lead.statut.key === "DEVIS_ENVOYE") {
+      const { total, reasons } = score({ joursRetard: 0, montantBloqueCts: 0, bloque: false, documentManquant: false, typeAction: "LEAD", delaiAlerteDepasse: false });
+      reasons.push("Devis envoyé - relance à prévoir");
+      pushLeadAction("devis", `Relancer le devis de ${clientLabel}`, reasons, total);
     }
   }
 

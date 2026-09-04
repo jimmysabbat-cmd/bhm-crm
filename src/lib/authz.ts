@@ -116,7 +116,25 @@ export type Permission =
   | "VIEW_STUDY"
   | "RUN_STUDY"
   | "SAVE_STUDY"
-  | "APPLY_STUDY";
+  | "APPLY_STUDY"
+  // P9 - poste de travail commercial (section 34). VIEW_LEADS/MANAGE_LEADS
+  // couvrent ses propres leads (restriction par instance vérifiée en plus
+  // via canAccessLead, même principe que canAccessDossierStudy en P8).
+  // VIEW_TEAM_LEADS lève cette restriction (direction uniquement).
+  // ASSIGN_LEADS/IMPORT_LEADS sont des actions plus sensibles (répartition
+  // du travail, import en masse) réservées à la direction. RUN_LEAD_STUDY
+  // déclenche runDossierStudy (P8) depuis un lead - mêmes rôles que
+  // RUN_STUDY, sans TELEPROSPECTEUR (pas son rôle). ADMINISTRATIF ne
+  // gère/assigne pas les leads mais peut les consulter une fois convertis
+  // (section 34 : "lecture si nécessaire après conversion").
+  // REGIE/SOUS_TRAITANT : aucun accès en P9 (pas encore de notion
+  // d'appartenance de lead à une régie).
+  | "VIEW_LEADS"
+  | "MANAGE_LEADS"
+  | "ASSIGN_LEADS"
+  | "IMPORT_LEADS"
+  | "VIEW_TEAM_LEADS"
+  | "RUN_LEAD_STUDY";
 
 const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_ALL_ACTIONS: ["ADMIN"],
@@ -133,6 +151,12 @@ const PERMISSIONS: Record<Permission, Role[]> = {
   RUN_STUDY: ["ADMIN", "COMMERCIAL", "ADMINISTRATIF"],
   SAVE_STUDY: ["ADMIN", "ADMINISTRATIF"],
   APPLY_STUDY: ["ADMIN", "ADMINISTRATIF"],
+  VIEW_LEADS: ["ADMIN", "COMMERCIAL", "TELEPROSPECTEUR", "ADMINISTRATIF"],
+  MANAGE_LEADS: ["ADMIN", "COMMERCIAL", "TELEPROSPECTEUR"],
+  ASSIGN_LEADS: ["ADMIN"],
+  IMPORT_LEADS: ["ADMIN"],
+  VIEW_TEAM_LEADS: ["ADMIN"],
+  RUN_LEAD_STUDY: ["ADMIN", "COMMERCIAL", "ADMINISTRATIF"],
 };
 
 export function hasPermission(ctx: UserContext, permission: Permission): boolean {
@@ -150,4 +174,19 @@ export function canAccessDossierStudy(ctx: UserContext, dossier: { createdById: 
   if (!hasPermission(ctx, "VIEW_STUDY")) return false;
   if (ctx.role === "COMMERCIAL") return dossier.createdById === ctx.userId;
   return true;
+}
+
+// P9 (section 34) : un COMMERCIAL/TELEPROSPECTEUR ne voit que "ses" leads
+// (assigné comme commercial OU comme téléprospecteur OU créateur) sauf
+// VIEW_TEAM_LEADS (direction). ADMINISTRATIF ne voit un lead qu'une fois
+// converti (dossierId renseigné) - "lecture si nécessaire après
+// conversion", jamais les leads encore en cours de qualification.
+export function canAccessLead(
+  ctx: UserContext,
+  lead: { commercialId: string | null; teleprospecteurId: string | null; createdById: string | null; dossierId: string | null }
+): boolean {
+  if (!hasPermission(ctx, "VIEW_LEADS")) return false;
+  if (hasPermission(ctx, "VIEW_TEAM_LEADS")) return true;
+  if (ctx.role === "ADMINISTRATIF") return lead.dossierId != null;
+  return lead.commercialId === ctx.userId || lead.teleprospecteurId === ctx.userId || lead.createdById === ctx.userId;
 }

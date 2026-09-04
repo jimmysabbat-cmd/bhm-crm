@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Wallet } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Wallet, PhoneCall } from "lucide-react";
 
 const icons = {
   tresorerie: LayoutDashboard,
@@ -10,6 +10,7 @@ const icons = {
   taches: CheckSquare,
   finances: Wallet,
   parametrage: Settings,
+  leads: PhoneCall,
 };
 
 export type SidebarLink = {

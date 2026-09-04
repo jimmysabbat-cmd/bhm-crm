@@ -3,6 +3,7 @@ import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { dbConfigFromUrl } from "../src/lib/db-config";
 import { seedReglementaireDemo } from "./seed-reglementaire";
+import { seedLeadReferentiels, seedQuestionnaireQualification } from "./seed-leads";
 import bcrypt from "bcryptjs";
 
 const adapter = new PrismaMariaDb(dbConfigFromUrl(process.env.DATABASE_URL as string));
@@ -15,6 +16,12 @@ const DOSSIER_TYPES = [
 ];
 
 const DOSSIER_STATUSES = [
+  // P9 (section 13) : statut additif pour un dossier créé automatiquement
+  // depuis un lead au moment de "Simuler l'étude", AVANT tout devis signé -
+  // ne réutilise jamais DEVIS_SIGNE, qui affirmerait une signature qui n'a
+  // pas eu lieu. Placé en premier (ordre 0) pour précéder logiquement le
+  // reste du workflow existant, jamais inséré au milieu de la liste.
+  { key: "PROSPECT_ETUDE", label: "Prospect en étude" },
   { key: "DEVIS_SIGNE", label: "Devis signé" },
   { key: "AUDIT_FAIT", label: "Audit fait" },
   { key: "DOSSIER_DEPOSE", label: "Dossier déposé" },
@@ -277,6 +284,8 @@ async function main() {
 
   await seedProgrammeDemo(organisation.id);
   await seedReglementaireDemo(prisma);
+  await seedLeadReferentiels(prisma);
+  await seedQuestionnaireQualification(prisma);
 
   const email = process.env.SEED_ADMIN_EMAIL ?? "horizonhabitatenergie@gmail.com";
   const password = process.env.SEED_ADMIN_PASSWORD ?? "changeme123";

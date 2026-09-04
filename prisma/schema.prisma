@@ -24,6 +24,10 @@ enum Role {
   SOUS_TRAITANT
   COMPTABILITE
   TECHNIQUE
+  // P9 - téléprospection : appelle les leads assignés/à appeler, remplit le
+  // questionnaire, journalise les interactions. Pas d'accès financier/
+  // réglementaire (mêmes exclusions que COMMERCIAL sur VIEW_MARGIN etc.)
+  TELEPROSPECTEUR
 }
 
 enum Precarite {
@@ -242,6 +246,15 @@ model Organisation {
   calculsReglementaires CalculReglementaire[]
   tarifsDelegataireCee  TarifDelegataireCee[]
   etudesDossier         EtudeDossier[]
+
+  // P9
+  leads                  Lead[]
+  logements              Logement[]
+  champsProvenance       ChampProvenance[]
+  questionnaires         Questionnaire[]
+  reponsesQuestionnaire  ReponseQuestionnaire[]
+  interactionsCommerciales InteractionCommerciale[]
+  rdvs                   Rdv[]
 }
 
 model User {
@@ -266,6 +279,16 @@ model User {
   calculsReglementairesOverrides CalculReglementaire[] @relation("CalculReglementaireOverrideBy")
   etudesDossierCrees            EtudeDossier[]
   etudesDossierSelectionnees    EtudeDossier[] @relation("EtudeDossierSelectedBy")
+
+  // P9
+  leadsCommercial        Lead[] @relation("LeadCommercial")
+  leadsTeleprospecteur   Lead[] @relation("LeadTeleprospecteur")
+  leadsClaimedBy         Lead[] @relation("LeadClaimedBy")
+  leadsCreated           Lead[] @relation("LeadCreatedBy")
+  champsProvenanceAcceptees ChampProvenance[] @relation("ChampProvenanceAcceptedBy")
+  interactionsCommerciales InteractionCommerciale[]
+  rdvsCommercial         Rdv[] @relation("RdvCommercial")
+  rdvsCrees              Rdv[] @relation("RdvCreatedBy")
 
   @@index([organisationId])
 }
@@ -411,6 +434,10 @@ model Client {
 
   dossiers Dossier[]
 
+  // P9
+  leads    Lead[]
+  logement Logement?
+
   @@index([organisationId])
 }
 
@@ -488,6 +515,11 @@ model Dossier {
   dossierEtapes        DossierEtape[]
   calculsReglementaires CalculReglementaire[]
   etudesDossier        EtudeDossier[]
+
+  // P9
+  lead     Lead?
+  logement Logement?
+  rdvs     Rdv[]
 
   @@index([statutId])
   @@index([typeId])
@@ -1165,5 +1197,489 @@ model EtudeDossier {
 
   @@unique([dossierId, version])
   @@index([organisationId])
+  @@index([dossierId])
+}
+
+// ============================================================
+// P9 - poste de travail commercial (Lead -> qualification -> logement ->
+// RDV -> étude P8 -> vente/dossier). Architecture additive : ne modifie
+// aucun modèle P5-P8, ne reproduit aucune formule P6/P7/P8 - collecte et
+// structure les données que ces moteurs lisent déjà (Dossier/Client/
+// DossierPosteTravaux). Voir src/lib/leads, src/lib/questionnaire,
+// src/lib/connectors.
+// ============================================================
+
+// Tables paramétrables (même pattern que DossierType/DossierStatus/...) -
+// globales, pas org-scopées, cohérent avec le reste du référentiel.
+model LeadSource {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  leads Lead[]
+}
+
+// Pipeline commercial (section 3) - volontairement distinct de
+// DossierStatus/StatutAnah/StatutCee/StatutTravaux : un lead n'a pas encore
+// de dossier, et un statut "SIGNÉ" ici ne dit rien sur l'avancement
+// administratif ANAH/CEE/travaux qui commence après conversion.
+model LeadPipelineStatus {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  leads Lead[]
+  resultatsAppelPropositions ResultatAppel[]
+}
+
+// Résultat d'un appel/contact (section 18) - peut proposer un enchaînement
+// (nouveau statut pipeline + délai de rappel) sans être un moteur de règles :
+// une simple valeur par défaut que l'action d'enregistrement applique si
+// l'utilisateur ne la modifie pas explicitement.
+model ResultatAppel {
+  id                      String   @id @default(cuid())
+  key                     String   @unique
+  label                   String
+  ordre                   Int      @default(0)
+  actif                   Boolean  @default(true)
+  proposeStatutId         String?
+  proposeStatut           LeadPipelineStatus? @relation(fields: [proposeStatutId], references: [id])
+  proposeDelaiRappelJours Int?
+  createdAt               DateTime @default(now())
+
+  leadsDernierResultat Lead[] @relation("LeadDernierResultat")
+  interactions         InteractionCommerciale[]
+}
+
+// Lead/opportunité (section 1) - ne duplique jamais Client : ne devient
+// Client/Dossier qu'au moment explicite de la conversion
+// (convertLeadToDossier, idempotente via dossierId unique ci-dessous).
+model Lead {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  sourceId     String?
+  source       LeadSource? @relation(fields: [sourceId], references: [id])
+  sourceDetail String?
+
+  prenom             String
+  nom                String
+  telephone          String?
+  // Sortie de normalizePhoneNumber() (src/lib/phone.ts) - jamais saisie
+  // directement, utilisée pour la détection de doublons (section 15/16).
+  telephoneNormalise String?
+  email              String?
+  adresse            String?
+  codePostal         String?
+  ville              String?
+
+  commercialId      String?
+  commercial        User? @relation("LeadCommercial", fields: [commercialId], references: [id])
+  teleprospecteurId String?
+  teleprospecteur   User? @relation("LeadTeleprospecteur", fields: [teleprospecteurId], references: [id])
+
+  statutId          String
+  statut            LeadPipelineStatus @relation(fields: [statutId], references: [id])
+  temperature       TemperatureLead    @default(TIEDE)
+  dernierResultatId String?
+  dernierResultat   ResultatAppel?     @relation("LeadDernierResultat", fields: [dernierResultatId], references: [id])
+  prochainContactAt DateTime?
+  notes             String?
+
+  // Claim léger (section 23) - empêche que deux téléprospecteurs appellent
+  // le même lead en même temps sans verrou lourd/websocket : une expiration
+  // simple (claimExpiresAt) rend le lead de nouveau disponible tout seul.
+  claimedById    String?
+  claimedBy      User?     @relation("LeadClaimedBy", fields: [claimedById], references: [id])
+  claimedAt      DateTime?
+  claimExpiresAt DateTime?
+
+  // Renseignés uniquement après conversion (section 14). dossierId est
+  // UNIQUE : c'est la garantie au niveau base qu'un lead ne peut jamais
+  // pointer vers deux dossiers, quel que soit le nombre de clics.
+  clientId    String?
+  client      Client?   @relation(fields: [clientId], references: [id])
+  dossierId   String?   @unique
+  dossier     Dossier?  @relation(fields: [dossierId], references: [id])
+  convertedAt DateTime?
+
+  createdById String?
+  createdBy   User?    @relation("LeadCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  logement              Logement?
+  interactions          InteractionCommerciale[]
+  rdvs                  Rdv[]
+  reponsesQuestionnaire ReponseQuestionnaire[]
+
+  @@index([organisationId])
+  @@index([commercialId])
+  @@index([teleprospecteurId])
+  @@index([statutId])
+  @@index([telephoneNormalise])
+  @@index([email])
+  @@index([prochainContactAt])
+  @@index([claimedById])
+}
+
+enum TemperatureLead {
+  FROID
+  TIEDE
+  CHAUD
+}
+
+// Fiche logement centrale (section 4) - rattachée à EXACTEMENT un
+// propriétaire (lead, client ou dossier) à un instant donné ; toujours
+// mutable (comme Client), pas un snapshot figé. Aucun champ obligatoire au-
+// delà de l'identité : un logement peut être créé quasi-vide et rempli
+// progressivement pendant l'appel.
+model Logement {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  leadId    String?  @unique
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  clientId  String?  @unique
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  dossierId String?  @unique
+  dossier   Dossier? @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  adresse    String?
+  complement String?
+  codePostal String?
+  ville      String?
+  latitude   Float?
+  longitude  Float?
+
+  typeBatiment       TypeBatimentLogement?
+  typeHabitat        TypeHabitatLogement?
+  anneeConstruction  Int?
+  surfaceHabitableM2 Float?
+  surfaceChauffeeM2  Float?
+  nombreNiveaux      Int?
+  nombreLogements    Int?
+
+  chauffagePrincipal       EnergieLogement?
+  equipementChauffage      String?
+  anneeEquipementChauffage Int?
+  ecs                      Boolean?
+  energieEcs               EnergieLogement?
+  climatisation            Boolean?
+  dpe                      String?
+  consommationAnnuelleKwh  Int?
+
+  isolationMurs        String?
+  isolationCombles     String?
+  isolationRampants    String?
+  isolationPlancherBas String?
+  isolationFenetres    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  champsProvenance ChampProvenance[]
+
+  @@index([organisationId])
+}
+
+enum TypeBatimentLogement {
+  MAISON
+  APPARTEMENT
+}
+
+enum TypeHabitatLogement {
+  INDIVIDUEL
+  COLLECTIF
+}
+
+enum EnergieLogement {
+  ELECTRICITE
+  GAZ
+  FIOUL
+  BOIS
+  PAC
+  RESEAU_CHALEUR
+  AUTRE
+}
+
+enum SourceDonnee {
+  CLIENT
+  COMMERCIAL
+  VISITE
+  AUDIT
+  API
+  DOCUMENT
+  IMPORT
+  AUTRE
+}
+
+enum ConfianceDonnee {
+  DECLARE
+  ESTIME
+  VERIFIE
+}
+
+// Provenance/confiance par champ (section 5) - volontairement UNE ligne par
+// (logement, champ) plutôt qu'un historique complet : suffisant pour savoir
+// d'où vient une valeur et porter une éventuelle proposition externe en
+// attente (sections 29/30), sans alourdir P9 d'un système de versionning
+// champ par champ.
+model ChampProvenance {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  logementId     String
+  logement       Logement     @relation(fields: [logementId], references: [id], onDelete: Cascade)
+
+  champ     String
+  source    SourceDonnee
+  confiance ConfianceDonnee @default(DECLARE)
+
+  // Proposition externe en attente (section 29) - n'écrase JAMAIS
+  // valeurActuelle/source/confiance tant qu'elle n'a pas été acceptée
+  // explicitement (section 30 : traçabilité complète de l'acceptation).
+  valeurProposee   String?
+  sourceProposee   SourceDonnee?
+  referenceExterne String?
+  recupereeAt      DateTime?
+  accepteeById     String?
+  accepteeBy       User?     @relation("ChampProvenanceAcceptedBy", fields: [accepteeById], references: [id])
+  accepteeAt       DateTime?
+  refuseeAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([logementId, champ])
+  @@index([organisationId])
+}
+
+// --- Questionnaire configurable (section 8) ---------------------------
+//
+// Une QuestionnaireVersion publiée est figée : publier une nouvelle version
+// ne modifie jamais les Question/OptionQuestion/ConditionQuestion d'une
+// version déjà publiée, exactement comme RegleReglementaireVersion en P7 -
+// les réponses historiques (ReponseQuestion) restent donc interprétables
+// même si le questionnaire évolue ensuite.
+model Questionnaire {
+  id             String        @id @default(cuid())
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  code           String
+  nom            String
+  actif          Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+
+  versions QuestionnaireVersion[]
+
+  @@unique([organisationId, code])
+}
+
+model QuestionnaireVersion {
+  id              String        @id @default(cuid())
+  questionnaireId String
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id])
+  numeroVersion   Int
+  publiee         Boolean       @default(false)
+  publieeAt       DateTime?
+  createdAt       DateTime      @default(now())
+
+  questions Question[]
+  reponses  ReponseQuestionnaire[]
+
+  @@unique([questionnaireId, numeroVersion])
+}
+
+enum TypeQuestion {
+  TEXT
+  NUMBER
+  YES_NO
+  SINGLE_SELECT
+  MULTI_SELECT
+  DATE
+}
+
+model Question {
+  id                     String               @id @default(cuid())
+  questionnaireVersionId String
+  questionnaireVersion   QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id], onDelete: Cascade)
+
+  // Identifiant stable réutilisé par les conditions et le mapping vers les
+  // champs métier (section 10) - jamais l'id technique, qui changerait
+  // d'une version à l'autre.
+  code        String
+  libelle     String
+  type        TypeQuestion
+  unite       String?
+  ordre       Int          @default(0)
+  obligatoire Boolean      @default(false)
+  // Section de l'écran de qualification (A_CONTACT..H_PROCHAINE_ACTION,
+  // section 6) - texte libre volontairement, pas un enum : ce sont des
+  // regroupements d'affichage, pas une donnée métier.
+  section     String
+  // Convention documentée "Modele.champ" (ex. "Logement.surfaceChauffeeM2")
+  // interprétée par src/lib/questionnaire/mapping.ts - pas une vraie FK
+  // dynamique, seulement pour que la réponse ne reste jamais uniquement
+  // dans un JSON opaque (section 10).
+  champMappe  String?
+
+  options               OptionQuestion[]
+  conditionsAffichage   ConditionQuestion[] @relation("QuestionConditionnee")
+  conditionsDeclenchees ConditionQuestion[] @relation("QuestionDeclenchante")
+  reponses              ReponseQuestion[]
+
+  @@unique([questionnaireVersionId, code])
+  @@index([questionnaireVersionId])
+}
+
+model OptionQuestion {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  code       String
+  libelle    String
+  ordre      Int      @default(0)
+
+  @@unique([questionId, code])
+}
+
+// Une question conditionnée n'est affichée que si la question déclenchante
+// a reçu la valeur attendue (code d'option, ou "true"/"false" pour YES_NO) -
+// évalué par src/lib/questionnaire/engine.ts, jamais codé en dur dans un
+// composant React (section 7).
+model ConditionQuestion {
+  id                     String   @id @default(cuid())
+  questionId             String
+  question               Question @relation("QuestionConditionnee", fields: [questionId], references: [id], onDelete: Cascade)
+  questionDeclenchanteId String
+  questionDeclenchante   Question @relation("QuestionDeclenchante", fields: [questionDeclenchanteId], references: [id], onDelete: Cascade)
+  valeurAttendue         String
+
+  @@index([questionId])
+  @@index([questionDeclenchanteId])
+}
+
+// Une instance de questionnaire rempli pour un lead donné, sur UNE version
+// figée (jamais migrée automatiquement vers une version plus récente).
+model ReponseQuestionnaire {
+  id                     String               @id @default(cuid())
+  organisationId         String
+  organisation           Organisation         @relation(fields: [organisationId], references: [id])
+  leadId                 String
+  lead                   Lead                 @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  questionnaireVersionId String
+  questionnaireVersion   QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reponses ReponseQuestion[]
+
+  @@unique([leadId, questionnaireVersionId])
+  @@index([organisationId])
+}
+
+model ReponseQuestion {
+  id                     String               @id @default(cuid())
+  reponseQuestionnaireId String
+  reponseQuestionnaire   ReponseQuestionnaire @relation(fields: [reponseQuestionnaireId], references: [id], onDelete: Cascade)
+  questionId             String
+  question               Question             @relation(fields: [questionId], references: [id])
+
+  valeurTexte   String?
+  valeurNombre  Float?
+  valeurBool    Boolean?
+  valeurDate    DateTime?
+  // Codes des OptionQuestion sélectionnées (MULTI_SELECT) - Json plutôt
+  // qu'un tableau natif (non supporté par le provider MySQL de Prisma).
+  valeurOptions Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reponseQuestionnaireId, questionId])
+}
+
+enum TypeInteraction {
+  APPEL
+  EMAIL
+  SMS
+  VISITE
+  AUTRE
+}
+
+// Historique de contact simple (section 19) - pas de téléphonie native P9 :
+// type/durée/notes sont saisis manuellement par l'utilisateur.
+model InteractionCommerciale {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  leadId         String
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id])
+
+  type              TypeInteraction
+  resultatId        String?
+  resultat          ResultatAppel?  @relation(fields: [resultatId], references: [id])
+  notes             String?
+  dureeMinutes      Int?
+  prochaineActionAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([organisationId])
+  @@index([leadId])
+}
+
+enum TypeRdv {
+  TELEPHONIQUE
+  VISITE
+  AUTRE
+}
+
+enum StatutRdv {
+  PLANIFIE
+  CONFIRME
+  REALISE
+  ANNULE
+}
+
+// RDV (section 17) - reste interne au CRM en P9 (pas d'intégration Google
+// Calendar). Peut être rattaché à un lead OU à un dossier (après
+// conversion), jamais aux deux à la fois.
+model Rdv {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  leadId         String?
+  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  dossierId      String?
+  dossier        Dossier?     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  date         DateTime
+  type         TypeRdv
+  commercialId String?
+  commercial   User?     @relation("RdvCommercial", fields: [commercialId], references: [id])
+  adresse      String?
+  commentaire  String?
+  statut       StatutRdv @default(PLANIFIE)
+
+  createdById String?
+  createdBy   User?    @relation("RdvCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([organisationId])
+  @@index([leadId])
   @@index([dossierId])
 }

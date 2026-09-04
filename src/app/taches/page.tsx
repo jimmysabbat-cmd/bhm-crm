@@ -176,7 +176,7 @@ export default async function TachesPage({
                             Fait
                           </button>
                         </form>
-                        <form action={async () => { "use server"; await deleteTache(a.sourceId, a.dossierId); }}>
+                        <form action={async () => { "use server"; await deleteTache(a.sourceId, a.dossierId!); }}>
                           <ConfirmSubmitButton
                             label="Supprimer"
                             confirmMessage="Supprimer cette tâche ?"

@@ -31,8 +31,14 @@ export async function Nav() {
   // Section 21 du prompt P6 : /finances accessible à ADMIN/direction et aux
   // rôles comptabilité (nom historique COMPTA conservé pour compatibilité).
   const peutVoirFinances = isAdmin || role === "COMPTABILITE" || role === "COMPTA";
+  // P9 : VIEW_LEADS (ADMIN/COMMERCIAL/TELEPROSPECTEUR/ADMINISTRATIF) - liste
+  // dupliquée volontairement ici plutôt qu'un import de authz.ts (Nav est un
+  // Server Component très en amont, garder le calcul du menu simple et
+  // local comme peutVoirFinances ci-dessus).
+  const peutVoirLeads = ["ADMIN", "COMMERCIAL", "TELEPROSPECTEUR", "ADMINISTRATIF"].includes(role ?? "");
   const allLinks = [
     ...links,
+    ...(peutVoirLeads ? [{ href: "/leads", label: "Leads", icon: "leads" as const }] : []),
     ...(peutVoirFinances ? [{ href: "/finances", label: "Finances", icon: "finances" as const }] : []),
     ...(isAdmin ? [{ href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }] : []),
   ];
