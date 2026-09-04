@@ -41,6 +41,14 @@ const groups = [
     ],
   },
   {
+    label: "Commercial / Leads",
+    items: [
+      { href: "/parametrage/leads-sources", label: "Sources leads" },
+      { href: "/parametrage/leads-statuts", label: "Statuts pipeline" },
+      { href: "/parametrage/leads-resultats", label: "Résultats d'appel" },
+    ],
+  },
+  {
     label: "Accès",
     items: [{ href: "/parametrage/equipe", label: "Équipe" }],
   },

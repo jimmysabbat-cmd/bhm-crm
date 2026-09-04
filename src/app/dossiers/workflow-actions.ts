@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { recalculateDossierWorkflow } from "@/lib/workflow";
+import { getBlockingReasonsForEtape } from "@/lib/documents/blocking";
 
 async function loadOwnedDossierEtape(dossierEtapeId: string, organisationId: string) {
   const dossierEtape = await prisma.dossierEtape.findFirst({
@@ -52,8 +53,21 @@ export async function demarrerEtape(dossierEtapeId: string) {
   });
 }
 
+/**
+ * (P10, section 12) Une étape ne peut être terminée que si ses exigences
+ * documentaires BLOQUANTES (DocumentRequirement.blocking=true rattachées à
+ * cette étape) sont satisfaites - jamais un blocage par défaut, seulement
+ * quand explicitement configuré pour cette étape.
+ */
 export async function terminerEtape(dossierEtapeId: string) {
   const ctx = await requireUserContext();
+  const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
+
+  const blocages = await getBlockingReasonsForEtape(before.dossierId, before.etapeProgrammeId, ctx.organisationId);
+  if (blocages.length > 0) {
+    throw new Error(`Étape bloquée par des pièces manquantes/invalides : ${blocages.map((b) => b.typeDocumentNom).join(", ")}.`);
+  }
+
   await applyTransition(dossierEtapeId, ctx.organisationId, ctx.userId, "TERMINER", {
     statut: "TERMINE",
     dateTerminee: new Date(),

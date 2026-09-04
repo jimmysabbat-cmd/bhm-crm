@@ -24,6 +24,8 @@ import { buildStudyContext, isStudyStale } from "@/lib/etude/engine";
 import { sanitizeScenariosForRole } from "@/lib/etude/redact";
 import type { StudyContext, StudyScenario } from "@/lib/etude/types";
 import { EtudeStudyPanel } from "../EtudeStudyPanel";
+import { getDocumentChecklistForDossier } from "@/lib/documents/checklist";
+import { DocumentChecklistPanel } from "../DocumentChecklistPanel";
 import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
 import { mouvementIsLate, mouvementJoursRetard, calculateBlockedAmountForDossier } from "@/lib/finance";
 import { getFinancialSummaryForDossier, getCreancesForDossier, getDettesForDossier, financialDataQualityLabels } from "@/lib/financial-engine";
@@ -304,6 +306,47 @@ export default async function DossierDetailPage({
         obsolete: isStudyStale(derniere, currentContext),
       };
     }
+  }
+
+  // Section documentaire (P10) - même principe que l'étude ci-dessus : ne
+  // charge la checklist/les packages que si l'utilisateur a VIEW_DOCUMENTS.
+  const peutVoirDocuments = hasPermission(ctx, "VIEW_DOCUMENTS");
+  let documentChecklistProps: { completionPct: number; blockingCount: number; requirements: import("../DocumentChecklistPanel").ChecklistRequirementProp[]; destinations: string[] } | null = null;
+  let transmissionPackagesProps: import("../DocumentChecklistPanel").TransmissionPackageProp[] = [];
+  if (peutVoirDocuments) {
+    const checklist = await getDocumentChecklistForDossier(dossier.id, ctx.organisationId);
+    documentChecklistProps = {
+      completionPct: checklist.completionPct,
+      blockingCount: checklist.blockingCount,
+      requirements: checklist.requirements.map((r) => ({
+        requirementId: r.requirementId,
+        typeDocumentId: r.typeDocumentId,
+        typeDocumentCode: r.typeDocumentCode,
+        typeDocumentNom: r.typeDocumentNom,
+        required: r.required,
+        status: r.status,
+        sourceRequirementLabel: r.sourceRequirement.label,
+        providedDocuments: r.providedDocuments.map((d) => ({ id: d.id, nomFichier: d.nomFichier, statut: d.statut, expired: d.expired, version: d.version })),
+        responsible: r.responsible,
+        destination: r.destination,
+        blocking: r.blocking,
+      })),
+      destinations: Array.from(new Set(checklist.requirements.map((r) => r.destination).filter((d): d is NonNullable<typeof d> => d != null))) as string[],
+    };
+
+    const packages = await prisma.transmissionPackage.findMany({
+      where: { dossierId: dossier.id },
+      orderBy: { createdAt: "desc" },
+      include: { _count: { select: { documents: true } } },
+    });
+    transmissionPackagesProps = packages.map((p) => ({
+      id: p.id,
+      destinationType: p.destinationType,
+      destinationName: p.destinationName,
+      status: p.status,
+      createdAt: p.createdAt.toISOString(),
+      documentsCount: p._count.documents,
+    }));
   }
 
   const resteACharge = resteAChargeCents(dossier);
@@ -1133,6 +1176,23 @@ export default async function DossierDetailPage({
           peutAppliquer={peutAppliquerEtude}
           latestEtude={etudeLatestProps}
           historique={etudeHistorique}
+        />
+      )}
+
+      {documentChecklistProps && (
+        <DocumentChecklistPanel
+          dossierId={dossier.id}
+          completionPct={documentChecklistProps.completionPct}
+          blockingCount={documentChecklistProps.blockingCount}
+          requirements={documentChecklistProps.requirements}
+          destinations={documentChecklistProps.destinations}
+          packages={transmissionPackagesProps}
+          permissions={{
+            peutUpload: hasPermission(ctx, "UPLOAD_DOCUMENTS"),
+            peutValider: hasPermission(ctx, "VALIDATE_DOCUMENTS"),
+            peutCreerPackage: hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE"),
+            peutTelechargerPackage: hasPermission(ctx, "DOWNLOAD_TRANSMISSION_PACKAGE"),
+          }}
         />
       )}
 

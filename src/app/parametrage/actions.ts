@@ -340,6 +340,83 @@ export async function toggleDelegataireCee(id: string, actif: boolean) {
   revalidatePath("/parametrage/delegataires-cee");
 }
 
+// --- Sources de leads (P9, finition section 37) ---
+
+export async function createLeadSource(formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  const count = await prisma.leadSource.count();
+  await prisma.leadSource.create({ data: { key: slugify(label) || `SOURCE_${count + 1}`, label, ordre: count } });
+  revalidatePath("/parametrage/leads-sources");
+}
+
+export async function updateLeadSource(id: string, formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  await prisma.leadSource.update({ where: { id }, data: { label } });
+  revalidatePath("/parametrage/leads-sources");
+}
+
+export async function toggleLeadSource(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.leadSource.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/leads-sources");
+}
+
+// --- Statuts du pipeline commercial (P9, finition section 37) ---
+
+export async function createLeadPipelineStatus(formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  const count = await prisma.leadPipelineStatus.count();
+  await prisma.leadPipelineStatus.create({ data: { key: slugify(label) || `STATUT_LEAD_${count + 1}`, label, ordre: count } });
+  revalidatePath("/parametrage/leads-statuts");
+}
+
+export async function updateLeadPipelineStatus(id: string, formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  await prisma.leadPipelineStatus.update({ where: { id }, data: { label } });
+  revalidatePath("/parametrage/leads-statuts");
+}
+
+export async function toggleLeadPipelineStatus(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.leadPipelineStatus.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/leads-statuts");
+}
+
+// --- Résultats d'appel (P9, finition section 37) - la proposition de
+// statut/délai de rappel associée reste définie au seed pour l'instant (V1
+// : gérer key/label ici suffit, éditer la proposition n'est pas encore
+// exposé en UI pour ne pas alourdir ce CRUD générique).
+export async function createResultatAppel(formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  const count = await prisma.resultatAppel.count();
+  await prisma.resultatAppel.create({ data: { key: slugify(label) || `RESULTAT_${count + 1}`, label, ordre: count } });
+  revalidatePath("/parametrage/leads-resultats");
+}
+
+export async function updateResultatAppel(id: string, formData: FormData) {
+  await requireAdmin();
+  const label = String(formData.get("label")).trim();
+  if (!label) return;
+  await prisma.resultatAppel.update({ where: { id }, data: { label } });
+  revalidatePath("/parametrage/leads-resultats");
+}
+
+export async function toggleResultatAppel(id: string, actif: boolean) {
+  await requireAdmin();
+  await prisma.resultatAppel.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/leads-resultats");
+}
+
 // --- Ordre (générique, réutilisé par les listes via le nom du modèle) ---
 
 export async function reorder(
@@ -352,7 +429,10 @@ export async function reorder(
     | "statutCee"
     | "statutTravaux"
     | "regie"
-    | "delegataireCee",
+    | "delegataireCee"
+    | "leadSource"
+    | "leadPipelineStatus"
+    | "resultatAppel",
   id: string,
   direction: "up" | "down"
 ) {
@@ -381,6 +461,9 @@ export async function reorder(
     statutTravaux: "/parametrage/statuts-travaux",
     regie: "/parametrage/regie",
     delegataireCee: "/parametrage/delegataires-cee",
+    leadSource: "/parametrage/leads-sources",
+    leadPipelineStatus: "/parametrage/leads-statuts",
+    resultatAppel: "/parametrage/leads-resultats",
   };
   revalidatePath(paths[model]);
 }
@@ -395,7 +478,10 @@ export async function deleteItem(
     | "statutCee"
     | "statutTravaux"
     | "regie"
-    | "delegataireCee",
+    | "delegataireCee"
+    | "leadSource"
+    | "leadPipelineStatus"
+    | "resultatAppel",
   id: string
 ) {
   await requireAdmin();
@@ -420,6 +506,9 @@ export async function deleteItem(
     statutTravaux: "/parametrage/statuts-travaux",
     regie: "/parametrage/regie",
     delegataireCee: "/parametrage/delegataires-cee",
+    leadSource: "/parametrage/leads-sources",
+    leadPipelineStatus: "/parametrage/leads-statuts",
+    resultatAppel: "/parametrage/leads-resultats",
   };
   revalidatePath(paths[model]);
 }

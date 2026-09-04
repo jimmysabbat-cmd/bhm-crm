@@ -3,6 +3,7 @@ import { calculerDelaiEtape } from "@/lib/workflow";
 import { calculateBlockedAmountForDossier, mouvementIsLate, mouvementJoursRetard } from "@/lib/finance";
 import { calculateCeeValuation } from "@/lib/reglementaire/valuation";
 import { buildStudyContext, isStudyStale } from "@/lib/etude/engine";
+import { getDocumentChecklistForDossier } from "@/lib/documents/checklist";
 import { typeDocumentLabels, categorieMouvementLabels } from "@/lib/dossier-labels";
 import type { Role, Precarite } from "@/generated/prisma/enums";
 
@@ -23,7 +24,7 @@ export const roleLabels: Record<string, string> = {
 };
 
 export type NiveauUrgence = "BASSE" | "NORMALE" | "HAUTE" | "CRITIQUE";
-export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT" | "REGLEMENTAIRE_CEE" | "ETUDE_SCENARIO" | "LEAD";
+export type TypeNextBestAction = "ETAPE" | "TACHE" | "MOUVEMENT_FINANCIER" | "DOCUMENT_MANQUANT" | "REGLEMENTAIRE_CEE" | "ETUDE_SCENARIO" | "LEAD" | "DOCUMENT";
 
 export type NextBestAction = {
   id: string;
@@ -127,6 +128,7 @@ function score(params: {
     REGLEMENTAIRE_CEE: 10,
     ETUDE_SCENARIO: 8,
     LEAD: 8,
+    DOCUMENT: 10,
   };
   total += urgencyBase[params.typeAction];
 
@@ -160,6 +162,7 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
     select: {
       id: true,
       reference: true,
+      createdAt: true,
       client: { select: { prenom: true, nom: true, precarite: true } },
       documents: { select: { type: true } },
       delegataireCeeId: true,
@@ -631,6 +634,62 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
         });
       }
     }
+
+    // --- Documents (P10, section 21) - une seule action PAR CATÉGORIE et
+    // par dossier, jamais une par pièce (section 23 : "Demander N pièces
+    // au client" plutôt que N actions séparées). Réutilise la checklist
+    // centrale (getDocumentChecklistForDossier), jamais une deuxième
+    // logique d'agrégation documentaire.
+    if (matchesScope(ctx, null, "ADMINISTRATIF" as Role) || matchesScope(ctx, null, "COMMERCIAL" as Role)) {
+      const checklist = await getDocumentChecklistForDossier(dossier.id, ctx.organisationId);
+
+      const manquantsClient = checklist.requirements.filter((r) => r.required && r.status === "MANQUANT" && r.responsible === "CLIENT");
+      const manquantsAutres = checklist.requirements.filter((r) => r.required && r.status === "MANQUANT" && r.responsible !== "CLIENT");
+      const aVerifier = checklist.requirements.filter((r) => r.status === "A_VERIFIER");
+      const refuses = checklist.requirements.filter((r) => r.status === "REFUSE");
+      const expires = checklist.requirements.filter((r) => r.status === "EXPIRE");
+
+      function pushDocumentAction(suffix: string, titre: string, items: { typeDocumentNom: string }[], responsableRole: Role, extra?: string) {
+        const { total, reasons: scoreReasons } = score({ joursRetard: 0, montantBloqueCts: 0, bloque: false, documentManquant: true, typeAction: "DOCUMENT", delaiAlerteDepasse: false });
+        if (extra) scoreReasons.push(extra);
+        scoreReasons.push(...items.map((i) => i.typeDocumentNom));
+        actions.push({
+          id: `document:${dossier.id}:${suffix}`,
+          sourceId: dossier.id,
+          organisationId: ctx.organisationId,
+          dossierId: dossier.id,
+          client: clientLabel,
+          referenceDossier: dossier.reference,
+          typeAction: "DOCUMENT",
+          titre,
+          description: items.map((i) => i.typeDocumentNom).join(", "),
+          origine: "DocumentRequirement",
+          statut: suffix,
+          responsableUserId: null,
+          responsableRole,
+          responsableLabel: roleLabels[responsableRole],
+          dateCreation: dossier.createdAt,
+          dateEcheance: null,
+          joursRetard: 0,
+          niveauUrgence: niveauFromScore(total),
+          montantBloqueCts: 0,
+          raisonMontantBloque: null,
+          route,
+          reasons: scoreReasons,
+          priorityScore: total,
+          flux: "DOCUMENTS",
+          tacheRelanceId: null,
+          nombreRelances: 0,
+          mouvementType: null,
+        });
+      }
+
+      if (manquantsClient.length > 0) pushDocumentAction("manquants-client", manquantsClient.length > 1 ? `Demander ${manquantsClient.length} pièces au client` : "Demander une pièce au client", manquantsClient, "COMMERCIAL");
+      if (manquantsAutres.length > 0) pushDocumentAction("manquants-internes", `${manquantsAutres.length} pièce(s) manquante(s) (interne)`, manquantsAutres, "ADMINISTRATIF");
+      if (aVerifier.length > 0) pushDocumentAction("a-verifier", `${aVerifier.length} pièce(s) à vérifier`, aVerifier, "ADMINISTRATIF");
+      if (refuses.length > 0) pushDocumentAction("refuses", `${refuses.length} pièce(s) refusée(s) à remplacer`, refuses, "ADMINISTRATIF");
+      if (expires.length > 0) pushDocumentAction("expires", `${expires.length} pièce(s) expirée(s)`, expires, "ADMINISTRATIF");
+    }
   }
 
   // --- Leads (P9, section 31) - file distincte des dossiers ci-dessus,
@@ -652,6 +711,7 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
       dossierId: true,
       dossier: { select: { reference: true } },
       _count: { select: { interactions: true } },
+      rdvs: { where: { statut: "PLANIFIE" }, select: { id: true, date: true }, orderBy: { date: "asc" } },
     },
   });
 
@@ -722,6 +782,32 @@ export async function getNextBestActions(ctx: NextBestActionContext): Promise<Ne
       const { total, reasons } = score({ joursRetard: 0, montantBloqueCts: 0, bloque: false, documentManquant: false, typeAction: "LEAD", delaiAlerteDepasse: false });
       reasons.push("Devis envoyé - relance à prévoir");
       pushLeadAction("devis", `Relancer le devis de ${clientLabel}`, reasons, total);
+    }
+
+    // --- RDV à confirmer (P9, finition section 39) - un RDV encore PLANIFIE
+    // (jamais CONFIRME/REALISE/ANNULE) dont la date approche ou est déjà
+    // passée doit être confirmé/traité. Ne remonte plus dès que le RDV
+    // change de statut (aucune double action possible).
+    const prochainRdv = lead.rdvs[0];
+    if (prochainRdv) {
+      const heuresAvant = (prochainRdv.date.getTime() - now.getTime()) / 3_600_000;
+      if (heuresAvant <= 48) {
+        const enRetard = heuresAvant < 0;
+        const { total, reasons } = score({
+          joursRetard: enRetard ? Math.ceil(-heuresAvant / 24) : 0,
+          montantBloqueCts: 0,
+          bloque: false,
+          documentManquant: false,
+          typeAction: "LEAD",
+          delaiAlerteDepasse: false,
+        });
+        reasons.push(
+          enRetard
+            ? `RDV du ${prochainRdv.date.toLocaleDateString("fr-FR")} non confirmé et déjà passé`
+            : `RDV proche (${prochainRdv.date.toLocaleDateString("fr-FR")}) non confirmé`
+        );
+        pushLeadAction("rdv", `Confirmer le RDV avec ${clientLabel}`, reasons, total);
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
+import { changeLeadStatus } from "@/lib/leads/status";
 
 // ============================================================
 // RDV (P9, section 17) - reste interne au CRM, aucune intégration Google
@@ -43,7 +44,7 @@ export async function createRdv(leadId: string, formData: FormData): Promise<{ o
 
     const statutRdvPris = await prisma.leadPipelineStatus.findUnique({ where: { key: "RDV_PRIS" } });
     if (statutRdvPris) {
-      await prisma.lead.update({ where: { id: lead.id }, data: { statutId: statutRdvPris.id } });
+      await changeLeadStatus({ leadId: lead.id, newStatusId: statutRdvPris.id, userId: ctx.userId });
     }
 
     await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "Rdv", entityId: rdv.id, action: "RDV_CREE", metadata: { leadId: lead.id } });
@@ -66,7 +67,7 @@ export async function updateRdvStatut(rdvId: string, statut: "PLANIFIE" | "CONFI
 
     if (statut === "REALISE" && rdv.leadId) {
       const statutVisite = await prisma.leadPipelineStatus.findUnique({ where: { key: "VISITE_EFFECTUEE" } });
-      if (statutVisite) await prisma.lead.update({ where: { id: rdv.leadId }, data: { statutId: statutVisite.id } });
+      if (statutVisite) await changeLeadStatus({ leadId: rdv.leadId, newStatusId: statutVisite.id, userId: ctx.userId });
     }
 
     if (rdv.leadId) revalidatePath(`/leads/${rdv.leadId}/qualification`);

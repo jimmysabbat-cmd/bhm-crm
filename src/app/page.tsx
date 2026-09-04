@@ -11,6 +11,7 @@ import {
   Lock,
   Wallet,
   CalendarClock,
+  FileCheck,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext, hasPermission } from "@/lib/authz";
@@ -19,6 +20,7 @@ import { typeTacheLabels } from "@/lib/dossier-labels";
 import { getNextBestActions, estCetteSemaine } from "@/lib/next-best-action";
 import { calculateBlockedAmountByFlux } from "@/lib/finance";
 import { getMargesDossiers, getMouvementsNonSoldes, getEntreeLignesForOrganisation } from "@/lib/financial-engine";
+import { getDocumentAdminDashboard } from "@/lib/documents/dashboard";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, statutColor } from "@/components/ui/Badge";
@@ -191,6 +193,10 @@ export default async function DashboardPage() {
     margeSurCoutsReelsCts: margesDossiers.reduce((s, d) => s + d.margeSurCoutsReelsCts, 0),
     creancesOuvertesCts: margesDossiers.reduce((s, d) => s + d.creancesCts, 0),
   };
+
+  // Dashboard administratif documentaire (P10, section 26).
+  const peutVoirDocuments = hasPermission(ctx, "VIEW_DOCUMENTS");
+  const documentsAdmin = peutVoirDocuments ? await getDocumentAdminDashboard(ctx.organisationId) : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-8 py-10">
@@ -519,6 +525,25 @@ export default async function DashboardPage() {
           </Card>
         )}
       </section>
+
+      {documentsAdmin && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900">Documents (P10)</h2>
+            <Link href="/documents/a-verifier" className="flex items-center gap-1 text-sm text-slate-500 hover:text-emerald-700">
+              Voir les documents à vérifier <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            <CountCard label="Dossiers bloqués par pièces" value={documentsAdmin.dossiersBloquesParPieces} icon={FileCheck} tone="red" />
+            <CountCard label="Pièces à vérifier" value={documentsAdmin.piecesAVerifier} icon={FileCheck} tone="amber" />
+            <CountCard label="Pièces refusées" value={documentsAdmin.piecesRefusees} icon={FileCheck} tone="red" />
+            <CountCard label="Pièces expirées" value={documentsAdmin.piecesExpirees} icon={FileCheck} tone="red" />
+            <CountCard label="Packages prêts" value={documentsAdmin.packagesPrets} icon={FileCheck} tone="emerald" />
+            <CountCard label="Packages en brouillon" value={documentsAdmin.packagesBrouillon} icon={FileCheck} tone="slate" />
+          </div>
+        </section>
+      )}
     </div>
   );
 }

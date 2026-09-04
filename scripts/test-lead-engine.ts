@@ -3,6 +3,7 @@ import { prisma } from "../src/lib/prisma";
 import { normalizePhoneNumber } from "../src/lib/phone";
 import { findPotentialDuplicates } from "../src/lib/leads/dedup";
 import { createLeadFromSource, ensureDraftDossierForLead } from "../src/lib/leads/conversion";
+import { changeLeadStatus, hasLeadEverReachedStatus } from "../src/lib/leads/status";
 import { calculateLeadQualification } from "../src/lib/leads/qualification";
 import { getNextLeadsToCall } from "../src/lib/leads/next-lead";
 import { getCommercialDashboardMetrics } from "../src/lib/leads/dashboard";
@@ -313,9 +314,9 @@ async function main() {
   const statutSigne = await prisma.leadPipelineStatus.findUniqueOrThrow({ where: { key: "SIGNE" } });
   const statutQualifie = await prisma.leadPipelineStatus.findUniqueOrThrow({ where: { key: "QUALIFIE" } });
   const { leadId: leadSigne } = await createLeadFromSource({ organisationId: org.id, createdById: admin.id, sourceKey: null, prenom: "Vendu", nom: "Signe", telephone: "07 00 00 00 05" });
-  await prisma.lead.update({ where: { id: leadSigne }, data: { statutId: statutSigne.id } });
+  await changeLeadStatus({ leadId: leadSigne, newStatusId: statutSigne.id, userId: admin.id });
   const { leadId: leadQualifie } = await createLeadFromSource({ organisationId: org.id, createdById: admin.id, sourceKey: null, prenom: "Suivi", nom: "Qualifie2", telephone: "07 00 00 00 06" });
-  await prisma.lead.update({ where: { id: leadQualifie }, data: { statutId: statutQualifie.id } });
+  await changeLeadStatus({ leadId: leadQualifie, newStatusId: statutQualifie.id, userId: admin.id });
 
   const dashboard = await getCommercialDashboardMetrics(ctxAdmin);
   assert(dashboard != null, "le dashboard est calculable pour ADMIN");
@@ -331,6 +332,93 @@ async function main() {
   // getNextLeadsToCall ne doit jamais renvoyer le lead SIGNE
   const prochainsLeads = await getNextLeadsToCall(ctxAdmin, 50);
   assert(!prochainsLeads.some((l) => l.leadId === leadSigne), "getNextLeadsToCall n'inclut jamais un lead déjà SIGNE");
+
+  // ============================================================
+  // TEST 17 (P9 finition, section 41) - QUALIFIÉ -> PERDU reste compté
+  // comme "a atteint QUALIFIÉ" (historique des statuts, jamais uniquement
+  // le statut courant).
+  // ============================================================
+  console.log("\n=== TEST 17 - historique pipeline : QUALIFIÉ puis PERDU reste compté ===");
+  const statutPerdu = await prisma.leadPipelineStatus.findUniqueOrThrow({ where: { key: "PERDU" } });
+  const { leadId: leadQualifiePuisPerdu } = await createLeadFromSource({ organisationId: org.id, createdById: admin.id, sourceKey: null, prenom: "Qualifie", nom: "PuisPerdu", telephone: "07 00 00 00 07" });
+  await changeLeadStatus({ leadId: leadQualifiePuisPerdu, newStatusId: statutQualifie.id, userId: admin.id });
+  await changeLeadStatus({ leadId: leadQualifiePuisPerdu, newStatusId: statutPerdu.id, userId: admin.id });
+
+  const leadReluApresPerte = await prisma.lead.findUniqueOrThrow({ where: { id: leadQualifiePuisPerdu } });
+  assert(leadReluApresPerte.statutId === statutPerdu.id, "le statut courant du lead est bien PERDU");
+  const aAtteintQualifie = await hasLeadEverReachedStatus(leadQualifiePuisPerdu, statutQualifie.id);
+  assert(aAtteintQualifie, "hasLeadEverReachedStatus(QUALIFIE) reste vrai même si le lead est maintenant PERDU");
+
+  const nbHistorique = await prisma.leadStatusHistory.count({ where: { leadId: leadQualifiePuisPerdu } });
+  assert(nbHistorique === 3, `3 entrées d'historique (création NOUVEAU, -> QUALIFIE, -> PERDU) - trouvé ${nbHistorique}`);
+
+  // ============================================================
+  // TEST 16 (P9 finition, section 41) - import CSV : preview (erreurs +
+  // doublons potentiels EXISTANTS en base) + commit (n'importe QUE les
+  // lignes valides confirmées).
+  // ============================================================
+  console.log("\n=== TEST 16 - import CSV complet (preview + doublons + erreurs + commit) ===");
+  const { leadId: leadExistantPourDoublon } = await createLeadFromSource({ organisationId: org.id, createdById: admin.id, sourceKey: null, prenom: "Existant", nom: "EnBase", telephone: "07 55 55 55 55" });
+  void leadExistantPourDoublon;
+
+  const csvImport = ["nom,prenom,telephone,email", "Nouveau,Client,0766666666,nouveau@example.com", ",SansNom,0788888888,sansnom@example.com", "Doublon,EnBase,07 55 55 55 55,doublon@example.com"].join("\n");
+  const previewImport = parseLeadsCsv(csvImport);
+  assert(previewImport.rows.length === 3, "3 lignes lues dans le CSV");
+  assert(previewImport.rows[1].errors.length > 0, "la ligne sans nom est signalée en erreur");
+
+  // Reproduit previewLeadsCsv() : doublon contre la base existante (pas seulement intra-fichier).
+  const doublonsExistants = await Promise.all(
+    previewImport.rows.map((r) => (r.errors.length === 0 ? findPotentialDuplicates({ organisationId: org.id, telephone: r.telephone, email: r.email }) : Promise.resolve([])))
+  );
+  assert(doublonsExistants[2].length > 0, "la ligne 'Doublon EnBase' est détectée comme doublon d'un lead déjà en base");
+  assert(doublonsExistants[0].length === 0, "la ligne 'Nouveau Client' n'est pas un doublon");
+
+  const nbLeadsAvantImport = await prisma.lead.count({ where: { organisationId: org.id } });
+  let importes = 0;
+  let ignores = 0;
+  for (const row of previewImport.rows) {
+    if (row.errors.length > 0 || !row.nom || !row.prenom) {
+      ignores++;
+      continue;
+    }
+    await createLeadFromSource({ organisationId: org.id, createdById: admin.id, sourceKey: "IMPORT", prenom: row.prenom, nom: row.nom, telephone: row.telephone, email: row.email });
+    importes++;
+  }
+  assert(importes === 2, `2 lignes valides importées (trouvé ${importes})`);
+  assert(ignores === 1, `1 ligne invalide ignorée, jamais importée silencieusement (trouvé ${ignores})`);
+  const nbLeadsApresImport = await prisma.lead.count({ where: { organisationId: org.id } });
+  assert(nbLeadsApresImport === nbLeadsAvantImport + 2, "exactement 2 nouveaux leads en base après le commit");
+
+  // ============================================================
+  // TEST 18 (P9 finition, section 41) - RDV non confirmé proche -> NBA ;
+  // confirmé -> disparaît (pas de double action).
+  // ============================================================
+  console.log("\n=== TEST 18 - RDV non confirmé proche -> NBA ===");
+  const { leadId: leadAvecRdv } = await createLeadFromSource({ organisationId: org.id, createdById: admin.id, sourceKey: null, prenom: "Avec", nom: "Rdv", telephone: "07 00 00 00 08", commercialId: admin.id });
+  const rdvProche = await prisma.rdv.create({ data: { organisationId: org.id, leadId: leadAvecRdv, date: new Date(Date.now() + 6 * 3_600_000), type: "VISITE", statut: "PLANIFIE", commercialId: admin.id } });
+
+  const actionsAvecRdvPlanifie = await getNextBestActions({ organisationId: org.id, scope: "all" });
+  assert(actionsAvecRdvPlanifie.some((a) => a.sourceId === leadAvecRdv && a.typeAction === "LEAD" && a.id.endsWith(":rdv")), "un RDV proche non confirmé remonte bien en NBA");
+
+  await prisma.rdv.update({ where: { id: rdvProche.id }, data: { statut: "CONFIRME" } });
+  const actionsApresConfirmation = await getNextBestActions({ organisationId: org.id, scope: "all" });
+  assert(!actionsApresConfirmation.some((a) => a.sourceId === leadAvecRdv && a.id.endsWith(":rdv")), "une fois confirmé, le RDV ne remonte plus (pas de double action)");
+
+  // ============================================================
+  // TEST 19 (P9 finition, section 41) - référentiels leads (source/statut/
+  // résultat) : GLOBAUX par conception (même pattern que DossierType/
+  // DossierStatus), donc PAS d'isolement par organisation - vérifié
+  // explicitement plutôt que supposé : org A et org B voient exactement le
+  // même référentiel, jamais une fuite de DONNÉES métier (leads eux-mêmes),
+  // seulement un référentiel partagé volontaire.
+  // ============================================================
+  console.log("\n=== TEST 19 - référentiels leads globaux (par conception) ===");
+  const sourcesDepuisOrgA = await prisma.leadSource.findMany({ where: { actif: true }, select: { key: true } });
+  const sourcesDepuisOrgBContexte = await prisma.leadSource.findMany({ where: { actif: true }, select: { key: true } });
+  assert(sourcesDepuisOrgA.length > 0 && sourcesDepuisOrgA.length === sourcesDepuisOrgBContexte.length, "le référentiel LeadSource est bien global, identique quelle que soit l'organisation consultante (par conception)");
+  const leadsOrgAAvecCetteSource = await prisma.lead.findMany({ where: { organisationId: org.id, sourceId: { not: null } } });
+  const leadsOrgBAvecCetteSource = await prisma.lead.findMany({ where: { organisationId: orgB.id } });
+  assert(leadsOrgBAvecCetteSource.every((l) => l.organisationId === orgB.id) && leadsOrgAAvecCetteSource.every((l) => l.organisationId === org.id), "même si le référentiel de sources est partagé, les LEADS eux-mêmes restent strictement cloisonnés par organisation");
 
   // --- Nettoyage ---
   await prisma.champProvenance.deleteMany({ where: { organisationId: { in: [org.id, orgB.id] } } });

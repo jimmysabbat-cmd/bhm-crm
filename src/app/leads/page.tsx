@@ -68,6 +68,11 @@ export default async function LeadsPage({
             {sourceFiltre ? ` · ${sourceFiltre.label}` : ""}
           </p>
         </div>
+        {hasPermission(ctx, "IMPORT_LEADS") && (
+          <Link href="/leads/import" className="text-sm font-medium text-slate-500 hover:text-emerald-700">
+            Importer un CSV →
+          </Link>
+        )}
       </div>
 
       {/* Dashboard commercial (section 32) */}

@@ -5,10 +5,10 @@ import { hasPermission } from "@/lib/authz";
 // ============================================================
 // Dashboard commercial (P9, section 32/33) - comptages simples depuis les
 // données réelles, pas d'analytics complexe. Le funnel de conversion
-// (section 33) compte les leads dont le statut ACTUEL a atteint ou dépassé
-// chaque étape (ordre du pipeline) - limite documentée : un lead marqué
-// PERDU après avoir été QUALIFIE n'est plus compté comme "qualifié" (on ne
-// garde pas d'historique des statuts traversés en P9).
+// (section 33, finition P9 section 38) compte les leads ayant DÉJÀ ATTEINT
+// chaque étape au moins une fois (via LeadStatusHistory), même si le lead
+// est ensuite passé à un autre statut (ex. PERDU) - un lead qualifié puis
+// perdu reste compté comme "a atteint QUALIFIÉ".
 // ============================================================
 
 export type CommercialDashboardMetrics = {
@@ -48,17 +48,22 @@ export async function getCommercialDashboardMetrics(ctx: UserContext): Promise<C
     prisma.lead.count({ where: { organisationId: ctx.organisationId, ...scopeWhere, statut: { key: "DEVIS_ENVOYE" } } }),
     prisma.lead.count({ where: { organisationId: ctx.organisationId, ...scopeWhere, statut: { key: "SIGNE" } } }),
     prisma.lead.count({ where: { organisationId: ctx.organisationId, ...scopeWhere, statut: { key: { not: "PERDU" } } } }),
-    prisma.leadPipelineStatus.findMany({ where: { key: { in: ETAPES_FUNNEL } }, select: { key: true, ordre: true } }),
+    prisma.leadPipelineStatus.findMany({ where: { key: { in: ETAPES_FUNNEL } }, select: { id: true, key: true } }),
   ]);
 
-  const ordreByKey = new Map(statuts.map((s) => [s.key, s.ordre]));
+  const idByKey = new Map(statuts.map((s) => [s.key, s.id]));
   const funnel = await Promise.all(
     ETAPES_FUNNEL.map(async (key) => {
-      const ordreMin = ordreByKey.get(key) ?? 0;
-      const count = await prisma.lead.count({
-        where: { organisationId: ctx.organisationId, ...scopeWhere, statut: { ordre: { gte: ordreMin }, key: { notIn: ["PERDU"] } } },
+      const statutId = idByKey.get(key);
+      if (!statutId) return { etape: key, count: 0 };
+      // distinct leadId : un lead qui traverse deux fois le même statut ne
+      // doit compter qu'une fois dans le funnel.
+      const rows = await prisma.leadStatusHistory.findMany({
+        where: { newStatusId: statutId, lead: { organisationId: ctx.organisationId, ...scopeWhere } },
+        select: { leadId: true },
+        distinct: ["leadId"],
       });
-      return { etape: key, count };
+      return { etape: key, count: rows.length };
     })
   );
 

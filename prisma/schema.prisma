@@ -255,6 +255,12 @@ model Organisation {
   reponsesQuestionnaire  ReponseQuestionnaire[]
   interactionsCommerciales InteractionCommerciale[]
   rdvs                   Rdv[]
+
+  // P10
+  dossierDocuments        DossierDocument[]
+  typeDocumentReferentiels TypeDocumentReferentiel[]
+  documentRequirements    DocumentRequirement[]
+  transmissionPackages    TransmissionPackage[]
 }
 
 model User {
@@ -289,6 +295,13 @@ model User {
   interactionsCommerciales InteractionCommerciale[]
   rdvsCommercial         Rdv[] @relation("RdvCommercial")
   rdvsCrees              Rdv[] @relation("RdvCreatedBy")
+  leadStatusChanges      LeadStatusHistory[]
+
+  // P10
+  dossierDocumentsValidees DossierDocument[] @relation("DossierDocumentValidatedBy")
+  dossierDocumentsCreees   DossierDocument[] @relation("DossierDocumentCreatedBy")
+  transmissionPackagesTransmis TransmissionPackage[] @relation("TransmissionPackageTransmittedBy")
+  transmissionPackagesCrees    TransmissionPackage[] @relation("TransmissionPackageCreatedBy")
 
   @@index([organisationId])
 }
@@ -438,6 +451,9 @@ model Client {
   leads    Lead[]
   logement Logement?
 
+  // P10
+  dossierDocuments DossierDocument[]
+
   @@index([organisationId])
 }
 
@@ -521,6 +537,9 @@ model Dossier {
   logement Logement?
   rdvs     Rdv[]
 
+  // P10
+  transmissionPackages TransmissionPackage[]
+
   @@index([statutId])
   @@index([typeId])
   @@index([clientId])
@@ -568,6 +587,9 @@ model DossierPosteTravaux {
 
   calculsReglementaires CalculReglementaire[] @relation("PosteCalculsHistorique")
 
+  // P10
+  dossierDocuments DossierDocument[]
+
   createdAt DateTime @default(now())
 
   @@index([dossierId])
@@ -597,6 +619,11 @@ model DossierDocument {
   id            String       @id @default(cuid())
   dossierId     String
   dossier       Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  // Ancien enum figé, JAMAIS modifié (préserve les documents existants tels
+  // quels) - le nouveau moteur documentaire (P10) utilise exclusivement
+  // typeDocumentId ci-dessous. Un mapping best-effort renseigne encore ce
+  // champ pour les nouveaux documents afin que documentsRequisStatus() (P5/
+  // workflow existant) continue de fonctionner sans modification.
   type          TypeDocument
   nomFichier    String
   cheminFichier String
@@ -604,7 +631,237 @@ model DossierDocument {
   tailleOctets  Int
   createdAt     DateTime     @default(now())
 
+  // ============================================================
+  // P10 - moteur documentaire
+  // ============================================================
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+
+  typeDocumentId String?
+  typeDocumentRef TypeDocumentReferentiel? @relation(fields: [typeDocumentId], references: [id])
+  requirementId  String?
+  requirement    DocumentRequirement? @relation(fields: [requirementId], references: [id])
+
+  // Portée (section 9) - à qui/quoi se rattache précisément cette pièce
+  // (au-delà du dossier lui-même).
+  portee         PorteeDocument @default(DOSSIER)
+  clientId       String?
+  client         Client? @relation(fields: [clientId], references: [id])
+  posteTravauxId String?
+  posteTravaux   DossierPosteTravaux? @relation(fields: [posteTravauxId], references: [id])
+
+  statut         StatutDocument @default(FOURNI)
+  dateExpiration DateTime?
+
+  // Validation (section 5) - audit obligatoire.
+  validatedById     String?
+  validatedBy       User?     @relation("DossierDocumentValidatedBy", fields: [validatedById], references: [id])
+  validatedAt       DateTime?
+  validationComment String?
+  rejectionReason   String?
+
+  // Version/remplacement (section 6) - ne supprime jamais silencieusement
+  // l'ancien : replacesId pointe vers le document que CE document remplace,
+  // et l'ancien devient consultable via replacedBy + passe au statut
+  // REMPLACE (jamais supprimé).
+  // Pas de @unique DB ici (éviterait un push --accept-data-loss non
+  // consenti sur cette colonne nouvellement ajoutée) - l'invariant "au plus
+  // un document en remplace un autre" est garanti au niveau applicatif
+  // (Server Action de remplacement), jamais par contrainte DB.
+  replacesId String?
+  replaces   DossierDocument?  @relation("DocumentReplacement", fields: [replacesId], references: [id])
+  replacedBy DossierDocument[] @relation("DocumentReplacement")
+  version    Int               @default(1)
+
+  // Provenance (réutilise l'enum SourceDonnee du moteur logement P9 - même
+  // besoin exact : d'où vient cette pièce).
+  provenance SourceDonnee?
+
+  createdById String?
+  createdBy   User?   @relation("DossierDocumentCreatedBy", fields: [createdById], references: [id])
+
+  packageDocuments TransmissionPackageDocument[]
+
   @@index([dossierId])
+  @@index([organisationId])
+  @@index([typeDocumentId])
+  @@index([requirementId])
+  @@index([statut])
+  @@index([clientId])
+  @@index([posteTravauxId])
+  @@index([replacesId])
+}
+
+enum StatutDocument {
+  FOURNI
+  A_VERIFIER
+  VALIDE
+  REFUSE
+  EXPIRE
+  REMPLACE
+}
+
+enum PorteeDocument {
+  DOSSIER
+  CLIENT
+  MENAGE
+  LOGEMENT
+  POSTE_TRAVAUX
+  ENTREPRISE
+  PARTENAIRE
+}
+
+enum ResponsableDocument {
+  CLIENT
+  COMMERCIAL
+  ADMINISTRATIF
+  TECHNIQUE
+  MAR
+  SOUS_TRAITANT
+  FOURNISSEUR
+  AUTRE
+}
+
+enum DestinationTransmission {
+  ANAH
+  MAR
+  CEE
+  DELEGATAIRE_CEE
+  CONTROLEUR
+  SOUS_TRAITANT
+  FOURNISSEUR
+  CLIENT
+  COMPTABILITE
+  AUTRE
+}
+
+// Référentiel des types de document (P10, section 1) - configurable, remplace
+// progressivement l'ancien enum TypeDocument (conservé intact sur
+// DossierDocument.type pour ne rien casser). Nommé "Referentiel" plutôt que
+// "TypeDocument" pour éviter toute collision avec l'enum historique dans le
+// même schéma (un enum et un modèle ne peuvent pas partager un nom Prisma).
+model TypeDocumentReferentiel {
+  id             String        @id @default(cuid())
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  code           String
+  nom            String
+  categorie      String?
+  description    String?
+  actif          Boolean       @default(true)
+  ordre          Int           @default(0)
+  createdAt      DateTime      @default(now())
+
+  documentRequirements DocumentRequirement[]
+  dossierDocuments     DossierDocument[]
+  packageDocuments     TransmissionPackageDocument[]
+
+  @@unique([organisationId, code])
+}
+
+// Exigence documentaire versionnée (P10, section 2) - rattachée selon les
+// cas à une étape de programme, une version de règle réglementaire, un type
+// de travaux ou une règle interne (organisationId renseigné). Un changement
+// futur de version réglementaire ne modifie JAMAIS les exigences déjà liées
+// à une ancienne RegleReglementaireVersion (section 13/14) : chaque version
+// a ses propres DocumentRequirement, jamais partagés/mutés entre versions.
+model DocumentRequirement {
+  id             String                   @id @default(cuid())
+  organisationId String?
+  organisation   Organisation?            @relation(fields: [organisationId], references: [id])
+  typeDocumentId String
+  typeDocument   TypeDocumentReferentiel  @relation(fields: [typeDocumentId], references: [id])
+
+  etapeProgrammeId String?
+  etapeProgramme   EtapeProgramme? @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
+  regleVersionId   String?
+  regleVersion     RegleReglementaireVersion? @relation(fields: [regleVersionId], references: [id])
+  typeTravaux      TypeTravaux?
+
+  obligatoire      Boolean                @default(true)
+  // Condition d'applicabilité libre (ex. "precarite=TRES_MODESTE") -
+  // interprétée par le moteur de checklist, jamais évaluée via eval().
+  condition        String?
+  momentRequis     String?
+  responsable      ResponsableDocument?
+  destination      DestinationTransmission?
+  validiteJours    Int?
+  multipleAutorise Boolean                @default(false)
+  minCount         Int                    @default(1)
+  maxCount         Int?
+  portee           PorteeDocument         @default(DOSSIER)
+  // Une exigence bloquante empêche la transmission/le passage d'étape tant
+  // qu'elle n'est pas satisfaite (section 11/12) - jamais bloquant par
+  // défaut pour toutes les étapes, seulement quand explicitement configuré.
+  blocking         Boolean                @default(false)
+  ordre            Int                    @default(0)
+  commentaire      String?
+  actif            Boolean                @default(true)
+  createdAt        DateTime               @default(now())
+
+  dossierDocuments DossierDocument[]
+
+  @@index([organisationId])
+  @@index([etapeProgrammeId])
+  @@index([regleVersionId])
+  @@index([typeDocumentId])
+}
+
+enum StatutTransmissionPackage {
+  BROUILLON
+  PRET
+  TRANSMIS
+  ANNULE
+}
+
+// Package de transmission (P10, section 16/17) - snapshot figé de ce qui a
+// été transmis à un destinataire précis, avec un profil de filtrage
+// (aucune fuite documentaire : un sous-traitant ne reçoit jamais un avis
+// d'imposition, un délégataire CEE ne reçoit jamais la marge interne).
+model TransmissionPackage {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  dossierId      String
+  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  destinationType DestinationTransmission
+  destinationName String?
+
+  status   StatutTransmissionPackage @default(BROUILLON)
+  // Contenu exact au moment de la création (section 29) - jamais recalculé
+  // rétroactivement, même si les documents/exigences changent ensuite.
+  snapshot Json
+  comment  String?
+
+  transmittedAt     DateTime?
+  transmittedById   String?
+  transmittedBy     User?     @relation("TransmissionPackageTransmittedBy", fields: [transmittedById], references: [id])
+  externalReference String?
+
+  createdById String?
+  createdBy   User?    @relation("TransmissionPackageCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  documents TransmissionPackageDocument[]
+
+  @@index([organisationId])
+  @@index([dossierId])
+}
+
+model TransmissionPackageDocument {
+  id                String                  @id @default(cuid())
+  packageId         String
+  package           TransmissionPackage     @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  dossierDocumentId String
+  dossierDocument   DossierDocument         @relation(fields: [dossierDocumentId], references: [id])
+  typeDocumentId    String?
+  typeDocument      TypeDocumentReferentiel? @relation(fields: [typeDocumentId], references: [id])
+  version           Int
+  ordre             Int                     @default(0)
+
+  @@index([packageId])
+  @@index([dossierDocumentId])
 }
 
 model Fournisseur {
@@ -857,6 +1114,7 @@ model EtapeProgramme {
   dependuesPar    EtapeDependance[] @relation("DependsOn")
   documentsRequis EtapeDocumentRequis[]
   modelesTaches   ModeleTacheEtape[]
+  documentRequirements DocumentRequirement[]
 
   @@unique([programmeVersionId, code])
   @@index([programmeVersionId])
@@ -1038,6 +1296,7 @@ model RegleReglementaireVersion {
 
   baremes BaremeReglementaire[]
   calculs CalculReglementaire[]
+  documentRequirements DocumentRequirement[]
 
   @@unique([regleId, numeroVersion])
   @@index([regleId])
@@ -1236,6 +1495,8 @@ model LeadPipelineStatus {
 
   leads Lead[]
   resultatsAppelPropositions ResultatAppel[]
+  historiqueAncienStatut LeadStatusHistory[] @relation("LeadStatusHistoryOld")
+  historiqueNouveauStatut LeadStatusHistory[] @relation("LeadStatusHistoryNew")
 }
 
 // Résultat d'un appel/contact (section 18) - peut proposer un enchaînement
@@ -1319,6 +1580,7 @@ model Lead {
   interactions          InteractionCommerciale[]
   rdvs                  Rdv[]
   reponsesQuestionnaire ReponseQuestionnaire[]
+  statusHistory         LeadStatusHistory[]
 
   @@index([organisationId])
   @@index([commercialId])
@@ -1334,6 +1596,29 @@ enum TemperatureLead {
   FROID
   TIEDE
   CHAUD
+}
+
+// Historique des changements de statut pipeline (P9, finition section 38) -
+// permet au funnel de conversion de compter "a déjà atteint QUALIFIÉ" même
+// si le lead est ensuite marqué PERDU, ce que le seul statut courant du
+// Lead ne peut pas exprimer. Une ligne par changement, jamais réécrite.
+model LeadStatusHistory {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  oldStatusId String?
+  oldStatus   LeadPipelineStatus? @relation("LeadStatusHistoryOld", fields: [oldStatusId], references: [id])
+  newStatusId String
+  newStatus   LeadPipelineStatus  @relation("LeadStatusHistoryNew", fields: [newStatusId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@index([newStatusId])
 }
 
 // Fiche logement centrale (section 4) - rattachée à EXACTEMENT un

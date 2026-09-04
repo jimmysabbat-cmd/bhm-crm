@@ -36,9 +36,12 @@ export async function Nav() {
   // Server Component très en amont, garder le calcul du menu simple et
   // local comme peutVoirFinances ci-dessus).
   const peutVoirLeads = ["ADMIN", "COMMERCIAL", "TELEPROSPECTEUR", "ADMINISTRATIF"].includes(role ?? "");
+  // P10 : VIEW_DOCUMENTS (ADMIN/ADMINISTRATIF/COMMERCIAL/TECHNIQUE/COMPTA/COMPTABILITE).
+  const peutVoirDocuments = ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "TECHNIQUE", "COMPTA", "COMPTABILITE"].includes(role ?? "");
   const allLinks = [
     ...links,
     ...(peutVoirLeads ? [{ href: "/leads", label: "Leads", icon: "leads" as const }] : []),
+    ...(peutVoirDocuments ? [{ href: "/documents/a-verifier", label: "Documents", icon: "documents" as const }] : []),
     ...(peutVoirFinances ? [{ href: "/finances", label: "Finances", icon: "finances" as const }] : []),
     ...(isAdmin ? [{ href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }] : []),
   ];

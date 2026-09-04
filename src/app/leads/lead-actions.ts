@@ -6,6 +6,7 @@ import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { normalizePhoneNumber } from "@/lib/phone";
 import { createLeadFromSource, ensureDraftDossierForLead } from "@/lib/leads/conversion";
+import { changeLeadStatus } from "@/lib/leads/status";
 import type { PotentialDuplicate } from "@/lib/leads/dedup";
 import { calculateLeadQualification, type LeadQualificationResult } from "@/lib/leads/qualification";
 import { mapReponsesToStructuredFields, type MappableAnswer } from "@/lib/questionnaire/mapping";
@@ -86,9 +87,9 @@ export async function updateLead(leadId: string, formData: FormData): Promise<{ 
         ville: str(formData, "ville"),
         temperature: (str(formData, "temperature") as "FROID" | "TIEDE" | "CHAUD" | null) ?? undefined,
         notes: str(formData, "notes"),
-        statutId: statut?.id,
       },
     });
+    if (statut) await changeLeadStatus({ leadId: lead.id, newStatusId: statut.id, userId: ctx.userId });
 
     revalidatePath(`/leads/${leadId}/qualification`);
     revalidatePath("/leads");
@@ -211,13 +212,13 @@ export async function recordInteraction(leadId: string, formData: FormData): Pro
       where: { id: lead.id },
       data: {
         dernierResultatId: resultat?.id ?? undefined,
-        statutId: nouveauStatut?.id,
         prochainContactAt,
         claimedById: null,
         claimedAt: null,
         claimExpiresAt: null,
       },
     });
+    if (nouveauStatut) await changeLeadStatus({ leadId: lead.id, newStatusId: nouveauStatut.id, userId: ctx.userId });
 
     await logAudit({
       organisationId: ctx.organisationId,

@@ -4,6 +4,7 @@ import { logAudit } from "@/lib/audit";
 import { normalizePhoneNumber } from "@/lib/phone";
 import { findPotentialDuplicates, type PotentialDuplicate } from "./dedup";
 import { mapReponsesToStructuredFields, type MappableAnswer } from "@/lib/questionnaire/mapping";
+import { recordInitialLeadStatus } from "./status";
 
 // ============================================================
 // Services métier Lead (P9). Fonctions de bibliothèque pures/testables,
@@ -64,6 +65,8 @@ export async function createLeadFromSource(params: {
       createdById: params.createdById,
     },
   });
+
+  await recordInitialLeadStatus({ leadId: lead.id, statutId: statutNouveau.id, userId: params.createdById });
 
   // Pas d'entrée d'audit sans acteur humain réel (AuditLog.userId est une
   // FK obligatoire) - un lead créé par import/API sans créateur connu

@@ -134,7 +134,24 @@ export type Permission =
   | "ASSIGN_LEADS"
   | "IMPORT_LEADS"
   | "VIEW_TEAM_LEADS"
-  | "RUN_LEAD_STUDY";
+  | "RUN_LEAD_STUDY"
+  // P10 - moteur documentaire (section 33). VIEW_DOCUMENTS/UPLOAD_DOCUMENTS
+  // restent assez larges (l'essentiel du travail terrain dépose des
+  // pièces) ; VALIDATE_DOCUMENTS (décider qu'une pièce est bonne/refusée)
+  // et CREATE_TRANSMISSION_PACKAGE/DOWNLOAD_TRANSMISSION_PACKAGE (générer
+  // un envoi officiel à un tiers) sont réservés à la direction/
+  // l'administratif. VIEW_SENSITIVE_DOCUMENTS (identité/fiscal) est
+  // distinct de VIEW_DOCUMENTS : voir qu'une pièce existe n'est pas la même
+  // chose que pouvoir en télécharger le contenu quand elle est sensible.
+  // REGIE/SOUS_TRAITANT n'ont aucun accès documentaire général en V1 (pas
+  // de lien User<->SousTraitant en base permettant de scoper "uniquement le
+  // package qui lui est destiné" - limite documentée).
+  | "VIEW_DOCUMENTS"
+  | "UPLOAD_DOCUMENTS"
+  | "VALIDATE_DOCUMENTS"
+  | "VIEW_SENSITIVE_DOCUMENTS"
+  | "CREATE_TRANSMISSION_PACKAGE"
+  | "DOWNLOAD_TRANSMISSION_PACKAGE";
 
 const PERMISSIONS: Record<Permission, Role[]> = {
   VIEW_ALL_ACTIONS: ["ADMIN"],
@@ -157,6 +174,12 @@ const PERMISSIONS: Record<Permission, Role[]> = {
   IMPORT_LEADS: ["ADMIN"],
   VIEW_TEAM_LEADS: ["ADMIN"],
   RUN_LEAD_STUDY: ["ADMIN", "COMMERCIAL", "ADMINISTRATIF"],
+  VIEW_DOCUMENTS: ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "TECHNIQUE", "COMPTA", "COMPTABILITE"],
+  UPLOAD_DOCUMENTS: ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "TECHNIQUE"],
+  VALIDATE_DOCUMENTS: ["ADMIN", "ADMINISTRATIF"],
+  VIEW_SENSITIVE_DOCUMENTS: ["ADMIN", "ADMINISTRATIF", "COMPTA", "COMPTABILITE"],
+  CREATE_TRANSMISSION_PACKAGE: ["ADMIN", "ADMINISTRATIF"],
+  DOWNLOAD_TRANSMISSION_PACKAGE: ["ADMIN", "ADMINISTRATIF"],
 };
 
 export function hasPermission(ctx: UserContext, permission: Permission): boolean {
