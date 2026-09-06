@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   } catch {
     return new NextResponse("Non autorisé", { status: 401 });
   }
-  if (ctx.role !== "ADMIN") {
+  if ((ctx.effectiveRole ?? ctx.role) !== "ADMIN") {
     return new NextResponse("Accès refusé", { status: 403 });
   }
 

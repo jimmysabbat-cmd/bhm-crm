@@ -8,7 +8,7 @@ import { logAudit } from "@/lib/audit";
 
 async function requireAdmin() {
   const ctx = await requireUserContext();
-  if (ctx.role !== "ADMIN") {
+  if ((ctx.effectiveRole ?? ctx.role) !== "ADMIN") {
     throw new Error("Accès réservé aux administrateurs.");
   }
   return ctx;

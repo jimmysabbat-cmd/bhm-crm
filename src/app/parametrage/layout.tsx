@@ -1,10 +1,20 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { requireUserContext, type UserContext } from "@/lib/authz";
 import { ParamTabs } from "./ParamTabs";
 
 export default async function ParametrageLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth();
-  if ((session?.user as { role?: string } | undefined)?.role !== "ADMIN") {
+  // P12 : ne jamais lire le rôle directement depuis la session - un
+  // PLATFORM SUPER ADMIN entré dans un tenant a un role de session qui lui
+  // est propre (non pertinent ici) ; seul ctx.effectiveRole (issu de
+  // requireUserContext()) reflète correctement son accès ADMIN temporaire
+  // au tenant entré (cf. src/lib/authz.ts).
+  let ctx: UserContext;
+  try {
+    ctx = await requireUserContext();
+  } catch {
+    redirect("/");
+  }
+  if ((ctx.effectiveRole ?? ctx.role) !== "ADMIN") {
     redirect("/");
   }
 

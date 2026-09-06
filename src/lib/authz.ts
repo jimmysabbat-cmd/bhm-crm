@@ -18,7 +18,26 @@ export async function requireAuth() {
 export type UserContext = {
   userId: string;
   organisationId: string;
+  // Rôle RÉEL persisté en base sur la ligne User (jamais réécrit pour un
+  // platform super admin - cf. effectiveRole ci-dessous). N'utiliser role
+  // que pour de la logique d'identité réelle (ex. "ce COMMERCIAL ne voit
+  // que SES dossiers créés par lui") - JAMAIS pour une décision
+  // d'autorisation/permission, où effectiveRole est requis.
   role: Role;
+  // Rôle à utiliser pour TOUTE décision d'autorisation (hasPermission,
+  // hasRole, et toute vérification ad hoc du type `ctx.role !== "ADMIN"`
+  // dans les Server Actions/routes). Égal à role pour un utilisateur
+  // normal. Pour un PLATFORM SUPER ADMIN entré dans un tenant (section
+  // 0/17/18), toujours "ADMIN" - un accès administratif complet et
+  // TEMPORAIRE au tenant entré, sans jamais écrire "ADMIN" sur sa propre
+  // ligne User (qui garde son role réel, non pertinent hors contexte
+  // plateforme) ni créer de membership permanent.
+  // Optionnel (fallback sur role dans hasRole/hasPermission/etc.) pour ne
+  // pas casser les UserContext construits à la main par les scripts de
+  // test P5-P10, qui n'ont jamais besoin de le renseigner explicitement.
+  // requireUserContext() le renseigne systématiquement dans les deux
+  // branches (production).
+  effectiveRole?: Role;
   // P11 - renseignés uniquement pour un compte partenaire (rôle
   // SOUS_TRAITANT/DELEGATAIRE_CEE) rattaché à son entité référentielle ;
   // absents/null pour tout compte interne. Optionnels pour ne pas casser
@@ -91,7 +110,21 @@ export async function requireUserContext(): Promise<UserContext> {
     // Le PLATFORM SUPER ADMIN peut délibérément entrer dans un tenant
     // SUSPENDED pour le réactiver/l'auditer (section 17) - jamais bloqué
     // comme le serait un utilisateur tenant normal ci-dessous.
-    return { userId, organisationId: tenant.id, role: user.role, sousTraitantId: null, delegataireCeeId: null, isPlatformSuperAdmin: true };
+    //
+    // role reste le rôle RÉEL de sa propre ligne User (jamais modifié en
+    // base, structurellement non pertinent ici) ; effectiveRole est
+    // toujours "ADMIN" pour la durée de cette requête uniquement - accès
+    // administratif complet au tenant entré, sans écrire "ADMIN" nulle
+    // part ni créer de membership permanent (cf. UserContext ci-dessus).
+    return {
+      userId,
+      organisationId: tenant.id,
+      role: user.role,
+      effectiveRole: "ADMIN",
+      sousTraitantId: null,
+      delegataireCeeId: null,
+      isPlatformSuperAdmin: true,
+    };
   }
 
   // Un utilisateur non-platform-admin doit toujours avoir une organisation
@@ -109,6 +142,7 @@ export async function requireUserContext(): Promise<UserContext> {
     userId,
     organisationId: user.organisationId,
     role: user.role,
+    effectiveRole: user.role,
     sousTraitantId: user.sousTraitantId,
     delegataireCeeId: user.delegataireCeeId,
     isPlatformSuperAdmin: false,
@@ -161,7 +195,7 @@ export async function assertDossierInOrg(dossierId: string, organisationId: stri
 // autres rôles restent préparés sans permission spécifique pour l'instant.
 
 export function hasRole(ctx: UserContext, ...roles: Role[]): boolean {
-  return roles.includes(ctx.role);
+  return roles.includes(ctx.effectiveRole ?? ctx.role);
 }
 
 export function requireRole(ctx: UserContext, ...roles: Role[]): void {
@@ -297,7 +331,7 @@ const PERMISSIONS: Record<Permission, Role[]> = {
 };
 
 export function hasPermission(ctx: UserContext, permission: Permission): boolean {
-  return PERMISSIONS[permission].includes(ctx.role);
+  return PERMISSIONS[permission].includes(ctx.effectiveRole ?? ctx.role);
 }
 
 // P8 (section 31) : COMMERCIAL ne doit voir/simuler l'étude QUE sur ses
@@ -309,7 +343,7 @@ export function hasPermission(ctx: UserContext, permission: Permission): boolean
 // dossiers de leur organisation dès lors qu'ils ont VIEW_STUDY.
 export function canAccessDossierStudy(ctx: UserContext, dossier: { createdById: string | null }): boolean {
   if (!hasPermission(ctx, "VIEW_STUDY")) return false;
-  if (ctx.role === "COMMERCIAL") return dossier.createdById === ctx.userId;
+  if ((ctx.effectiveRole ?? ctx.role) === "COMMERCIAL") return dossier.createdById === ctx.userId;
   return true;
 }
 
@@ -324,7 +358,7 @@ export function canAccessLead(
 ): boolean {
   if (!hasPermission(ctx, "VIEW_LEADS")) return false;
   if (hasPermission(ctx, "VIEW_TEAM_LEADS")) return true;
-  if (ctx.role === "ADMINISTRATIF") return lead.dossierId != null;
+  if ((ctx.effectiveRole ?? ctx.role) === "ADMINISTRATIF") return lead.dossierId != null;
   return lead.commercialId === ctx.userId || lead.teleprospecteurId === ctx.userId || lead.createdById === ctx.userId;
 }
 
@@ -335,7 +369,7 @@ export function canAccessLead(
 // permission.
 export function canAccessDossierCommunication(ctx: UserContext, dossier: { createdById: string | null }): boolean {
   if (!hasPermission(ctx, "PREPARE_COMMUNICATIONS")) return false;
-  if (ctx.role === "COMMERCIAL") return dossier.createdById === ctx.userId;
+  if ((ctx.effectiveRole ?? ctx.role) === "COMMERCIAL") return dossier.createdById === ctx.userId;
   return true;
 }
 

@@ -15,7 +15,7 @@ const TENANT_SCOPED_PARAM_MODELS = new Set(["mar", "regie", "delegataireCee"]);
 
 async function requireAdmin(): Promise<UserContext> {
   const ctx = await requireUserContext();
-  if (ctx.role !== "ADMIN") {
+  if ((ctx.effectiveRole ?? ctx.role) !== "ADMIN") {
     throw new Error("Accès réservé aux administrateurs.");
   }
   return ctx;
