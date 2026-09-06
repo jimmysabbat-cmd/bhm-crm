@@ -33,6 +33,16 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
+  // P12 - hébergement mutualisé o2switch : `os.cpus()` y rapporte le nombre
+  // de coeurs de la machine hôte partagée (ex. 47), pas les ressources
+  // réellement allouées, ce qui faisait planter "Collecting page data"
+  // (SIGABRT) faute de mémoire. On borne donc explicitement la concurrence.
+  experimental: {
+    cpus: 2,
+    staticGenerationRetryCount: 1,
+    staticGenerationMaxConcurrency: 2,
+    staticGenerationMinPagesPerWorker: 25,
+  },
 };
 
 export default nextConfig;

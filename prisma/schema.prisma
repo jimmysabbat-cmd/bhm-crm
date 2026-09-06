@@ -317,17 +317,18 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organisationId String
-  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
 
   // P12 (section 0) - NIVEAU complètement séparé des rôles tenant : un
   // PLATFORM SUPER ADMIN administre la plateforme SaaS elle-même, jamais
-  // détourné de Role.ADMIN (qui reste un rôle TENANT). organisationId
-  // ci-dessus reste renseigné même pour ce compte (contrainte FK
-  // obligatoire) mais n'est JAMAIS utilisé pour son autorisation réelle :
-  // son contexte tenant actif est entièrement piloté par la session
-  // "Entrer dans <tenant>" (cf. src/lib/platform/tenant-context.ts),
-  // jamais par cette colonne - voir requireUserContext().
+  // détourné de Role.ADMIN (qui reste un rôle TENANT). organisationId est
+  // nullable précisément pour ce compte : un PLATFORM SUPER ADMIN n'a besoin
+  // d'aucun tenant d'ancrage. Son contexte tenant actif (le cas échéant) est
+  // entièrement piloté par la session "Entrer dans <tenant>" (cf.
+  // src/lib/platform/tenant-context.ts), jamais par cette colonne - voir
+  // requireUserContext(), qui refuse tout utilisateur non-platform-admin
+  // dont organisationId serait null.
   isPlatformSuperAdmin Boolean @default(false)
 
   // P11 - accès partenaire (section 23/24) : un compte de rôle

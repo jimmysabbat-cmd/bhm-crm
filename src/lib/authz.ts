@@ -94,6 +94,13 @@ export async function requireUserContext(): Promise<UserContext> {
     return { userId, organisationId: tenant.id, role: user.role, sousTraitantId: null, delegataireCeeId: null, isPlatformSuperAdmin: true };
   }
 
+  // Un utilisateur non-platform-admin doit toujours avoir une organisation
+  // réelle (P12) - organisationId n'est nullable QUE pour un compte platform
+  // super admin sans tenant entré, déjà traité ci-dessus.
+  if (!user.organisationId || !user.organisation) {
+    throw new Error("Non autorisé : aucune organisation associée à ce compte.");
+  }
+
   if (user.organisation.status === "SUSPENDED") {
     throw new TenantSuspendedError();
   }

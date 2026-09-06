@@ -51,20 +51,15 @@ async function main() {
     return;
   }
 
-  // Organisation "Plateforme" placeholder : sert uniquement d'ancrage FK
-  // (User.organisationId reste NOT NULL pour ne pas fragiliser tout le
-  // reste du schéma) - jamais un vrai tenant, jamais listée comme client
-  // dans /platform/organisations côté métier (elle y apparaîtra
-  // techniquement mais avec 0 dossier/lead/client, reconnaissable).
-  const platformOrg = await prisma.organisation.upsert({
-    where: { slug: "plateforme" },
-    update: {},
-    create: { nom: "Plateforme (ancrage technique)", slug: "plateforme", status: "ACTIVE" },
-  });
-
+  // organisationId reste null : un PLATFORM SUPER ADMIN n'a besoin d'aucun
+  // tenant d'ancrage (organisationId est nullable pour ce cas précis - voir
+  // schema.prisma). role garde la valeur par défaut du schéma (COMMERCIAL,
+  // la moins privilégiée) : elle n'est de toute façon jamais lue pour un
+  // compte sans organisation, requireUserContext() refusant ce cas pour
+  // tout utilisateur non-platform-admin.
   const hashed = await bcrypt.hash(password, 10);
   const admin = await prisma.user.create({
-    data: { name, email, password: hashed, role: "ADMIN", organisationId: platformOrg.id, actif: true, isPlatformSuperAdmin: true },
+    data: { name, email, password: hashed, organisationId: null, actif: true, isPlatformSuperAdmin: true },
   });
 
   console.log(`Platform Super Admin créé : ${admin.email} (id ${admin.id}).`);
