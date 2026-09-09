@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { recalculateDossierWorkflow } from "@/lib/workflow";
-import { getBlockingReasonsForEtape } from "@/lib/documents/blocking";
+import { getGateBlockingReasons } from "@/lib/workflow-gates";
 
 async function loadOwnedDossierEtape(dossierEtapeId: string, organisationId: string) {
   const dossierEtape = await prisma.dossierEtape.findFirst({
@@ -54,18 +54,21 @@ export async function demarrerEtape(dossierEtapeId: string) {
 }
 
 /**
- * (P10, section 12) Une étape ne peut être terminée que si ses exigences
- * documentaires BLOQUANTES (DocumentRequirement.blocking=true rattachées à
- * cette étape) sont satisfaites - jamais un blocage par défaut, seulement
- * quand explicitement configuré pour cette étape.
+ * (P10 section 12 + P13 audit SaaS section D) Une étape ne peut être
+ * terminée que si ses exigences BLOQUANTES sont satisfaites - documents
+ * (DocumentRequirement.blocking=true) ET conditions externes/de validation
+ * (EtapeCondition.obligatoire+bloquant=true), jamais un blocage par
+ * défaut, seulement quand explicitement configuré pour cette étape.
+ * getGateBlockingReasons() unifie les deux sources, jamais deux vérifications
+ * séparées à maintenir.
  */
 export async function terminerEtape(dossierEtapeId: string) {
   const ctx = await requireUserContext();
   const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
 
-  const blocages = await getBlockingReasonsForEtape(before.dossierId, before.etapeProgrammeId, ctx.organisationId);
+  const blocages = await getGateBlockingReasons(before.dossierId, before.etapeProgrammeId, ctx.organisationId);
   if (blocages.length > 0) {
-    throw new Error(`Étape bloquée par des pièces manquantes/invalides : ${blocages.map((b) => b.typeDocumentNom).join(", ")}.`);
+    throw new Error(`Étape bloquée : ${blocages.map((b) => b.libelle).join(", ")}.`);
   }
 
   await applyTransition(dossierEtapeId, ctx.organisationId, ctx.userId, "TERMINER", {
@@ -156,6 +159,48 @@ export async function commenterEtape(dossierEtapeId: string, formData: FormData)
   });
 
   revalidatePath(`/dossiers/${before.dossierId}`);
+}
+
+/**
+ * Enregistre l'accomplissement manuel d'une EtapeCondition de type
+ * VALIDATION_INTERVENANT (P13, audit SaaS section D) - le seul type de
+ * condition qui n'est jamais calculable depuis une autre donnée, c'est un
+ * fait primitif. Une ligne par (condition, dossier), jamais réécrite en
+ * place : on écrase satisfiedAt/satisfiedById/commentaire (upsert) plutôt
+ * que d'empiler un historique, la seule trace utile étant "qui a validé en
+ * dernier, quand" - contrairement à un CalculReglementaire ou une
+ * ProgrammeVersion, ce n'est pas une donnée figée à des fins réglementaires.
+ */
+export async function validerConditionEtape(dossierId: string, etapeConditionId: string, formData: FormData) {
+  const ctx = await requireUserContext();
+  const dossier = await prisma.dossier.findFirst({ where: { id: dossierId, organisationId: ctx.organisationId }, select: { id: true } });
+  if (!dossier) throw new Error("Dossier introuvable.");
+
+  const condition = await prisma.etapeCondition.findFirst({
+    where: { id: etapeConditionId, type: "VALIDATION_INTERVENANT" },
+    select: { id: true, libelle: true, etapeProgrammeId: true },
+  });
+  if (!condition) throw new Error("Condition introuvable ou n'est pas une validation manuelle.");
+
+  const commentaire = (formData.get("commentaire") as string) || null;
+
+  await prisma.dossierEtapeConditionValidation.upsert({
+    where: { etapeConditionId_dossierId: { etapeConditionId, dossierId } },
+    create: { etapeConditionId, dossierId, satisfiedAt: new Date(), satisfiedById: ctx.userId, commentaire },
+    update: { satisfiedAt: new Date(), satisfiedById: ctx.userId, commentaire },
+  });
+
+  await logAudit({
+    organisationId: ctx.organisationId,
+    userId: ctx.userId,
+    entityType: "EtapeCondition",
+    entityId: etapeConditionId,
+    action: "VALIDER_CONDITION",
+    metadata: { dossierId, libelle: condition.libelle },
+  });
+
+  await recalculateDossierWorkflow(dossierId);
+  revalidatePath(`/dossiers/${dossierId}`);
 }
 
 /**

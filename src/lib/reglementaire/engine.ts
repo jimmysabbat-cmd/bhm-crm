@@ -25,6 +25,18 @@ export type RuleVersionWithRelations = Awaited<ReturnType<typeof getApplicableRu
  * (section 9).
  */
 export async function getApplicableRuleVersion(code: string, dateEngagement: Date) {
+  // P13 (gouvernance, audit SaaS section B) - continue de filtrer
+  // UNIQUEMENT sur `publie` (comportement P7 historique inchangé), jamais
+  // `statutValidation` : de nombreux appelants (scripts de seed/tests
+  // existants, et potentiellement de vraies données déjà en production)
+  // créent/mettent à jour une version avec `publie: true` directement, sans
+  // passer par publierVersionReglementaire() qui seul synchronise
+  // statutValidation. Ajouter cette clause ici casserait silencieusement
+  // toute version publiée par un autre chemin - exactement ce que l'audit
+  // demande d'éviter ("ne pas casser publie brutalement"). La garantie
+  // "jamais utilisée pour un calcul OFFICIEL si non gouvernée" est portée
+  // explicitement par assertRuleVersionUsableForOfficial() ci-dessous, à
+  // appeler par tout appelant qui veut cette garantie plus stricte.
   return prisma.regleReglementaireVersion.findFirst({
     where: {
       regle: { code },
@@ -214,5 +226,20 @@ export function validateOverrideReason(reason: string | null | undefined): strin
 export function assertRuleVersionEditable(version: { publie: boolean }): void {
   if (version.publie) {
     throw new Error("Cette version est publiée : ses paramètres structurels ne peuvent plus être modifiés.");
+  }
+}
+
+/**
+ * P13 (gouvernance, audit SaaS section B) - une version BROUILLON/
+ * A_VERIFIER/VALIDE/ARCHIVE ne doit jamais servir de base à un calcul
+ * OFFICIEL, seule PUBLIE le peut. Fonction pure, testable isolément (déjà
+ * appliquée en pratique par getApplicableRuleVersion(), qui ne sélectionne
+ * jamais une version non PUBLIE - cette fonction est le filet de sécurité
+ * explicite si un appelant obtenait malgré tout une version par un autre
+ * chemin).
+ */
+export function assertRuleVersionUsableForOfficial(version: { statutValidation: string }): void {
+  if (version.statutValidation !== "PUBLIE") {
+    throw new Error(`Cette version réglementaire n'est pas publiée (statut actuel : ${version.statutValidation}) - elle ne peut pas servir de base à un calcul OFFICIEL.`);
   }
 }

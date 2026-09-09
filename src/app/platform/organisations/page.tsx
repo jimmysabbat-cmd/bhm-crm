@@ -27,7 +27,9 @@ export default async function PlatformOrganisationsPage() {
           <div key={o.id} className="space-y-2 px-5 py-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-slate-900">{o.nom}</p>
+                <a href={`/platform/organisations/${o.id}`} className="font-medium text-slate-900 hover:underline">
+                  {o.nom}
+                </a>
                 <p className="text-xs text-slate-400">
                   {o.slug} · {o._count.users} utilisateur(s) · {o._count.dossiers} dossier(s) · {o._count.clients} client(s) · {o._count.leads} lead(s)
                 </p>

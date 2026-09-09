@@ -204,6 +204,11 @@ enum TypeFluxEtape {
   CEE
   TRAVAUX
   FINANCIER
+  // P13 - flux parallèles supplémentaires (audit SaaS) : ajout purement
+  // additif, aucune valeur existante ni sa signification ne change.
+  TECHNIQUE
+  MATERIEL
+  PRODUCTION
   AUTRE
 }
 
@@ -261,6 +266,18 @@ model Organisation {
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
+  // P13 (SaaS admin principal) - le gérant/client identifié qui paie le
+  // CRM pour ce tenant. Distinct de "un utilisateur avec role ADMIN" : un
+  // tenant peut avoir plusieurs comptes ADMIN, un seul est le contact
+  // principal désigné. Contraintes (User existant, même organisation, role
+  // ADMIN, actif, jamais isPlatformSuperAdmin) vérifiées côté serveur dans
+  // src/lib/platform/tenant-users.ts, jamais en base (pas de logique
+  // métier dans une contrainte SQL). Pas de @unique ici : rien n'empêche
+  // structurellement qu'un même User soit principalAdmin de deux
+  // organisations, seule la contrainte serveur "même organisation" importe.
+  principalAdminUserId String?
+  principalAdmin        User?  @relation("OrganisationPrincipalAdmin", fields: [principalAdminUserId], references: [id])
+
   users                 User[]
   clients               Client[]
   dossiers              Dossier[]
@@ -305,6 +322,9 @@ model Organisation {
   delegatairesCee DelegataireCee[]
   sousTraitants   SousTraitant[]
   fournisseurs    Fournisseur[]
+
+  // P13
+  partenaires Partenaire[]
 }
 
 model User {
@@ -316,6 +336,12 @@ model User {
   actif     Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // P13 (SaaS admin principal) - dernière connexion réussie, mise à jour
+  // dans authorize() (src/lib/auth.ts) après validation du mot de passe.
+  // Purement informatif : une erreur d'écriture ne doit jamais faire
+  // échouer une connexion par ailleurs valide (best-effort, cf. auth.ts).
+  lastLoginAt DateTime?
 
   organisationId String?
   organisation   Organisation? @relation(fields: [organisationId], references: [id])
@@ -339,6 +365,21 @@ model User {
   sousTraitant             SousTraitant?   @relation(fields: [sousTraitantId], references: [id])
   delegataireCeeId         String?
   delegataireCeePartenaire DelegataireCee? @relation(fields: [delegataireCeeId], references: [id])
+
+  // P13 (Partenaire générique, TRANSITOIRE) - accès portail pour un
+  // partenaire de n'importe quel rôle (sous-traitant, délégataire CEE,
+  // régie commerciale, donneur d'ordre, mandataire...), en remplacement
+  // progressif de sousTraitantId/delegataireCeeId ci-dessus. Les deux
+  // colonnes historiques restent actives et NE SONT PAS supprimées dans
+  // cette phase (cf. audit P13) - un compte peut, pendant la transition,
+  // n'avoir renseigné que l'ancienne colonne, que la nouvelle, ou (après
+  // backfill) les deux de façon cohérente. partenaireFonction est un
+  // libellé libre (ex. "Direction", "Exploitation", "Comptabilité") -
+  // distinct de Role (qui reste un rôle TENANT interne), jamais utilisé
+  // pour une décision d'autorisation serveur.
+  partenaireId       String?
+  partenaire         Partenaire? @relation(fields: [partenaireId], references: [id])
+  partenaireFonction String?
 
   tachesAssignees                Tache[]
   dossiersCrees                  Dossier[]
@@ -377,9 +418,15 @@ model User {
   invitationsEnvoyees UserInvitation[]     @relation("InvitationInvitedBy")
   passwordResetTokens PasswordResetToken[]
 
+  // P13
+  organisationsAvecAdminPrincipal Organisation[]                    @relation("OrganisationPrincipalAdmin")
+  regleReglementaireVersionsValidees RegleReglementaireVersion[]    @relation("RegleReglementaireVersionValidatedBy")
+  etapeConditionValidations       DossierEtapeConditionValidation[]
+
   @@index([organisationId])
   @@index([sousTraitantId])
   @@index([delegataireCeeId])
+  @@index([partenaireId])
 }
 
 // ============================================================
@@ -519,7 +566,112 @@ model DelegataireCee {
   utilisateurs     User[]
   packagesDestines TransmissionPackage[]
 
+  // P13 (Partenaire générique, TRANSITOIRE) - lien 1:1 nullable vers la
+  // future fondation générique. Nul tant que ce délégataire n'a pas été
+  // migré (cf. script de backfill, jamais exécuté en production dans
+  // cette phase) - DelegataireCee reste pleinement fonctionnel seul.
+  partenaireId String?     @unique
+  partenaire   Partenaire? @relation(fields: [partenaireId], references: [id])
+
   @@index([organisationId])
+}
+
+// ============================================================
+// Partenaire générique (P13, audit SaaS section E) - fondation TRANSITOIRE
+// et ADDITIVE : SousTraitant/DelegataireCee et les colonnes
+// User.sousTraitantId/delegataireCeeId restent intactes et pleinement
+// fonctionnelles dans cette phase, aucune suppression. Objectif : un même
+// partenaire externe peut cumuler plusieurs rôles (ex. sous-traitant ET
+// mandataire) et avoir PLUSIEURS utilisateurs avec des fonctions
+// différentes (direction/exploitation/administratif...), ce que les deux
+// colonnes dédiées sur User ne permettaient pas pour un rôle comme
+// DONNEUR_ORDRE ou REGIE_COMMERCIALE (absents du modèle P11).
+//
+// IMPORTANT : ne représente jamais une équipe interne (cf. Regie, qui reste
+// un référentiel /parametrage distinct - une régie commerciale externe et
+// une équipe de pose interne sont deux concepts différents, jamais
+// confondus ici).
+// ============================================================
+
+enum PartenaireRoleType {
+  SOUS_TRAITANT
+  DELEGATAIRE_CEE
+  REGIE_COMMERCIALE
+  DONNEUR_ORDRE
+  MANDATAIRE
+  FOURNISSEUR
+  AUTRE
+}
+
+// Capacités configurables (jamais une liste figée de colonnes booléennes -
+// section E de l'audit). Étendre cette liste ne nécessite qu'un ajout de
+// valeur d'enum, jamais une migration de colonne.
+enum PartenaireCapabiliteCle {
+  CREER_LEAD
+  PRENDRE_RDV
+  QUALIFIER
+  COLLECTER_DOCUMENTS
+  MODIFIER_TECHNIQUE
+  CREER_DEVIS
+  SIGNATURE
+  TRANSMETTRE_DOSSIER
+  VOIR_PLANNING
+  VOIR_FACTURATION
+  AUTRE
+}
+
+model Partenaire {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  nom            String
+  email          String?
+  telephone      String?
+  adresse        String?
+  actif          Boolean      @default(true)
+  // Champs libres non encore structurés (ex. SIRET) - évite une migration
+  // de colonne pour chaque nouveau besoin ponctuel, jamais une donnée
+  // utilisée pour une décision de sécurité/autorisation.
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  roles        PartenaireRole[]
+  capabilities PartenaireCapability[]
+  utilisateurs User[]
+
+  // Rattachement transitoire - au plus une extension spécifique par type
+  // métier (une table Partenaire peut être le pendant générique d'un SEUL
+  // SousTraitant ET/OU d'un SEUL DelegataireCee, jamais dupliqué).
+  sousTraitant   SousTraitant?
+  delegataireCee DelegataireCee?
+
+  @@index([organisationId])
+}
+
+model PartenaireRole {
+  id           String     @id @default(cuid())
+  partenaireId String
+  partenaire   Partenaire @relation(fields: [partenaireId], references: [id], onDelete: Cascade)
+  role         PartenaireRoleType
+  actif        Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@unique([partenaireId, role])
+  @@index([partenaireId])
+}
+
+model PartenaireCapability {
+  id           String                  @id @default(cuid())
+  partenaireId String
+  partenaire   Partenaire              @relation(fields: [partenaireId], references: [id], onDelete: Cascade)
+  cle          PartenaireCapabiliteCle
+  activee      Boolean                 @default(true)
+  metadata     Json?
+  createdAt    DateTime                @default(now())
+
+  @@unique([partenaireId, cle])
+  @@index([partenaireId])
 }
 
 // Statuts du suivi administratif ANAH (spécifique rénovation d'ampleur),
@@ -669,6 +821,7 @@ model Dossier {
   dossierEtapes         DossierEtape[]
   calculsReglementaires CalculReglementaire[]
   etudesDossier         EtudeDossier[]
+  etapeConditionValidations DossierEtapeConditionValidation[]
 
   // P9
   lead     Lead?
@@ -761,6 +914,10 @@ model SousTraitant {
   // ce sous-traitant, et packages qui lui sont explicitement destinés.
   utilisateurs     User[]
   packagesDestines TransmissionPackage[]
+
+  // P13 (Partenaire générique, TRANSITOIRE) - voir DelegataireCee.partenaireId.
+  partenaireId String?     @unique
+  partenaire   Partenaire? @relation(fields: [partenaireId], references: [id])
 
   @@index([organisationId])
 }
@@ -953,6 +1110,11 @@ model DocumentRequirement {
   createdAt        DateTime                 @default(now())
 
   dossierDocuments DossierDocument[]
+
+  // P13 (moteur de gates externes) - EtapeCondition de type DOCUMENT_REQUIS
+  // qui référencent cette exigence pour l'inclure dans l'évaluation unifiée
+  // de gate, sans jamais dupliquer sa définition.
+  etapeConditions EtapeCondition[]
 
   @@index([organisationId])
   @@index([etapeProgrammeId])
@@ -1283,8 +1445,98 @@ model EtapeProgramme {
   modelesTaches        ModeleTacheEtape[]
   documentRequirements DocumentRequirement[]
 
+  // P13 (moteur de gates externes, audit SaaS section D)
+  conditions            EtapeCondition[]
+  conditionsCommeCible  EtapeCondition[] @relation("EtapeConditionDependsOn")
+
   @@unique([programmeVersionId, code])
   @@index([programmeVersionId])
+}
+
+// P13 (moteur de gates/conditions externes, audit SaaS section D) - étend
+// le moteur workflow existant (EtapeDependance/DocumentRequirement) au lieu
+// d'en créer un troisième. Une EtapeCondition exprime une dépendance
+// bloquante ou non que EtapeDependance seule ne peut pas exprimer
+// (dépendance à un événement/statut EXTERNE au moteur de programme, ou à
+// une validation humaine explicite), sans jamais recourir à eval() : le
+// type détermine QUEL champ interpréter, jamais une expression libre.
+//
+// - DEPENDANCE_ETAPE : redondant en apparence avec EtapeDependance, mais
+//   permet de marquer une dépendance comme NON bloquante (obligatoire mais
+//   pas bloquant) ce qu'EtapeDependance ne permet pas (ALL_COMPLETED est
+//   toujours bloquant par construction dans recalculateDossierWorkflow()).
+// - DOCUMENT_REQUIS : référence une DocumentRequirement déjà déclarée,
+//   jamais dupliquée - juste un pointeur pour l'inclure dans l'évaluation
+//   de gate unifiée (isEtapeAccessible/getBlockingConditions).
+// - STATUT_EXTERNE : statutExterneCle est une clé WHITELISTÉE (voir
+//   STATUT_EXTERNE_CHECKS dans src/lib/workflow/gates.ts), jamais un champ
+//   arbitraire - ex. "ANAH_ACCORD_RECU" vérifie Dossier.dateOctroiAnah.
+// - VALIDATION_INTERVENANT : accomplissement enregistré manuellement dans
+//   DossierEtapeConditionValidation (aucun champ existant ne peut porter
+//   cette information - c'est un fait primitif, pas calculable).
+model EtapeCondition {
+  id               String         @id @default(cuid())
+  etapeProgrammeId String
+  etapeProgramme   EtapeProgramme @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
+  type             TypeConditionEtape
+  // Libellé humain de ce qui est attendu (ex. "Accord ANAH reçu") - jamais
+  // interprété par le moteur, seulement affiché.
+  libelle          String
+
+  dependsOnEtapeId String?
+  dependsOnEtape   EtapeProgramme? @relation("EtapeConditionDependsOn", fields: [dependsOnEtapeId], references: [id])
+
+  documentRequirementId String?
+  documentRequirement   DocumentRequirement? @relation(fields: [documentRequirementId], references: [id])
+
+  statutExterneCle String?
+
+  roleResponsable            Role?
+  partenaireRoleResponsable  PartenaireRoleType?
+
+  obligatoire Boolean @default(true)
+  bloquant    Boolean @default(true)
+  ordre       Int     @default(0)
+  actif       Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  validations DossierEtapeConditionValidation[]
+
+  @@index([etapeProgrammeId])
+  @@index([dependsOnEtapeId])
+  @@index([documentRequirementId])
+}
+
+enum TypeConditionEtape {
+  DEPENDANCE_ETAPE
+  DOCUMENT_REQUIS
+  STATUT_EXTERNE
+  VALIDATION_INTERVENANT
+}
+
+// Accomplissement, pour UN dossier précis, d'une EtapeCondition de type
+// VALIDATION_INTERVENANT (les autres types sont toujours calculés à la
+// volée depuis les données réelles - jamais dupliqués ici). Une ligne par
+// (condition, dossier), jamais réécrite : satisfiedAt/satisfiedById tracent
+// qui a validé quoi, quand (même exigence d'audit que partout ailleurs
+// dans P12).
+model DossierEtapeConditionValidation {
+  id               String         @id @default(cuid())
+  etapeConditionId String
+  etapeCondition   EtapeCondition @relation(fields: [etapeConditionId], references: [id], onDelete: Cascade)
+  dossierId        String
+  dossier          Dossier        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  satisfiedAt   DateTime?
+  satisfiedById String?
+  satisfiedBy   User?     @relation(fields: [satisfiedById], references: [id])
+  commentaire   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([etapeConditionId, dossierId])
+  @@index([dossierId])
 }
 
 model EtapeDependance {
@@ -1423,6 +1675,30 @@ enum TypeCalculReglementaire {
   OFFICIEL
 }
 
+// P13 (gouvernance des fiches, audit SaaS) - cycle de vie plus riche que le
+// seul booléen `publie` historique (conservé tel quel, cf.
+// RegleReglementaireVersion). BROUILLON par défaut pour toute nouvelle
+// version - jamais utilisable pour un calcul OFFICIEL tant qu'elle n'a pas
+// atteint PUBLIE (cf. assertRuleVersionUsableForOfficial() dans
+// src/lib/reglementaire/engine.ts).
+enum StatutValidationReglementaire {
+  BROUILLON
+  A_VERIFIER
+  VALIDE
+  PUBLIE
+  ARCHIVE
+}
+
+// P13 - comment la version a été alimentée (section 3 de l'audit SaaS) :
+// jamais de synchronisation API automatique implémentée en P13 (aucune
+// source officielle structurée confirmée exploitable) - cette valeur reste
+// déclarative/informative pour l'instant, saisie par l'admin qui importe.
+enum MethodeAlimentationReglementaire {
+  SAISIE_MANUELLE
+  IMPORT_DOCUMENT
+  SYNCHRO_API
+}
+
 model RegleReglementaire {
   id          String               @id @default(cuid())
   code        String               @unique // ex. "BAR-TH-171"
@@ -1445,7 +1721,24 @@ model RegleReglementaireVersion {
 
   dateDebutEffet DateTime
   dateFinEffet   DateTime?
+  // Conservé tel quel (P7 historique) - reste la source de vérité lue par
+  // getApplicableRuleVersion()/assertRuleVersionEditable(). Toujours tenu
+  // synchronisé avec statutValidation par les Server Actions ci-dessous
+  // (jamais l'un sans l'autre) - ne jamais le retirer dans cette phase.
   publie         Boolean   @default(false)
+
+  // P13 (gouvernance, audit SaaS section B) - additif, jamais lu seul pour
+  // une décision de sécurité : assertRuleVersionUsableForOfficial() exige
+  // statutValidation === PUBLIE en PLUS de publie === true (les deux sont
+  // maintenus synchrones à l'écriture, donc redondants sur les données
+  // existantes/backfillées, mais cette double vérification garantit qu'une
+  // future écriture qui oublierait de synchroniser les deux resterait sûre
+  // par défaut - fail closed).
+  statutValidation    StatutValidationReglementaire    @default(BROUILLON)
+  methodeAlimentation MethodeAlimentationReglementaire @default(SAISIE_MANUELLE)
+  validatedById       String?
+  validatedBy         User?                            @relation("RegleReglementaireVersionValidatedBy", fields: [validatedById], references: [id])
+  validatedAt         DateTime?
 
   // Code de formule whitelisté (jamais de code arbitraire depuis l'UI -
   // section 19) - doit correspondre à une clé de FORMULES dans

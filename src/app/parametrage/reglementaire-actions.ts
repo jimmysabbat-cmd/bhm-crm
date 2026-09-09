@@ -14,14 +14,23 @@ async function requireManageReglementation() {
   return ctx;
 }
 
-/** Publier une version (section 32) - réservé à MANAGE_REGLEMENTATION. Idempotent. */
+/**
+ * Publier une version (section 32) - réservé à MANAGE_REGLEMENTATION.
+ * Idempotent. `publie` et `statutValidation` sont TOUJOURS écrits ensemble
+ * (P13, audit SaaS section B) - jamais l'un sans l'autre, pour que
+ * getApplicableRuleVersion()/assertRuleVersionUsableForOfficial() restent
+ * fiables. Callable directement depuis BROUILLON (l'UI actuelle n'a qu'un
+ * seul bouton "Publier") - le pipeline complet BROUILLON→A_VERIFIER→VALIDE
+ * (ci-dessous) reste disponible pour une future UI de revue à plusieurs
+ * mains, sans être imposé aujourd'hui.
+ */
 export async function publierVersionReglementaire(versionId: string) {
   const ctx = await requireManageReglementation();
   const version = await prisma.regleReglementaireVersion.findUnique({ where: { id: versionId }, include: { regle: true } });
   if (!version) throw new Error("Version réglementaire introuvable.");
   if (version.publie) return;
 
-  await prisma.regleReglementaireVersion.update({ where: { id: versionId }, data: { publie: true } });
+  await prisma.regleReglementaireVersion.update({ where: { id: versionId }, data: { publie: true, statutValidation: "PUBLIE" } });
 
   await logAudit({
     organisationId: ctx.organisationId,
@@ -32,6 +41,55 @@ export async function publierVersionReglementaire(versionId: string) {
     metadata: { code: version.regle.code, numeroVersion: version.numeroVersion },
   });
 
+  revalidatePath("/parametrage/reglementaire");
+}
+
+/** BROUILLON -> A_VERIFIER (section B) - soumet une version à revue. */
+export async function soumettreValidationVersion(versionId: string) {
+  const ctx = await requireManageReglementation();
+  const version = await prisma.regleReglementaireVersion.findUnique({ where: { id: versionId } });
+  if (!version) throw new Error("Version réglementaire introuvable.");
+  if (version.statutValidation !== "BROUILLON") {
+    throw new Error(`Seule une version BROUILLON peut être soumise à validation (statut actuel : ${version.statutValidation}).`);
+  }
+
+  await prisma.regleReglementaireVersion.update({ where: { id: versionId }, data: { statutValidation: "A_VERIFIER" } });
+  await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "RegleReglementaireVersion", entityId: versionId, action: "SOUMETTRE_VALIDATION" });
+  revalidatePath("/parametrage/reglementaire");
+}
+
+/** A_VERIFIER -> VALIDE (section B) - trace qui a validé et quand, jamais un simple flag anonyme. */
+export async function validerVersionReglementaire(versionId: string) {
+  const ctx = await requireManageReglementation();
+  const version = await prisma.regleReglementaireVersion.findUnique({ where: { id: versionId } });
+  if (!version) throw new Error("Version réglementaire introuvable.");
+  if (version.statutValidation !== "A_VERIFIER") {
+    throw new Error(`Seule une version A_VERIFIER peut être validée (statut actuel : ${version.statutValidation}).`);
+  }
+
+  await prisma.regleReglementaireVersion.update({
+    where: { id: versionId },
+    data: { statutValidation: "VALIDE", validatedById: ctx.userId, validatedAt: new Date() },
+  });
+  await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "RegleReglementaireVersion", entityId: versionId, action: "VALIDER" });
+  revalidatePath("/parametrage/reglementaire");
+}
+
+/**
+ * Archiver une version (section B) - retire `publie` en plus de passer le
+ * statut à ARCHIVE, pour qu'elle ne soit plus jamais sélectionnée par
+ * getApplicableRuleVersion() pour un NOUVEAU calcul. N'affecte jamais les
+ * CalculReglementaire déjà créés (ils référencent ruleVersionId directement,
+ * jamais ré-résolus) - une archive n'est donc jamais rétroactive.
+ */
+export async function archiverVersionReglementaire(versionId: string) {
+  const ctx = await requireManageReglementation();
+  const version = await prisma.regleReglementaireVersion.findUnique({ where: { id: versionId } });
+  if (!version) throw new Error("Version réglementaire introuvable.");
+  if (version.statutValidation === "ARCHIVE") return;
+
+  await prisma.regleReglementaireVersion.update({ where: { id: versionId }, data: { statutValidation: "ARCHIVE", publie: false } });
+  await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "RegleReglementaireVersion", entityId: versionId, action: "ARCHIVER" });
   revalidatePath("/parametrage/reglementaire");
 }
 

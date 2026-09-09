@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { StatutDossierEtape } from "@/generated/prisma/enums";
+import { isEtapeAccessible } from "@/lib/workflow-gates";
 
 const TERMINAL_STATUTS: StatutDossierEtape[] = ["TERMINE", "IGNORE", "ANNULE"];
 
@@ -53,9 +54,13 @@ export async function recalculateDossierWorkflow(dossierId: string): Promise<voi
 
   // 2) Promouvoir les étapes NON_DISPONIBLE dont les dépendances sont
   //    satisfaites (ALL_COMPLETED - toutes les étapes dont elle dépend
-  //    doivent être TERMINE). Une étape sans dépendance déclarée est
-  //    immédiatement disponible. On ne touche jamais aux étapes déjà
-  //    avancées, bloquées ou terminées (idempotence).
+  //    doivent être TERMINE) ET dont les EtapeCondition externes
+  //    obligatoires/bloquantes (P13, audit SaaS section D - ANAH, mairie,
+  //    validation intervenant...) sont satisfaites, cf.
+  //    src/lib/workflow-gates.ts. Une étape sans dépendance ni condition
+  //    déclarée est immédiatement disponible - aucun changement pour les
+  //    programmes qui n'utilisent aucune EtapeCondition. On ne touche
+  //    jamais aux étapes déjà avancées, bloquées ou terminées (idempotence).
   const now = new Date();
   for (const etape of etapesProgramme) {
     const de = parEtapeId.get(etape.id)!;
@@ -66,6 +71,9 @@ export async function recalculateDossierWorkflow(dossierId: string): Promise<voi
       return depDe?.statut === "TERMINE";
     });
     if (!depsSatisfaites) continue;
+
+    const gatesOk = await isEtapeAccessible(dossierId, etape.id, dossier.organisationId);
+    if (!gatesOk) continue;
 
     const dateEcheance = etape.delaiNormalJours != null ? addDays(now, etape.delaiNormalJours) : null;
     const updated = await prisma.dossierEtape.update({

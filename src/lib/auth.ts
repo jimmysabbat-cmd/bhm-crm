@@ -30,6 +30,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const valid = await bcrypt.compare(password, user.password);
         if (!valid) return null;
 
+        // P13 - dernière connexion (audit SaaS section A) : purement
+        // informatif, ne doit jamais faire échouer une connexion par
+        // ailleurs valide si cette écriture secondaire échoue.
+        try {
+          await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+        } catch {
+          // best-effort volontaire
+        }
+
         return { id: user.id, name: user.name, email: user.email, role: user.role, isPlatformSuperAdmin: user.isPlatformSuperAdmin };
       },
     }),
