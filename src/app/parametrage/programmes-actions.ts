@@ -26,7 +26,9 @@ function slugify(label: string): string {
 // Une version publiée est figée structurellement : pour la faire évoluer,
 // on la duplique plutôt que de la modifier en place, afin que les dossiers
 // déjà engagés sous cette version ne changent jamais de comportement.
-async function requireVersionModifiable(programmeVersionId: string, organisationId: string) {
+// Exportée (P13) pour être directement testable (même principe
+// qu'assertRuleVersionEditable en P7) sans passer par une session réelle.
+export async function requireVersionModifiable(programmeVersionId: string, organisationId: string) {
   const version = await prisma.programmeVersion.findFirst({
     where: { id: programmeVersionId, programme: { organisationId } },
     select: { id: true, publie: true, programmeId: true },
@@ -380,5 +382,61 @@ export async function deleteDocumentRequis(documentRequisId: string) {
   await requireVersionModifiable(doc.etapeProgramme.programmeVersionId, ctx.organisationId);
 
   await prisma.etapeDocumentRequis.delete({ where: { id: documentRequisId } });
+  revalidatePath(`/parametrage/programmes`);
+}
+
+// --- EtapeCondition (P13, moteur de gates externes) ---
+//
+// Même garde de figeage que EtapeDependance/EtapeDocumentRequis ci-dessus
+// (requireVersionModifiable) : une ProgrammeVersion publiée ne permet plus
+// d'ajouter, modifier ou supprimer une condition - il faut dupliquer la
+// version pour la faire évoluer, exactement comme le reste de sa structure.
+
+export async function createEtapeCondition(formData: FormData) {
+  const ctx = await requireAdmin();
+  const etapeProgrammeId = String(formData.get("etapeProgrammeId"));
+  const etape = await prisma.etapeProgramme.findFirst({
+    where: { id: etapeProgrammeId, programmeVersion: { programme: { organisationId: ctx.organisationId } } },
+    select: { programmeVersionId: true },
+  });
+  if (!etape) throw new Error("Étape introuvable.");
+  await requireVersionModifiable(etape.programmeVersionId, ctx.organisationId);
+
+  const type = formData.get("type") as never;
+  const libelle = String(formData.get("libelle") || "").trim();
+  if (!type || !libelle) throw new Error("Type et libellé requis.");
+
+  const donneeDossierCle = type === "DONNEE_DOSSIER" ? (formData.get("donneeDossierCle") as never) : null;
+  if (type === "DONNEE_DOSSIER" && !donneeDossierCle) throw new Error("Une clé DONNEE_DOSSIER est requise pour ce type de condition.");
+
+  const roleResponsableRaw = formData.get("roleResponsable");
+  const partenaireRoleResponsableRaw = formData.get("partenaireRoleResponsable");
+
+  await prisma.etapeCondition.create({
+    data: {
+      etapeProgrammeId,
+      type,
+      libelle,
+      donneeDossierCle,
+      roleResponsable: roleResponsableRaw ? (roleResponsableRaw as never) : null,
+      partenaireRoleResponsable: partenaireRoleResponsableRaw ? (partenaireRoleResponsableRaw as never) : null,
+      obligatoire: formData.get("obligatoire") === "on",
+      bloquant: formData.get("bloquant") === "on",
+      ordre: formData.get("ordre") ? Number(formData.get("ordre")) : 0,
+    },
+  });
+  revalidatePath(`/parametrage/programmes`);
+}
+
+export async function deleteEtapeCondition(etapeConditionId: string) {
+  const ctx = await requireAdmin();
+  const condition = await prisma.etapeCondition.findFirst({
+    where: { id: etapeConditionId, etapeProgramme: { programmeVersion: { programme: { organisationId: ctx.organisationId } } } },
+    select: { etapeProgramme: { select: { programmeVersionId: true } } },
+  });
+  if (!condition) throw new Error("Condition introuvable.");
+  await requireVersionModifiable(condition.etapeProgramme.programmeVersionId, ctx.organisationId);
+
+  await prisma.etapeCondition.delete({ where: { id: etapeConditionId } });
   revalidatePath(`/parametrage/programmes`);
 }

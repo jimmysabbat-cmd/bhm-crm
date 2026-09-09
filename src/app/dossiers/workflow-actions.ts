@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { recalculateDossierWorkflow } from "@/lib/workflow";
-import { getGateBlockingReasons } from "@/lib/workflow-gates";
+import { getBlockingConditions, assertUserCanValidateCondition } from "@/lib/workflow-gates";
 
 async function loadOwnedDossierEtape(dossierEtapeId: string, organisationId: string) {
   const dossierEtape = await prisma.dossierEtape.findFirst({
@@ -59,14 +59,14 @@ export async function demarrerEtape(dossierEtapeId: string) {
  * (DocumentRequirement.blocking=true) ET conditions externes/de validation
  * (EtapeCondition.obligatoire+bloquant=true), jamais un blocage par
  * défaut, seulement quand explicitement configuré pour cette étape.
- * getGateBlockingReasons() unifie les deux sources, jamais deux vérifications
+ * getBlockingConditions() unifie les deux sources, jamais deux vérifications
  * séparées à maintenir.
  */
 export async function terminerEtape(dossierEtapeId: string) {
   const ctx = await requireUserContext();
   const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
 
-  const blocages = await getGateBlockingReasons(before.dossierId, before.etapeProgrammeId, ctx.organisationId);
+  const blocages = await getBlockingConditions(before.dossierId, before.etapeProgrammeId, ctx.organisationId);
   if (blocages.length > 0) {
     throw new Error(`Étape bloquée : ${blocages.map((b) => b.libelle).join(", ")}.`);
   }
@@ -170,6 +170,22 @@ export async function commenterEtape(dossierEtapeId: string, formData: FormData)
  * que d'empiler un historique, la seule trace utile étant "qui a validé en
  * dernier, quand" - contrairement à un CalculReglementaire ou une
  * ProgrammeVersion, ce n'est pas une donnée figée à des fins réglementaires.
+ *
+ * Sécurité (revue explicite, ne JAMAIS se contenter des seules FK Prisma) :
+ * - la condition doit appartenir à un Programme de LA MÊME organisation que
+ *   le dossier (jamais un id de condition d'un autre tenant, même si la
+ *   contrainte FK seule ne l'empêcherait pas) ;
+ * - si un rôle interne responsable est défini, seul ce rôle (ou ADMIN, qui
+ *   garde son pouvoir d'override général déjà en place ailleurs dans P12)
+ *   peut valider ;
+ * - si un rôle PARTENAIRE responsable est défini, seul un utilisateur
+ *   réellement rattaché à un Partenaire possédant ce rôle peut valider -
+ *   un ADMIN interne ne peut JAMAIS se substituer à l'attestation d'un
+ *   partenaire (contrairement au cas interne ci-dessus : on ne peut pas
+ *   "fabriquer" qu'un tiers externe a confirmé quelque chose) ;
+ * - un document de preuve doit appartenir à CE dossier ET à cette
+ *   organisation (jamais un DossierDocument d'un autre dossier, même dans
+ *   la même organisation).
  */
 export async function validerConditionEtape(dossierId: string, etapeConditionId: string, formData: FormData) {
   const ctx = await requireUserContext();
@@ -177,17 +193,31 @@ export async function validerConditionEtape(dossierId: string, etapeConditionId:
   if (!dossier) throw new Error("Dossier introuvable.");
 
   const condition = await prisma.etapeCondition.findFirst({
-    where: { id: etapeConditionId, type: "VALIDATION_INTERVENANT" },
-    select: { id: true, libelle: true, etapeProgrammeId: true },
+    where: {
+      id: etapeConditionId,
+      type: "VALIDATION_INTERVENANT",
+      etapeProgramme: { programmeVersion: { programme: { organisationId: ctx.organisationId } } },
+    },
+    select: { id: true, libelle: true, roleResponsable: true, partenaireRoleResponsable: true },
   });
-  if (!condition) throw new Error("Condition introuvable ou n'est pas une validation manuelle.");
+  if (!condition) throw new Error("Condition introuvable dans cette organisation, ou n'est pas une validation manuelle.");
 
+  await assertUserCanValidateCondition(condition, ctx.userId, ctx.effectiveRole ?? ctx.role);
+
+  const preuveDocumentIdRaw = (formData.get("preuveDocumentId") as string) || null;
+  let preuveDocumentId: string | null = null;
+  if (preuveDocumentIdRaw) {
+    const preuve = await prisma.dossierDocument.findFirst({ where: { id: preuveDocumentIdRaw, dossierId, organisationId: ctx.organisationId }, select: { id: true } });
+    if (!preuve) throw new Error("Le document de preuve doit appartenir à ce dossier.");
+    preuveDocumentId = preuve.id;
+  }
+  const preuveReference = (formData.get("preuveReference") as string) || null;
   const commentaire = (formData.get("commentaire") as string) || null;
 
   await prisma.dossierEtapeConditionValidation.upsert({
     where: { etapeConditionId_dossierId: { etapeConditionId, dossierId } },
-    create: { etapeConditionId, dossierId, satisfiedAt: new Date(), satisfiedById: ctx.userId, commentaire },
-    update: { satisfiedAt: new Date(), satisfiedById: ctx.userId, commentaire },
+    create: { etapeConditionId, dossierId, satisfiedAt: new Date(), satisfiedById: ctx.userId, preuveDocumentId, preuveReference, commentaire },
+    update: { satisfiedAt: new Date(), satisfiedById: ctx.userId, preuveDocumentId, preuveReference, commentaire },
   });
 
   await logAudit({

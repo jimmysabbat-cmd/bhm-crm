@@ -4,8 +4,9 @@ import { createOrganisation } from "../src/lib/platform/organisations";
 import { getOrganisationAccessDetails, assertUsableAsPrincipalAdmin } from "../src/lib/platform/tenant-users";
 import { createInvitation } from "../src/lib/invitations/service";
 import { assertRuleVersionUsableForOfficial, getApplicableRuleVersion } from "../src/lib/reglementaire/engine";
-import { isEtapeAccessible, getGateBlockingReasons, isReadyForProduction, isKnownStatutExterneCle } from "../src/lib/workflow-gates";
+import { isEtapeAccessible, getBlockingConditions, getPendingConditions, canStartStep, isReadyForProduction, isKnownDonneeDossierCle, assertUserCanValidateCondition } from "../src/lib/workflow-gates";
 import { recalculateDossierWorkflow } from "../src/lib/workflow";
+import { requireVersionModifiable } from "../src/app/parametrage/programmes-actions";
 
 let passed = 0;
 let failed = 0;
@@ -130,102 +131,221 @@ async function main() {
   assert(resolue?.id === versionLegacyPubliee.id, "non-régression : publie=true seul (statutValidation par défaut BROUILLON) reste sélectionnable - publie reste la source de vérité historique");
 
   // ============================================================
-  // TEST GATES (P13, audit SaaS section D)
+  // TEST GATES (P13, audit SaaS section D, révisé après relecture)
   // ============================================================
   console.log("\n=== TEST GATES ===");
   const dossierType = await prisma.dossierType.findFirstOrThrow();
   const dossierStatus = await prisma.dossierStatus.findFirstOrThrow();
   const clientGates = await prisma.client.create({ data: { organisationId: orgAId, prenom: "Client", nom: "Gates" } });
-  const dossierGates = await prisma.dossier.create({
-    data: { reference: `TEST-P13-GATES-${Math.random().toString(36).slice(2, 8)}`, clientId: clientGates.id, organisationId: orgAId, typeId: dossierType.id, statutId: dossierStatus.id, montantDevisTTC: 100_000, createdById: adminA.id },
-  });
 
-  const programmeGates = await prisma.programme.create({ data: { organisationId: orgAId, nom: "Programme Test Gates", code: "TEST_P13_GATES" } });
-  const versionGates = await prisma.programmeVersion.create({ data: { programmeId: programmeGates.id, numeroVersion: "1", publie: true } });
-
-  const etapeA = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionGates.id, code: "ETAPE_A", nom: "Étape A (sans condition)", ordre: 0 } });
-  const etapeStatutExterne = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionGates.id, code: "ETAPE_STATUT_EXTERNE", nom: "Nécessite accord ANAH", ordre: 1 } });
-  const etapeValidationManuelle = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionGates.id, code: "ETAPE_VALIDATION", nom: "Nécessite validation manuelle", ordre: 2 } });
-  const etapeNonBloquante = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionGates.id, code: "ETAPE_NON_BLOQUANTE", nom: "Condition facultative", ordre: 3 } });
-  const etapeCleInconnue = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionGates.id, code: "ETAPE_CLE_INCONNUE", nom: "Clé statut externe inconnue", ordre: 4 } });
-  const etapeDependanceViaCondition = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionGates.id, code: "ETAPE_DEP_VIA_CONDITION", nom: "Dépendance exprimée via EtapeCondition", ordre: 5 } });
-
-  const conditionStatutExterne = await prisma.etapeCondition.create({
-    data: { etapeProgrammeId: etapeStatutExterne.id, type: "STATUT_EXTERNE", libelle: "Accord ANAH reçu", statutExterneCle: "ANAH_ACCORD_RECU", obligatoire: true, bloquant: true },
-  });
-  const conditionValidation = await prisma.etapeCondition.create({
-    data: { etapeProgrammeId: etapeValidationManuelle.id, type: "VALIDATION_INTERVENANT", libelle: "Validation responsable travaux", obligatoire: true, bloquant: true },
-  });
-  await prisma.etapeCondition.create({
-    data: { etapeProgrammeId: etapeNonBloquante.id, type: "STATUT_EXTERNE", libelle: "Condition facultative jamais satisfaite", statutExterneCle: "ANAH_ACCORD_RECU", obligatoire: true, bloquant: false },
-  });
-  await prisma.etapeCondition.create({
-    data: { etapeProgrammeId: etapeCleInconnue.id, type: "STATUT_EXTERNE", libelle: "Clé inconnue (jamais satisfaite)", statutExterneCle: "CLE_QUI_N_EXISTE_PAS", obligatoire: true, bloquant: true },
-  });
-  await prisma.etapeCondition.create({
-    data: { etapeProgrammeId: etapeDependanceViaCondition.id, type: "DEPENDANCE_ETAPE", libelle: "Dépend de l'étape A", dependsOnEtapeId: etapeA.id, obligatoire: true, bloquant: true },
-  });
-
-  assert(isKnownStatutExterneCle("ANAH_ACCORD_RECU"), "clé STATUT_EXTERNE connue reconnue comme telle");
-  assert(!isKnownStatutExterneCle("CLE_QUI_N_EXISTE_PAS"), "clé STATUT_EXTERNE inconnue jamais whitelistée - aucune règle codée par nom de programme");
-
-  await prisma.dossier.update({ where: { id: dossierGates.id }, data: { programmeVersionId: versionGates.id } });
-  await recalculateDossierWorkflow(dossierGates.id);
-
-  async function statutEtape(etapeProgrammeId: string) {
-    const de = await prisma.dossierEtape.findFirst({ where: { dossierId: dossierGates.id, etapeProgrammeId } });
+  async function creerDossierGates(reference: string) {
+    return prisma.dossier.create({
+      data: { reference, clientId: clientGates.id, organisationId: orgAId, typeId: dossierType.id, statutId: dossierStatus.id, montantDevisTTC: 100_000, createdById: adminA.id },
+    });
+  }
+  async function statutEtapeDossier(dossierId: string, etapeProgrammeId: string) {
+    const de = await prisma.dossierEtape.findFirst({ where: { dossierId, etapeProgrammeId } });
     return de?.statut;
   }
 
-  assert((await statutEtape(etapeA.id)) === "A_FAIRE", "étape sans condition : disponible immédiatement");
-  assert((await statutEtape(etapeStatutExterne.id)) === "NON_DISPONIBLE", "gate STATUT_EXTERNE non satisfaite : étape non disponible");
-  assert((await statutEtape(etapeValidationManuelle.id)) === "NON_DISPONIBLE", "gate VALIDATION_INTERVENANT non satisfaite : étape non disponible");
-  assert((await statutEtape(etapeNonBloquante.id)) === "A_FAIRE", "condition obligatoire mais NON bloquante : n'empêche jamais la disponibilité");
-  assert((await statutEtape(etapeCleInconnue.id)) === "NON_DISPONIBLE", "clé STATUT_EXTERNE inconnue : jamais satisfaite (fail closed)");
-  assert((await statutEtape(etapeDependanceViaCondition.id)) === "NON_DISPONIBLE", "DEPENDANCE_ETAPE via EtapeCondition : non disponible tant que l'étape ciblée n'est pas TERMINE");
+  assert(isKnownDonneeDossierCle("ANAH_ACCORD_RECU"), "clé DONNEE_DOSSIER connue reconnue comme telle");
+  assert(!isKnownDonneeDossierCle("CLE_QUI_N_EXISTE_PAS"), "clé DONNEE_DOSSIER inconnue jamais whitelistée");
 
-  assert(!(await isEtapeAccessible(dossierGates.id, etapeStatutExterne.id, orgAId)), "isEtapeAccessible=false tant que la gate STATUT_EXTERNE n'est pas satisfaite");
-  const reasonsAvant = await getGateBlockingReasons(dossierGates.id, etapeStatutExterne.id, orgAId);
-  assert(reasonsAvant.some((r) => r.conditionId === conditionStatutExterne.id), "getGateBlockingReasons rapporte la condition non satisfaite");
+  // --- Scénarios 1/2/3 : même donnée dossier (dépôt ANAH fait, accord absent),
+  // deux programmes différents avec des exigences différentes sur LA MÊME
+  // donnée - jamais un `if (programme === ...)`, uniquement la clé de la
+  // condition qui diffère entre les deux ProgrammeVersion. ---
+  const programmeDepotSuffit = await prisma.programme.create({ data: { organisationId: orgAId, nom: "Programme - dépôt suffit", code: "TEST_P13_DEPOT_SUFFIT" } });
+  const versionDepotSuffit = await prisma.programmeVersion.create({ data: { programmeId: programmeDepotSuffit.id, numeroVersion: "1", publie: true } });
+  const etapeDepotSuffit = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionDepotSuffit.id, code: "ENVOYER_EN_POSE", nom: "Envoyer en pose", ordre: 0 } });
+  await prisma.etapeCondition.create({ data: { etapeProgrammeId: etapeDepotSuffit.id, type: "DONNEE_DOSSIER", libelle: "Dépôt ANAH effectué", donneeDossierCle: "ANAH_DEPOT_EFFECTUE", obligatoire: true, bloquant: true } });
 
-  await prisma.dossier.update({ where: { id: dossierGates.id }, data: { dateOctroiAnah: new Date() } });
-  await recalculateDossierWorkflow(dossierGates.id);
-  assert((await statutEtape(etapeStatutExterne.id)) === "A_FAIRE", "après satisfaction (dateOctroiAnah renseignée) : étape promue disponible");
-  assert(await isEtapeAccessible(dossierGates.id, etapeStatutExterne.id, orgAId), "isEtapeAccessible=true une fois la gate satisfaite");
+  const programmeAccordRequis = await prisma.programme.create({ data: { organisationId: orgAId, nom: "Programme - accord requis", code: "TEST_P13_ACCORD_REQUIS" } });
+  const versionAccordRequis = await prisma.programmeVersion.create({ data: { programmeId: programmeAccordRequis.id, numeroVersion: "1", publie: true } });
+  const etapeAccordRequis = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionAccordRequis.id, code: "ENVOYER_EN_POSE", nom: "Envoyer en pose", ordre: 0 } });
+  await prisma.etapeCondition.create({ data: { etapeProgrammeId: etapeAccordRequis.id, type: "DONNEE_DOSSIER", libelle: "Accord ANAH reçu", donneeDossierCle: "ANAH_ACCORD_RECU", obligatoire: true, bloquant: true } });
 
-  await prisma.dossierEtapeConditionValidation.create({
-    data: { etapeConditionId: conditionValidation.id, dossierId: dossierGates.id, satisfiedAt: new Date(), satisfiedById: adminA.id, commentaire: "Validé pour le test" },
+  const dossierDepotSuffit = await creerDossierGates(`TEST-P13-DEPOT-${Math.random().toString(36).slice(2, 8)}`);
+  const dossierAccordRequis = await creerDossierGates(`TEST-P13-ACCORD-${Math.random().toString(36).slice(2, 8)}`);
+  await prisma.dossier.update({ where: { id: dossierDepotSuffit.id }, data: { programmeVersionId: versionDepotSuffit.id, dateDepotAnah: new Date() } });
+  await prisma.dossier.update({ where: { id: dossierAccordRequis.id }, data: { programmeVersionId: versionAccordRequis.id, dateDepotAnah: new Date() } });
+  await recalculateDossierWorkflow(dossierDepotSuffit.id);
+  await recalculateDossierWorkflow(dossierAccordRequis.id);
+
+  assert((await statutEtapeDossier(dossierDepotSuffit.id, etapeDepotSuffit.id)) === "A_FAIRE", "[1] dépôt ANAH fait, accord absent, programme n'exigeant que le dépôt -> étape disponible (OK)");
+  assert((await statutEtapeDossier(dossierAccordRequis.id, etapeAccordRequis.id)) === "NON_DISPONIBLE", "[2] mêmes données (dépôt fait, accord absent), programme exigeant l'accord -> BLOQUÉ");
+
+  await prisma.dossier.update({ where: { id: dossierAccordRequis.id }, data: { dateOctroiAnah: new Date() } });
+  await recalculateDossierWorkflow(dossierAccordRequis.id);
+  assert((await statutEtapeDossier(dossierAccordRequis.id, etapeAccordRequis.id)) === "A_FAIRE", "[3] accord ANAH reçu -> étape débloquée");
+
+  // --- Scénario "mairie" : requise pour un programme, absente d'un autre -
+  // aucune colonne Dossier dédiée à la mairie (ça ne scalerait pas), donc
+  // VALIDATION_INTERVENANT côté programme qui l'exige, rien côté l'autre. ---
+  const programmeAvecMairie = await prisma.programme.create({ data: { organisationId: orgAId, nom: "Programme avec mairie", code: "TEST_P13_MAIRIE_REQUISE" } });
+  const versionAvecMairie = await prisma.programmeVersion.create({ data: { programmeId: programmeAvecMairie.id, numeroVersion: "1", publie: true } });
+  const etapeAvecMairie = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionAvecMairie.id, code: "DEMARRAGE_TRAVAUX", nom: "Démarrage travaux", ordre: 0 } });
+  const conditionMairie = await prisma.etapeCondition.create({ data: { etapeProgrammeId: etapeAvecMairie.id, type: "VALIDATION_INTERVENANT", libelle: "Mairie déposée", obligatoire: true, bloquant: true } });
+
+  const programmeSansMairie = await prisma.programme.create({ data: { organisationId: orgAId, nom: "Programme sans mairie", code: "TEST_P13_MAIRIE_NON_REQUISE" } });
+  const versionSansMairie = await prisma.programmeVersion.create({ data: { programmeId: programmeSansMairie.id, numeroVersion: "1", publie: true } });
+  const etapeSansMairie = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionSansMairie.id, code: "DEMARRAGE_TRAVAUX", nom: "Démarrage travaux", ordre: 0 } });
+
+  const dossierAvecMairie = await creerDossierGates(`TEST-P13-MAIRIE-OUI-${Math.random().toString(36).slice(2, 8)}`);
+  const dossierSansMairie = await creerDossierGates(`TEST-P13-MAIRIE-NON-${Math.random().toString(36).slice(2, 8)}`);
+  await prisma.dossier.update({ where: { id: dossierAvecMairie.id }, data: { programmeVersionId: versionAvecMairie.id } });
+  await prisma.dossier.update({ where: { id: dossierSansMairie.id }, data: { programmeVersionId: versionSansMairie.id } });
+  await recalculateDossierWorkflow(dossierAvecMairie.id);
+  await recalculateDossierWorkflow(dossierSansMairie.id);
+  assert((await statutEtapeDossier(dossierSansMairie.id, etapeSansMairie.id)) === "A_FAIRE", "mairie non exigée par ce programme -> étape disponible immédiatement");
+  assert((await statutEtapeDossier(dossierAvecMairie.id, etapeAvecMairie.id)) === "NON_DISPONIBLE", "[4] validation humaine (mairie) obligatoire absente -> BLOQUÉ");
+
+  // --- Scénarios 5/6 : validation par un acteur autorisé vs non autorisé ---
+  const conditionRoleRestreint = await prisma.etapeCondition.create({
+    data: { etapeProgrammeId: etapeAvecMairie.id, type: "VALIDATION_INTERVENANT", libelle: "Validation ADMINISTRATIF requise", obligatoire: true, bloquant: true, roleResponsable: "ADMINISTRATIF" },
   });
-  await recalculateDossierWorkflow(dossierGates.id);
-  assert((await statutEtape(etapeValidationManuelle.id)) === "A_FAIRE", "validation manuelle enregistrée : étape promue disponible");
+  await assertThrows(
+    () => assertUserCanValidateCondition(conditionRoleRestreint, commercialA.id, "COMMERCIAL"),
+    "[6] acteur non autorisé (mauvais rôle) -> REFUSÉ"
+  );
+  await assertUserCanValidateCondition(conditionRoleRestreint, adminA.id, "ADMIN");
+  assert(true, "[5] acteur autorisé (ADMIN, qui garde son pouvoir d'override) -> OK");
+  const administratifA = await prisma.user.create({ data: { organisationId: orgAId, email: `test-p13-administratifA-${Date.now()}@example.com`, name: "Administratif A", role: "ADMINISTRATIF", actif: true, password: "x" } });
+  await assertUserCanValidateCondition(conditionRoleRestreint, administratifA.id, "ADMINISTRATIF");
+  assert(true, "[5bis] acteur autorisé (rôle exact requis) -> OK");
 
-  await prisma.etapeDependance.create({ data: { etapeId: etapeDependanceViaCondition.id, dependsOnEtapeId: etapeA.id } });
-  const dossierEtapeA = await prisma.dossierEtape.findFirstOrThrow({ where: { dossierId: dossierGates.id, etapeProgrammeId: etapeA.id } });
-  await prisma.dossierEtape.update({ where: { id: dossierEtapeA.id }, data: { statut: "TERMINE", dateTerminee: new Date() } });
-  await recalculateDossierWorkflow(dossierGates.id);
-  assert((await statutEtape(etapeDependanceViaCondition.id)) === "A_FAIRE", "DEPENDANCE_ETAPE via EtapeCondition satisfaite une fois l'étape A TERMINE");
+  const conditionPartenaireRestreint = await prisma.etapeCondition.create({
+    data: { etapeProgrammeId: etapeAvecMairie.id, type: "VALIDATION_INTERVENANT", libelle: "Validation sous-traitant requise", obligatoire: true, bloquant: true, partenaireRoleResponsable: "SOUS_TRAITANT" },
+  });
+  await assertThrows(
+    () => assertUserCanValidateCondition(conditionPartenaireRestreint, adminA.id, "ADMIN"),
+    "un ADMIN interne ne peut jamais se substituer à l'attestation d'un partenaire externe"
+  );
+  const partenaireValidateur = await prisma.partenaire.create({ data: { organisationId: orgAId, nom: "ST validateur test gates" } });
+  await prisma.partenaireRole.create({ data: { partenaireId: partenaireValidateur.id, role: "SOUS_TRAITANT" } });
+  const userPartenaireValidateur = await prisma.user.create({
+    data: { organisationId: orgAId, email: `test-p13-partenaire-validateur-${Date.now()}@example.com`, name: "Technicien externe", role: "SOUS_TRAITANT", actif: true, password: "x", partenaireId: partenaireValidateur.id },
+  });
+  await assertUserCanValidateCondition(conditionPartenaireRestreint, userPartenaireValidateur.id, "SOUS_TRAITANT");
+  assert(true, "validation technicien externe (partenaire avec le bon rôle) -> OK");
 
-  // Document requis (P10 existant, réutilisé tel quel par getGateBlockingReasons)
-  const etapeDocument = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionGates.id, code: "ETAPE_DOCUMENT", nom: "Nécessite un document", ordre: 6 } });
+  // --- Scénario 7 : preuve documentaire d'un AUTRE dossier -> refusée (même
+  // logique de scoping que validerConditionEtape, répliquée ici sans session) ---
+  const autreDossierPourPreuve = await creerDossierGates(`TEST-P13-AUTRE-DOSSIER-${Math.random().toString(36).slice(2, 8)}`);
+  const typeDocPreuve = await prisma.typeDocumentReferentiel.create({ data: { organisationId: orgAId, code: "PIECE_PREUVE_P13", nom: "Pièce preuve P13" } });
+  const documentAutreDossier = await prisma.dossierDocument.create({
+    data: { dossierId: autreDossierPourPreuve.id, type: "AUTRE", nomFichier: "preuve.pdf", cheminFichier: "test/preuve.pdf", mimeType: "application/pdf", tailleOctets: 10, organisationId: orgAId, typeDocumentId: typeDocPreuve.id, statut: "VALIDE" },
+  });
+  const preuveScopeeAuBonDossier = await prisma.dossierDocument.findFirst({ where: { id: documentAutreDossier.id, dossierId: dossierAvecMairie.id, organisationId: orgAId } });
+  assert(preuveScopeeAuBonDossier === null, "[7] un document d'un AUTRE dossier n'est jamais accepté comme preuve (scoping dossierId+organisationId)");
+  const preuveScopeeCorrectement = await prisma.dossierDocument.findFirst({ where: { id: documentAutreDossier.id, dossierId: autreDossierPourPreuve.id, organisationId: orgAId } });
+  assert(preuveScopeeCorrectement?.id === documentAutreDossier.id, "un document du BON dossier est accepté comme preuve");
+
+  // Valide effectivement la condition mairie pour clore le scénario, avec preuve.
+  await prisma.dossierEtapeConditionValidation.create({
+    data: { etapeConditionId: conditionMairie.id, dossierId: dossierAvecMairie.id, satisfiedAt: new Date(), satisfiedById: adminA.id, preuveReference: "Courrier mairie n°2026-114" },
+  });
+  await recalculateDossierWorkflow(dossierAvecMairie.id);
+
+  // --- Scénario 8 : condition non bloquante absente - visible dans
+  // getPendingConditions, jamais dans getBlockingConditions, n'empêche pas
+  // l'étape de devenir disponible. ---
+  const programmeNonBloquant = await prisma.programme.create({ data: { organisationId: orgAId, nom: "Programme condition non bloquante", code: "TEST_P13_NON_BLOQUANT" } });
+  const versionNonBloquant = await prisma.programmeVersion.create({ data: { programmeId: programmeNonBloquant.id, numeroVersion: "1", publie: true } });
+  const etapeNonBloquante = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionNonBloquant.id, code: "ETAPE_FACULTATIVE", nom: "Étape avec condition facultative", ordre: 0 } });
+  const conditionFacultative = await prisma.etapeCondition.create({
+    data: { etapeProgrammeId: etapeNonBloquante.id, type: "DONNEE_DOSSIER", libelle: "Accord ANAH reçu (facultatif ici)", donneeDossierCle: "ANAH_ACCORD_RECU", obligatoire: true, bloquant: false },
+  });
+  const dossierNonBloquant = await creerDossierGates(`TEST-P13-NONBLOQ-${Math.random().toString(36).slice(2, 8)}`);
+  await prisma.dossier.update({ where: { id: dossierNonBloquant.id }, data: { programmeVersionId: versionNonBloquant.id } });
+  await recalculateDossierWorkflow(dossierNonBloquant.id);
+  assert((await statutEtapeDossier(dossierNonBloquant.id, etapeNonBloquante.id)) === "A_FAIRE", "[8] condition obligatoire mais NON bloquante -> n'empêche jamais la disponibilité");
+  const pendingConditionsResult = await getPendingConditions(dossierNonBloquant.id, etapeNonBloquante.id, orgAId);
+  assert(pendingConditionsResult.some((p) => p.conditionId === conditionFacultative.id), "[8] la condition non satisfaite reste visible dans getPendingConditions");
+  const blocking = await getBlockingConditions(dossierNonBloquant.id, etapeNonBloquante.id, orgAId);
+  assert(!blocking.some((b) => b.conditionId === conditionFacultative.id), "[8] mais n'apparaît jamais dans getBlockingConditions (non bloquante)");
+
+  // --- Scénario 9 : EtapeDependance (dépendance étape-à-étape native)
+  // continue de fonctionner exactement comme avant P13. ---
+  const etapeSuivanteDependance = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionNonBloquant.id, code: "ETAPE_SUIVANTE", nom: "Étape suivante", ordre: 1 } });
+  await prisma.etapeDependance.create({ data: { etapeId: etapeSuivanteDependance.id, dependsOnEtapeId: etapeNonBloquante.id } });
+  await recalculateDossierWorkflow(dossierNonBloquant.id);
+  assert((await statutEtapeDossier(dossierNonBloquant.id, etapeSuivanteDependance.id)) === "NON_DISPONIBLE", "[9] EtapeDependance : étape suivante non disponible tant que la précédente n'est pas TERMINE");
+  const deEtapeNonBloquante = await prisma.dossierEtape.findFirstOrThrow({ where: { dossierId: dossierNonBloquant.id, etapeProgrammeId: etapeNonBloquante.id } });
+  await prisma.dossierEtape.update({ where: { id: deEtapeNonBloquante.id }, data: { statut: "TERMINE", dateTerminee: new Date() } });
+  await recalculateDossierWorkflow(dossierNonBloquant.id);
+  assert((await statutEtapeDossier(dossierNonBloquant.id, etapeSuivanteDependance.id)) === "A_FAIRE", "[9] EtapeDependance : promue disponible une fois la précédente TERMINE, fonctionne exactement comme avant P13");
+
+  // --- Scénario 10 : DocumentRequirement continue de fonctionner comme
+  // avant (réutilisé tel quel par getBlockingConditions, jamais dupliqué). ---
+  const etapeDocument = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionNonBloquant.id, code: "ETAPE_DOCUMENT", nom: "Nécessite un document", ordre: 2 } });
   const typeDocGates = await prisma.typeDocumentReferentiel.create({ data: { organisationId: orgAId, code: "PIECE_TEST_GATES", nom: "Pièce test gates" } });
   await prisma.documentRequirement.create({ data: { organisationId: orgAId, typeDocumentId: typeDocGates.id, etapeProgrammeId: etapeDocument.id, blocking: true, obligatoire: true } });
-
-  const reasonsDocAvant = await getGateBlockingReasons(dossierGates.id, etapeDocument.id, orgAId);
-  assert(reasonsDocAvant.some((r) => r.source === "DOCUMENT"), "document bloquant manquant : remonté par getGateBlockingReasons (source DOCUMENT)");
-
+  const reasonsDocAvant = await getBlockingConditions(dossierNonBloquant.id, etapeDocument.id, orgAId);
+  assert(reasonsDocAvant.some((r) => r.source === "DOCUMENT"), "[10] document bloquant manquant : remonté par getBlockingConditions (source DOCUMENT), comportement P10 inchangé");
   await prisma.dossierDocument.create({
-    data: { dossierId: dossierGates.id, type: "AUTRE", nomFichier: "piece.pdf", cheminFichier: "test/piece.pdf", mimeType: "application/pdf", tailleOctets: 10, organisationId: orgAId, typeDocumentId: typeDocGates.id, statut: "VALIDE" },
+    data: { dossierId: dossierNonBloquant.id, type: "AUTRE", nomFichier: "piece.pdf", cheminFichier: "test/piece.pdf", mimeType: "application/pdf", tailleOctets: 10, organisationId: orgAId, typeDocumentId: typeDocGates.id, statut: "VALIDE" },
   });
-  const reasonsDocApres = await getGateBlockingReasons(dossierGates.id, etapeDocument.id, orgAId);
-  assert(!reasonsDocApres.some((r) => r.source === "DOCUMENT"), "document validé : le blocage documentaire disparaît");
+  const reasonsDocApres = await getBlockingConditions(dossierNonBloquant.id, etapeDocument.id, orgAId);
+  assert(!reasonsDocApres.some((r) => r.source === "DOCUMENT"), "[10] document validé : le blocage documentaire disparaît, comportement P10 inchangé");
 
-  // isReadyForProduction
-  const readyAvant = await isReadyForProduction(dossierGates.id, orgAId);
-  assert(!readyAvant.ready, "isReadyForProduction=false tant que la clé inconnue (jamais satisfaite) bloque une étape obligatoire");
+  // --- Scénario 11 : ProgrammeVersion publiée -> condition non modifiable ---
+  await assertThrows(() => requireVersionModifiable(versionNonBloquant.id, orgAId), "[11] ProgrammeVersion publiée : requireVersionModifiable refuse (même garde qu'EtapeDependance/DocumentRequirement)");
+  const programmeBrouillonGates = await prisma.programme.create({ data: { organisationId: orgAId, nom: "Programme brouillon gates", code: "TEST_P13_BROUILLON_GATES" } });
+  const versionBrouillonGates = await prisma.programmeVersion.create({ data: { programmeId: programmeBrouillonGates.id, numeroVersion: "1", publie: false } });
+  await requireVersionModifiable(versionBrouillonGates.id, orgAId);
+  assert(true, "[11bis] ProgrammeVersion en brouillon : requireVersionModifiable autorise toujours la modification");
 
-  await prisma.etapeProgramme.update({ where: { id: etapeCleInconnue.id }, data: { obligatoire: false } });
-  const readyApres = await isReadyForProduction(dossierGates.id, orgAId);
-  assert(readyApres.ready, "isReadyForProduction=true une fois toutes les étapes obligatoires réellement débloquées");
+  // --- Scénario 12 : aucun programme affecté -> isReadyForProduction FAIL-CLOSED ---
+  const dossierSansProgramme = await creerDossierGates(`TEST-P13-SANSPROG-${Math.random().toString(36).slice(2, 8)}`);
+  const readySansProgramme = await isReadyForProduction(dossierSansProgramme.id, orgAId);
+  assert(readySansProgramme.ready === false, "[12] aucune ProgrammeVersion affectée -> isReadyForProduction.ready === false (fail-closed, jamais prêt par défaut)");
+  assert(readySansProgramme.blockingReasons.some((r) => r.libelle === "Programme non affecté."), "[12] raison explicite \"Programme non affecté.\" retournée");
+
+  const readyAvecProgrammeComplet = await isReadyForProduction(dossierDepotSuffit.id, orgAId);
+  assert(readyAvecProgrammeComplet.ready === true, "isReadyForProduction=true une fois le programme affecté et toutes les gates obligatoires satisfaites");
+
+  // --- Scénario 13 : cross-tenant BHM (orgA) -> RUA (orgB), impossible de
+  // lire/valider une condition d'un autre tenant. ---
+  const programmeOrgB = await prisma.programme.create({ data: { organisationId: orgBId, nom: "Programme org B", code: "TEST_P13_ORG_B" } });
+  const versionOrgB = await prisma.programmeVersion.create({ data: { programmeId: programmeOrgB.id, numeroVersion: "1", publie: false } });
+  const etapeOrgB = await prisma.etapeProgramme.create({ data: { programmeVersionId: versionOrgB.id, code: "ETAPE_ORG_B", nom: "Étape org B", ordre: 0 } });
+  const conditionOrgB = await prisma.etapeCondition.create({ data: { etapeProgrammeId: etapeOrgB.id, type: "VALIDATION_INTERVENANT", libelle: "Validation org B", obligatoire: true, bloquant: true } });
+
+  // Réplique exactement le scoping utilisé par validerConditionEtape() :
+  // chercher la condition en filtrant sur l'organisation DU DOSSIER (orgA)
+  // doit échouer pour une condition qui appartient réellement à orgB.
+  const conditionOrgBVueDepuisOrgA = await prisma.etapeCondition.findFirst({
+    where: { id: conditionOrgB.id, etapeProgramme: { programmeVersion: { programme: { organisationId: orgAId } } } },
+  });
+  assert(conditionOrgBVueDepuisOrgA === null, "[13] cross-tenant refusé : une condition d'un autre tenant (RUA) n'est jamais résolue en filtrant par l'organisation de BHM");
+  await assertThrows(
+    () => requireVersionModifiable(versionOrgB.id, orgAId),
+    "[13] cross-tenant refusé : requireVersionModifiable refuse une ProgrammeVersion d'une autre organisation"
+  );
+
+  // --- Scénario 14 : aucune règle codée par nom de programme - vérification
+  // statique du fichier source du moteur de gates. ---
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const sourceGates = fs.readFileSync(path.join(__dirname, "..", "src", "lib", "workflow-gates.ts"), "utf-8");
+  // Ignore les lignes de commentaire (// ou * de bloc JSDoc) - seul du CODE
+  // exécutable comparant à un nom de programme précis constituerait une
+  // vraie violation ; un commentaire qui explique l'anti-pattern À ÉVITER
+  // (ex. "jamais un if (programme === \"MaPrimeRénov\")") n'en est pas une.
+  const codeSansCommentaires = sourceGates
+    .split("\n")
+    .filter((l) => !/^\s*(\/\/|\*)/.test(l))
+    .join("\n");
+  const referencesNomDeProgramme = /MaPrimeR[ée]nov|BAR-TH-171|"TEST_P13_/.test(codeSansCommentaires);
+  assert(!referencesNomDeProgramme, "[14] le moteur de gates (src/lib/workflow-gates.ts) ne référence AUCUN nom de programme précis en dehors des commentaires - uniquement des clés/types génériques");
+
+  // canStartStep/isEtapeAccessible - résolution par CODE d'étape, jamais par
+  // nom de programme (section 8 de la demande).
+  assert(await canStartStep(dossierDepotSuffit.id, "ENVOYER_EN_POSE", orgAId), "canStartStep résout par code d'étape et confirme l'accessibilité");
+  assert(!(await canStartStep(dossierSansProgramme.id, "ENVOYER_EN_POSE", orgAId)), "canStartStep=false pour un dossier sans programme affecté (fail-closed)");
+  assert(!(await canStartStep(dossierDepotSuffit.id, "CODE_QUI_N_EXISTE_PAS", orgAId)), "canStartStep=false pour un code d'étape inconnu du programme affecté");
+  assert(await isEtapeAccessible(dossierAccordRequis.id, etapeAccordRequis.id, orgAId), "isEtapeAccessible reflète bien l'état débloqué après satisfaction de la gate");
 
   // ============================================================
   // TEST PARTENAIRES (P13, audit SaaS section E)

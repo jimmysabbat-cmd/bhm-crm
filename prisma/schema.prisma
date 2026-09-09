@@ -276,7 +276,7 @@ model Organisation {
   // structurellement qu'un même User soit principalAdmin de deux
   // organisations, seule la contrainte serveur "même organisation" importe.
   principalAdminUserId String?
-  principalAdmin        User?  @relation("OrganisationPrincipalAdmin", fields: [principalAdminUserId], references: [id])
+  principalAdmin       User?   @relation("OrganisationPrincipalAdmin", fields: [principalAdminUserId], references: [id])
 
   users                 User[]
   clients               Client[]
@@ -419,9 +419,9 @@ model User {
   passwordResetTokens PasswordResetToken[]
 
   // P13
-  organisationsAvecAdminPrincipal Organisation[]                    @relation("OrganisationPrincipalAdmin")
-  regleReglementaireVersionsValidees RegleReglementaireVersion[]    @relation("RegleReglementaireVersionValidatedBy")
-  etapeConditionValidations       DossierEtapeConditionValidation[]
+  organisationsAvecAdminPrincipal    Organisation[]                    @relation("OrganisationPrincipalAdmin")
+  regleReglementaireVersionsValidees RegleReglementaireVersion[]       @relation("RegleReglementaireVersionValidatedBy")
+  etapeConditionValidations          DossierEtapeConditionValidation[]
 
   @@index([organisationId])
   @@index([sousTraitantId])
@@ -650,12 +650,12 @@ model Partenaire {
 }
 
 model PartenaireRole {
-  id           String     @id @default(cuid())
+  id           String             @id @default(cuid())
   partenaireId String
-  partenaire   Partenaire @relation(fields: [partenaireId], references: [id], onDelete: Cascade)
+  partenaire   Partenaire         @relation(fields: [partenaireId], references: [id], onDelete: Cascade)
   role         PartenaireRoleType
-  actif        Boolean    @default(true)
-  createdAt    DateTime   @default(now())
+  actif        Boolean            @default(true)
+  createdAt    DateTime           @default(now())
 
   @@unique([partenaireId, role])
   @@index([partenaireId])
@@ -813,14 +813,14 @@ model Dossier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  postesTravaux         DossierPosteTravaux[]
-  documents             DossierDocument[]
-  taches                Tache[]
-  commandes             Commande[]
-  mouvementsFinanciers  MouvementFinancier[]
-  dossierEtapes         DossierEtape[]
-  calculsReglementaires CalculReglementaire[]
-  etudesDossier         EtudeDossier[]
+  postesTravaux             DossierPosteTravaux[]
+  documents                 DossierDocument[]
+  taches                    Tache[]
+  commandes                 Commande[]
+  mouvementsFinanciers      MouvementFinancier[]
+  dossierEtapes             DossierEtape[]
+  calculsReglementaires     CalculReglementaire[]
+  etudesDossier             EtudeDossier[]
   etapeConditionValidations DossierEtapeConditionValidation[]
 
   // P9
@@ -992,6 +992,10 @@ model DossierDocument {
 
   packageDocuments TransmissionPackageDocument[]
 
+  // P13 (gates) - ce document peut servir de preuve pour l'accomplissement
+  // manuel d'une EtapeCondition (ex. le courrier d'accord ANAH déjà déposé).
+  preuveDeConditions DossierEtapeConditionValidation[]
+
   @@index([dossierId])
   @@index([organisationId])
   @@index([typeDocumentId])
@@ -1110,11 +1114,6 @@ model DocumentRequirement {
   createdAt        DateTime                 @default(now())
 
   dossierDocuments DossierDocument[]
-
-  // P13 (moteur de gates externes) - EtapeCondition de type DOCUMENT_REQUIS
-  // qui référencent cette exigence pour l'inclure dans l'évaluation unifiée
-  // de gate, sans jamais dupliquer sa définition.
-  etapeConditions EtapeCondition[]
 
   @@index([organisationId])
   @@index([etapeProgrammeId])
@@ -1446,80 +1445,97 @@ model EtapeProgramme {
   documentRequirements DocumentRequirement[]
 
   // P13 (moteur de gates externes, audit SaaS section D)
-  conditions            EtapeCondition[]
-  conditionsCommeCible  EtapeCondition[] @relation("EtapeConditionDependsOn")
+  conditions EtapeCondition[]
 
   @@unique([programmeVersionId, code])
   @@index([programmeVersionId])
 }
 
-// P13 (moteur de gates/conditions externes, audit SaaS section D) - étend
-// le moteur workflow existant (EtapeDependance/DocumentRequirement) au lieu
-// d'en créer un troisième. Une EtapeCondition exprime une dépendance
-// bloquante ou non que EtapeDependance seule ne peut pas exprimer
-// (dépendance à un événement/statut EXTERNE au moteur de programme, ou à
-// une validation humaine explicite), sans jamais recourir à eval() : le
-// type détermine QUEL champ interpréter, jamais une expression libre.
+// P13 (moteur de gates/conditions externes, audit SaaS section D, révisé
+// après relecture) - COMPLÈTE le moteur workflow existant, ne le remplace
+// jamais : une dépendance étape-à-étape reste EtapeDependance (jamais
+// dupliquée ici), une exigence documentaire reste DocumentRequirement
+// (jamais dupliquée ici). EtapeCondition ne couvre QUE les deux besoins que
+// ces tables ne peuvent structurellement pas exprimer :
 //
-// - DEPENDANCE_ETAPE : redondant en apparence avec EtapeDependance, mais
-//   permet de marquer une dépendance comme NON bloquante (obligatoire mais
-//   pas bloquant) ce qu'EtapeDependance ne permet pas (ALL_COMPLETED est
-//   toujours bloquant par construction dans recalculateDossierWorkflow()).
-// - DOCUMENT_REQUIS : référence une DocumentRequirement déjà déclarée,
-//   jamais dupliquée - juste un pointeur pour l'inclure dans l'évaluation
-//   de gate unifiée (isEtapeAccessible/getBlockingConditions).
-// - STATUT_EXTERNE : statutExterneCle est une clé WHITELISTÉE (voir
-//   STATUT_EXTERNE_CHECKS dans src/lib/workflow/gates.ts), jamais un champ
-//   arbitraire - ex. "ANAH_ACCORD_RECU" vérifie Dossier.dateOctroiAnah.
-// - VALIDATION_INTERVENANT : accomplissement enregistré manuellement dans
-//   DossierEtapeConditionValidation (aucun champ existant ne peut porter
-//   cette information - c'est un fait primitif, pas calculable).
+// - DONNEE_DOSSIER : une donnée déjà présente sur Dossier (ex. date
+//   d'octroi ANAH) détermine si la condition est satisfaite. donneeDossierCle
+//   est un ENUM (DonneeDossierCle, jamais une chaîne libre) - une nouvelle
+//   clé nécessite un commit développeur (même principe que formulaCode en
+//   P7), jamais une valeur saisie/interprétée dynamiquement depuis l'UI.
+//   Interprétée par STATUT_EXTERNE_CHECKS dans src/lib/workflow-gates.ts.
+//   Vérifie délibérément des colonnes STRUCTURELLES (dates/booléens/FK
+//   présents), jamais la VALEUR d'un référentiel paramétrable par le tenant
+//   (StatutAnah/StatutCee/StatutTravaux.key sont éditables par l'admin
+//   tenant - y comparer une gate réintroduirait exactement la fragilité
+//   "chaîne libre interprétée" que ce modèle doit éviter).
+// - VALIDATION_INTERVENANT : un fait primitif attesté par un humain
+//   (interne ou partenaire), non déductible d'une autre donnée - ex.
+//   "mairie déposée" quand aucune colonne Dossier ne modélise la mairie.
+//   Volontairement PAS de colonne Dossier dédiée par nouveau type de
+//   démarche administrative (ANAH/mairie/financement/...) : ça ne
+//   scalerait pas. L'accomplissement est enregistré dans
+//   DossierEtapeConditionValidation ci-dessous, jamais ici (définition ≠
+//   état, cf. ce modèle).
+//
+// La DÉFINITION (cette table) appartient toujours à un EtapeProgramme d'une
+// ProgrammeVersion figée à la publication (requireVersionModifiable() dans
+// src/app/parametrage/programmes-actions.ts, comme EtapeDependance/
+// DocumentRequirement) - jamais modifiable après publication.
 model EtapeCondition {
-  id               String         @id @default(cuid())
+  id               String             @id @default(cuid())
   etapeProgrammeId String
-  etapeProgramme   EtapeProgramme @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
+  etapeProgramme   EtapeProgramme     @relation(fields: [etapeProgrammeId], references: [id], onDelete: Cascade)
   type             TypeConditionEtape
-  // Libellé humain de ce qui est attendu (ex. "Accord ANAH reçu") - jamais
-  // interprété par le moteur, seulement affiché.
+  // Libellé humain de ce qui est attendu (ex. "Accord ANAH reçu", "Mairie
+  // déposée") - jamais interprété par le moteur, seulement affiché.
   libelle          String
 
-  dependsOnEtapeId String?
-  dependsOnEtape   EtapeProgramme? @relation("EtapeConditionDependsOn", fields: [dependsOnEtapeId], references: [id])
+  // DONNEE_DOSSIER uniquement - null pour VALIDATION_INTERVENANT.
+  donneeDossierCle DonneeDossierCle?
 
-  documentRequirementId String?
-  documentRequirement   DocumentRequirement? @relation(fields: [documentRequirementId], references: [id])
+  roleResponsable           Role?
+  partenaireRoleResponsable PartenaireRoleType?
 
-  statutExterneCle String?
-
-  roleResponsable            Role?
-  partenaireRoleResponsable  PartenaireRoleType?
-
-  obligatoire Boolean @default(true)
-  bloquant    Boolean @default(true)
-  ordre       Int     @default(0)
-  actif       Boolean @default(true)
+  obligatoire Boolean  @default(true)
+  bloquant    Boolean  @default(true)
+  ordre       Int      @default(0)
+  actif       Boolean  @default(true)
   createdAt   DateTime @default(now())
 
   validations DossierEtapeConditionValidation[]
 
   @@index([etapeProgrammeId])
-  @@index([dependsOnEtapeId])
-  @@index([documentRequirementId])
 }
 
 enum TypeConditionEtape {
-  DEPENDANCE_ETAPE
-  DOCUMENT_REQUIS
-  STATUT_EXTERNE
+  DONNEE_DOSSIER
   VALIDATION_INTERVENANT
 }
 
-// Accomplissement, pour UN dossier précis, d'une EtapeCondition de type
-// VALIDATION_INTERVENANT (les autres types sont toujours calculés à la
-// volée depuis les données réelles - jamais dupliqués ici). Une ligne par
-// (condition, dossier), jamais réécrite : satisfiedAt/satisfiedById tracent
-// qui a validé quoi, quand (même exigence d'audit que partout ailleurs
-// dans P12).
+// Clés WHITELISTÉES pour TypeConditionEtape.DONNEE_DOSSIER - jamais une
+// chaîne libre (cf. commentaire d'EtapeCondition). Ajouter une valeur ici
+// nécessite un commit développeur + le mapping correspondant dans
+// STATUT_EXTERNE_CHECKS (src/lib/workflow-gates.ts).
+enum DonneeDossierCle {
+  ANAH_DEPOT_EFFECTUE
+  ANAH_ACCORD_RECU
+  ANAH_STATUT_RENSEIGNE
+  CEE_STATUT_RENSEIGNE
+  TRAVAUX_STATUT_RENSEIGNE
+  TRAVAUX_DEMARRES
+  TRAVAUX_TERMINES
+}
+
+// ÉTAT/résultat pour UN dossier précis d'une EtapeCondition de type
+// VALIDATION_INTERVENANT (P13, révisé après relecture - la définition dans
+// EtapeCondition ci-dessus ne contient JAMAIS d'état dossier ; DONNEE_DOSSIER
+// n'a besoin d'aucune ligne ici, toujours recalculée à la volée depuis
+// Dossier). Une ligne par (condition, dossier), jamais dupliquée
+// (@@unique) : satisfiedAt/satisfiedById tracent qui a validé quoi, quand -
+// preuveDocumentId/preuveReference conservent la source si nécessaire
+// (ex. un DossierDocument déjà déposé, ou une référence libre type
+// "Courrier mairie n°2026-114" quand aucun document n'existe).
 model DossierEtapeConditionValidation {
   id               String         @id @default(cuid())
   etapeConditionId String
@@ -1530,13 +1546,18 @@ model DossierEtapeConditionValidation {
   satisfiedAt   DateTime?
   satisfiedById String?
   satisfiedBy   User?     @relation(fields: [satisfiedById], references: [id])
-  commentaire   String?
+
+  preuveDocumentId String?
+  preuveDocument   DossierDocument? @relation(fields: [preuveDocumentId], references: [id])
+  preuveReference  String?
+  commentaire      String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([etapeConditionId, dossierId])
   @@index([dossierId])
+  @@index([preuveDocumentId])
 }
 
 model EtapeDependance {

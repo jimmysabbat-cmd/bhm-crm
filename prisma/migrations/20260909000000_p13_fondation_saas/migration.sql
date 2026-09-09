@@ -1,32 +1,33 @@
--- P13 (audit SaaS) - Phase fondation, migration 100% additive :
--- - aucune colonne existante n'est supprimée ou renommée
--- - aucune donnée existante n'est modifiée hors backfill explicite ci-dessous
+-- P13 - Phase fondation SaaS (audit validé, migration finale unique -
+-- squash de deux migrations provisoires jamais déployées, cf. revue avant
+-- figeage du modèle). Additif uniquement :
+-- - aucune colonne existante n'est supprimée/renommée
+-- - `publie` (RegleReglementaireVersion) reste inchangé, seule source de
+--   vérité lue par getApplicableRuleVersion()/assertRuleVersionEditable()
 -- - SousTraitant/DelegataireCee/User.sousTraitantId/User.delegataireCeeId
---   restent intacts et pleinement fonctionnels
--- - RegleReglementaireVersion.publie reste la source de vérité lue par
---   getApplicableRuleVersion()/assertRuleVersionEditable(), inchangée
+--   restent intacts et pleinement fonctionnels (transition Partenaire
+--   additive et transitoire)
+-- - EtapeDependance et DocumentRequirement restent les seules sources de
+--   vérité pour les dépendances étape-à-étape et les exigences
+--   documentaires - EtapeCondition ne les duplique jamais.
 
 -- ============================================================
 -- A. Admin principal SaaS
 -- ============================================================
 
--- AlterTable
 ALTER TABLE `Organisation` ADD COLUMN `principalAdminUserId` VARCHAR(191) NULL;
 
--- AlterTable
 ALTER TABLE `User`
     ADD COLUMN `lastLoginAt` DATETIME(3) NULL,
     ADD COLUMN `partenaireId` VARCHAR(191) NULL,
     ADD COLUMN `partenaireFonction` VARCHAR(191) NULL;
 
--- CreateIndex
 CREATE INDEX `User_partenaireId_idx` ON `User`(`partenaireId`);
 
 -- ============================================================
 -- B. Gouvernance des fiches réglementaires (additif, `publie` inchangé)
 -- ============================================================
 
--- AlterTable
 ALTER TABLE `RegleReglementaireVersion`
     ADD COLUMN `statutValidation` ENUM('BROUILLON', 'A_VERIFIER', 'VALIDE', 'PUBLIE', 'ARCHIVE') NOT NULL DEFAULT 'BROUILLON',
     ADD COLUMN `methodeAlimentation` ENUM('SAISIE_MANUELLE', 'IMPORT_DOCUMENT', 'SYNCHRO_API') NOT NULL DEFAULT 'SAISIE_MANUELLE',
@@ -35,10 +36,7 @@ ALTER TABLE `RegleReglementaireVersion`
 
 -- Backfill : une version déjà publiée (publie = true) est réputée PUBLIE au
 -- nouveau statut, sans quoi elle deviendrait subitement inutilisable pour un
--- calcul OFFICIEL (assertRuleVersionUsableForOfficial() exige PUBLIE). Une
--- version encore en brouillon (publie = false) reste BROUILLON (valeur par
--- défaut déjà appliquée par l'ADD COLUMN ci-dessus, UPDATE explicite pour
--- ne dépendre d'aucun ordre d'exécution implicite).
+-- calcul OFFICIEL (assertRuleVersionUsableForOfficial() exige PUBLIE).
 UPDATE `RegleReglementaireVersion` SET `statutValidation` = 'PUBLIE' WHERE `publie` = true;
 UPDATE `RegleReglementaireVersion` SET `statutValidation` = 'BROUILLON' WHERE `publie` = false;
 
@@ -46,25 +44,23 @@ UPDATE `RegleReglementaireVersion` SET `statutValidation` = 'BROUILLON' WHERE `p
 -- C. Flux programme (additif - aucune valeur existante ne change de sens)
 -- ============================================================
 
--- AlterTable
 ALTER TABLE `EtapeProgramme` MODIFY COLUMN `typeFlux` ENUM('COMMERCIAL', 'ADMINISTRATIF', 'ANAH', 'CEE', 'TRAVAUX', 'FINANCIER', 'TECHNIQUE', 'MATERIEL', 'PRODUCTION', 'AUTRE') NOT NULL DEFAULT 'AUTRE';
-
--- AlterTable
 ALTER TABLE `RegleRelance` MODIFY COLUMN `typeFlux` ENUM('COMMERCIAL', 'ADMINISTRATIF', 'ANAH', 'CEE', 'TRAVAUX', 'FINANCIER', 'TECHNIQUE', 'MATERIEL', 'PRODUCTION', 'AUTRE') NOT NULL;
 
 -- ============================================================
--- D. Moteur de gates / conditions externes
+-- D. Moteur de gates / conditions externes (modèle final révisé) -
+-- ETAPE/DOCUMENT sont volontairement absents : une dépendance étape-à-étape
+-- reste EtapeDependance, une exigence documentaire reste DocumentRequirement,
+-- jamais dupliquées ici. EtapeCondition ne couvre que DONNEE_DOSSIER (clé
+-- ENUM typée, jamais une chaîne libre) et VALIDATION_INTERVENANT.
 -- ============================================================
 
--- CreateTable
 CREATE TABLE `EtapeCondition` (
     `id` VARCHAR(191) NOT NULL,
     `etapeProgrammeId` VARCHAR(191) NOT NULL,
-    `type` ENUM('DEPENDANCE_ETAPE', 'DOCUMENT_REQUIS', 'STATUT_EXTERNE', 'VALIDATION_INTERVENANT') NOT NULL,
+    `type` ENUM('DONNEE_DOSSIER', 'VALIDATION_INTERVENANT') NOT NULL,
     `libelle` VARCHAR(191) NOT NULL,
-    `dependsOnEtapeId` VARCHAR(191) NULL,
-    `documentRequirementId` VARCHAR(191) NULL,
-    `statutExterneCle` VARCHAR(191) NULL,
+    `donneeDossierCle` ENUM('ANAH_DEPOT_EFFECTUE', 'ANAH_ACCORD_RECU', 'ANAH_STATUT_RENSEIGNE', 'CEE_STATUT_RENSEIGNE', 'TRAVAUX_STATUT_RENSEIGNE', 'TRAVAUX_DEMARRES', 'TRAVAUX_TERMINES') NULL,
     `roleResponsable` ENUM('ADMIN', 'COMMERCIAL', 'COMPTA', 'ADMINISTRATIF', 'REGIE', 'SOUS_TRAITANT', 'COMPTABILITE', 'TECHNIQUE', 'TELEPROSPECTEUR', 'DELEGATAIRE_CEE') NULL,
     `partenaireRoleResponsable` ENUM('SOUS_TRAITANT', 'DELEGATAIRE_CEE', 'REGIE_COMMERCIALE', 'DONNEUR_ORDRE', 'MANDATAIRE', 'FOURNISSEUR', 'AUTRE') NULL,
     `obligatoire` BOOLEAN NOT NULL DEFAULT true,
@@ -74,24 +70,24 @@ CREATE TABLE `EtapeCondition` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `EtapeCondition_etapeProgrammeId_idx`(`etapeProgrammeId`),
-    INDEX `EtapeCondition_dependsOnEtapeId_idx`(`dependsOnEtapeId`),
-    INDEX `EtapeCondition_documentRequirementId_idx`(`documentRequirementId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- CreateTable
 CREATE TABLE `DossierEtapeConditionValidation` (
     `id` VARCHAR(191) NOT NULL,
     `etapeConditionId` VARCHAR(191) NOT NULL,
     `dossierId` VARCHAR(191) NOT NULL,
     `satisfiedAt` DATETIME(3) NULL,
     `satisfiedById` VARCHAR(191) NULL,
+    `preuveDocumentId` VARCHAR(191) NULL,
+    `preuveReference` VARCHAR(191) NULL,
     `commentaire` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `DossierEtapeConditionValidation_etapeConditionId_dossierId_key`(`etapeConditionId`, `dossierId`),
     INDEX `DossierEtapeConditionValidation_dossierId_idx`(`dossierId`),
+    INDEX `DossierEtapeConditionValidation_preuveDocumentId_idx`(`preuveDocumentId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -99,7 +95,6 @@ CREATE TABLE `DossierEtapeConditionValidation` (
 -- E. Partenaire générique (transitoire/additif)
 -- ============================================================
 
--- CreateTable
 CREATE TABLE `Partenaire` (
     `id` VARCHAR(191) NOT NULL,
     `organisationId` VARCHAR(191) NOT NULL,
@@ -116,7 +111,6 @@ CREATE TABLE `Partenaire` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- CreateTable
 CREATE TABLE `PartenaireRole` (
     `id` VARCHAR(191) NOT NULL,
     `partenaireId` VARCHAR(191) NOT NULL,
@@ -129,7 +123,6 @@ CREATE TABLE `PartenaireRole` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- CreateTable
 CREATE TABLE `PartenaireCapability` (
     `id` VARCHAR(191) NOT NULL,
     `partenaireId` VARCHAR(191) NOT NULL,
@@ -143,11 +136,9 @@ CREATE TABLE `PartenaireCapability` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- AlterTable (liens transitoires nullables 1:1 - aucune donnée existante touchée)
 ALTER TABLE `SousTraitant` ADD COLUMN `partenaireId` VARCHAR(191) NULL;
 ALTER TABLE `DelegataireCee` ADD COLUMN `partenaireId` VARCHAR(191) NULL;
 
--- CreateIndex
 CREATE UNIQUE INDEX `SousTraitant_partenaireId_key` ON `SousTraitant`(`partenaireId`);
 CREATE UNIQUE INDEX `DelegataireCee_partenaireId_key` ON `DelegataireCee`(`partenaireId`);
 
@@ -162,12 +153,11 @@ ALTER TABLE `User` ADD CONSTRAINT `User_partenaireId_fkey` FOREIGN KEY (`partena
 ALTER TABLE `RegleReglementaireVersion` ADD CONSTRAINT `RegleReglementaireVersion_validatedById_fkey` FOREIGN KEY (`validatedById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE `EtapeCondition` ADD CONSTRAINT `EtapeCondition_etapeProgrammeId_fkey` FOREIGN KEY (`etapeProgrammeId`) REFERENCES `EtapeProgramme`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE `EtapeCondition` ADD CONSTRAINT `EtapeCondition_dependsOnEtapeId_fkey` FOREIGN KEY (`dependsOnEtapeId`) REFERENCES `EtapeProgramme`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE `EtapeCondition` ADD CONSTRAINT `EtapeCondition_documentRequirementId_fkey` FOREIGN KEY (`documentRequirementId`) REFERENCES `DocumentRequirement`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE `DossierEtapeConditionValidation` ADD CONSTRAINT `DossierEtapeConditionValidation_etapeConditionId_fkey` FOREIGN KEY (`etapeConditionId`) REFERENCES `EtapeCondition`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE `DossierEtapeConditionValidation` ADD CONSTRAINT `DossierEtapeConditionValidation_dossierId_fkey` FOREIGN KEY (`dossierId`) REFERENCES `Dossier`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE `DossierEtapeConditionValidation` ADD CONSTRAINT `DossierEtapeConditionValidation_satisfiedById_fkey` FOREIGN KEY (`satisfiedById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `DossierEtapeConditionValidation` ADD CONSTRAINT `DossierEtapeConditionValidation_preuveDocumentId_fkey` FOREIGN KEY (`preuveDocumentId`) REFERENCES `DossierDocument`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE `Partenaire` ADD CONSTRAINT `Partenaire_organisationId_fkey` FOREIGN KEY (`organisationId`) REFERENCES `Organisation`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE `PartenaireRole` ADD CONSTRAINT `PartenaireRole_partenaireId_fkey` FOREIGN KEY (`partenaireId`) REFERENCES `Partenaire`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
