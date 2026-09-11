@@ -41,9 +41,23 @@ export interface BuildingDataConnector {
   getBuildingData(input: AddressInput): Promise<ConnectorResult<BuildingData>>;
 }
 
+// P14 (audit section M) - étendu au-delà de l'étiquette/consommation :
+// champs réellement exposés par le jeu de données ouvertes DPE de l'ADEME
+// (dpe-v2-logements-existants), limités à ce qui est directement utile au
+// CRM (jamais un simple miroir intégral du dataset). Chaque champ non
+// disponible pour une adresse donnée reste `null`, jamais deviné.
 export type DpeData = {
   etiquette: string | null;
+  etiquetteGES: string | null;
   consommationAnnuelleKwh: number | null;
+  surfaceHabitableM2: number | null;
+  anneeConstruction: number | null;
+  typeBatiment: "MAISON" | "APPARTEMENT" | null;
+  energieChauffage: string | null;
+  typeInstallationChauffage: string | null;
+  typeEnergieEcs: string | null;
+  dateEtablissementDpe: string | null;
+  numeroDpe: string | null;
 };
 
 export interface DpeConnector {

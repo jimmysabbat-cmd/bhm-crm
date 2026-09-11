@@ -22,6 +22,15 @@ export const ALLOWED_VARIABLES = [
   "rdv.adresse",
   "commercial.nom",
   "organisation.nom",
+  // P14 - argumentaires métier (src/lib/opportunites/argumentaire.ts).
+  // Toujours résolues depuis une donnée CONFIRMÉE (ChampProvenance
+  // confiance VERIFIE/DECLARE) - jamais un montant/une aide/une économie,
+  // qui restent générés uniquement par les moteurs (jamais un template).
+  "logement.chauffagePrincipal",
+  "logement.dpe",
+  "logement.surfaceHabitableM2",
+  "logement.typeBatiment",
+  "opportunite.libelle",
 ] as const;
 
 export type AllowedVariable = (typeof ALLOWED_VARIABLES)[number];

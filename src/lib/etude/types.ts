@@ -30,10 +30,12 @@ export const qualified = { connu, absent };
 export type StudyClient = {
   nom: string;
   prenom: string;
-  // Aucun champ "type occupant"/"composition ménage"/"revenu précis" dans
-  // le schéma actuel : modélisés ABSENT plutôt qu'omis, pour que l'UI et le
-  // calcul de qualité des données sachent explicitement qu'ils manquent.
-  typeOccupant: QualifiedField<"PROPRIETAIRE" | "LOCATAIRE">;
+  // P14 - Client.typeOccupant/revenuFiscalReference/nombrePersonnesFoyer
+  // alimentent désormais réellement ces champs (src/lib/etude/engine.ts) ;
+  // restent QualifiedField pour que l'UI/le calcul de qualité des données
+  // continuent de distinguer explicitement connu/absent sur des dossiers
+  // dont le Client n'a pas encore ces informations renseignées.
+  typeOccupant: QualifiedField<"PROPRIETAIRE" | "LOCATAIRE" | "BAILLEUR">;
   precarite: QualifiedField<Precarite>;
   revenuMenage: QualifiedField<number>;
   compositionMenage: QualifiedField<number>;

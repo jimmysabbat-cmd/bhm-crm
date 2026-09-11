@@ -5,6 +5,8 @@ import { calculateLeadQualification } from "@/lib/leads/qualification";
 import { canViewStudyCostsAndMargin } from "@/lib/etude/redact";
 import { QualificationWorkspace } from "../../QualificationWorkspace";
 import { LeadCommunicationsPanel } from "../../LeadCommunicationsPanel";
+import { OpportunitesPanel } from "../../OpportunitesPanel";
+import { calculerOpportunitesPourLead, getNextBestQuestionPourLead, getCategorieMenagePourLead } from "../../qualification-actions";
 
 export default async function LeadQualificationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -67,6 +69,15 @@ export default async function LeadQualificationPage({ params }: { params: Promis
 
   const now = new Date();
   const claimActifAutre = lead.claimedById != null && lead.claimedById !== ctx.userId && lead.claimExpiresAt != null && lead.claimExpiresAt > now;
+
+  // P14 - Moteur Opportunités / Next Best Question / catégorie ménage,
+  // calculés côté serveur pour l'affichage initial (OpportunitesPanel
+  // rafraîchit ensuite lui-même après chaque réponse).
+  const [opportunitesRes, nbqRes, categorieMenageRes] = await Promise.all([
+    calculerOpportunitesPourLead(lead.id),
+    getNextBestQuestionPourLead(lead.id),
+    getCategorieMenagePourLead(lead.id),
+  ]);
 
   return (
     <div>
@@ -164,6 +175,14 @@ export default async function LeadQualificationPage({ params }: { params: Promis
           peutEnvoyer={hasPermission(ctx, "SEND_EMAIL_ACTION")}
         />
       </div>
+      <OpportunitesPanel
+        leadId={lead.id}
+        questionnaireVersionId={questionnaireVersion?.id ?? null}
+        initialOpportunites={opportunitesRes.ok ? opportunitesRes.result.opportunites : []}
+        initialNbq={nbqRes.ok ? nbqRes.result : null}
+        initialCategorieMenage={categorieMenageRes.ok ? categorieMenageRes.result : null}
+        hasAdresse={lead.adresse != null}
+      />
     </div>
   );
 }

@@ -71,11 +71,20 @@ export type MappableAnswer = {
 export type ClientFieldUpdate = Partial<{
   zoneClimatique: ZoneClimatique;
   precarite: Precarite;
+  // P14 - foyer/revenus (qualification télépro).
+  revenuFiscalReference: number;
+  anneeReferenceRevenu: number;
+  nombrePersonnesFoyer: number;
+  typeOccupant: "PROPRIETAIRE" | "LOCATAIRE" | "BAILLEUR";
 }>;
 
 const CLIENT_FIELD_KIND: Record<keyof ClientFieldUpdate, FieldKind> = {
   zoneClimatique: "enum",
   precarite: "enum",
+  revenuFiscalReference: "int",
+  anneeReferenceRevenu: "int",
+  nombrePersonnesFoyer: "int",
+  typeOccupant: "enum",
 };
 
 export type MapReponsesResult = {
@@ -87,7 +96,7 @@ export type MapReponsesResult = {
 
 export function mapReponsesToStructuredFields(reponses: MappableAnswer[]): MapReponsesResult {
   const logement: Record<string, string | number | boolean> = {};
-  const client: Record<string, string> = {};
+  const client: Record<string, string | number> = {};
   let projetTypeTravaux: TypeTravaux | null = null;
   const unmapped: string[] = [];
 
@@ -104,11 +113,19 @@ export function mapReponsesToStructuredFields(reponses: MappableAnswer[]): MapRe
     const clientMatch = r.champMappe.match(/^Client\.(.+)$/);
     if (clientMatch) {
       const field = clientMatch[1] as keyof ClientFieldUpdate;
-      if (CLIENT_FIELD_KIND[field]) {
+      const kind = CLIENT_FIELD_KIND[field];
+      if (!kind) {
+        unmapped.push(r.code);
+        continue;
+      }
+      // P14 - même logique que la branche Logement ci-dessous : le type de
+      // question (int/enum) détermine où lire la valeur, jamais un simple
+      // "texte ou option" comme avant l'ajout des champs revenus/foyer.
+      if (kind === "int") {
+        if (r.valeurNombre != null) client[field] = Math.round(r.valeurNombre);
+      } else {
         const v = r.valeurOptions?.[0] ?? r.valeurTexte;
         if (v) client[field] = v;
-      } else {
-        unmapped.push(r.code);
       }
       continue;
     }

@@ -237,7 +237,7 @@ export async function recordInteraction(leadId: string, formData: FormData): Pro
   }
 }
 
-type QuestionnaireAnswerInput = {
+export type QuestionnaireAnswerInput = {
   questionId: string;
   valeurTexte?: string | null;
   valeurNombre?: number | null;
@@ -262,10 +262,15 @@ export async function saveQuestionnaireAnswers(
     const lead = await loadOwnedLead(leadId, ctx.organisationId);
     if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
 
+    // P14 - une session (ReponseQuestionnaire) reprend automatiquement à
+    // EN_COURS dès qu'un autosave arrive, y compris si elle avait été
+    // marquée ABANDONNEE (audit section I : "commencer -> répondre ->
+    // quitter -> revenir -> reprendre exactement où il était").
+    // realiseParId reflète le dernier télépro ayant touché la session.
     const reponseQuestionnaire = await prisma.reponseQuestionnaire.upsert({
       where: { leadId_questionnaireVersionId: { leadId: lead.id, questionnaireVersionId } },
-      update: {},
-      create: { organisationId: ctx.organisationId, leadId: lead.id, questionnaireVersionId },
+      update: { realiseParId: ctx.userId, statut: "EN_COURS" },
+      create: { organisationId: ctx.organisationId, leadId: lead.id, questionnaireVersionId, realiseParId: ctx.userId, statut: "EN_COURS" },
     });
 
     for (const a of answers) {

@@ -41,6 +41,15 @@ enum Precarite {
   SUPERIEUR
 }
 
+// P14 - aligné strictement sur les valeurs déjà attendues par
+// StudyClient.typeOccupant (P8, src/lib/etude/types.ts), avec BAILLEUR en
+// plus (distinction réellement utilisée par les programmes ANAH).
+enum TypeOccupant {
+  PROPRIETAIRE
+  LOCATAIRE
+  BAILLEUR
+}
+
 enum ZoneClimatique {
   H1
   H2
@@ -325,6 +334,10 @@ model Organisation {
 
   // P13
   partenaires Partenaire[]
+
+  // P14
+  fichesMetier        FicheMetier[]
+  argumentairesMetier ArgumentaireMetier[]
 }
 
 model User {
@@ -392,15 +405,16 @@ model User {
   etudesDossierSelectionnees     EtudeDossier[]        @relation("EtudeDossierSelectedBy")
 
   // P9
-  leadsCommercial           Lead[]                   @relation("LeadCommercial")
-  leadsTeleprospecteur      Lead[]                   @relation("LeadTeleprospecteur")
-  leadsClaimedBy            Lead[]                   @relation("LeadClaimedBy")
-  leadsCreated              Lead[]                   @relation("LeadCreatedBy")
-  champsProvenanceAcceptees ChampProvenance[]        @relation("ChampProvenanceAcceptedBy")
-  interactionsCommerciales  InteractionCommerciale[]
-  rdvsCommercial            Rdv[]                    @relation("RdvCommercial")
-  rdvsCrees                 Rdv[]                    @relation("RdvCreatedBy")
-  leadStatusChanges         LeadStatusHistory[]
+  leadsCommercial                Lead[]                   @relation("LeadCommercial")
+  leadsTeleprospecteur           Lead[]                   @relation("LeadTeleprospecteur")
+  leadsClaimedBy                 Lead[]                   @relation("LeadClaimedBy")
+  leadsCreated                   Lead[]                   @relation("LeadCreatedBy")
+  champsProvenanceAcceptees      ChampProvenance[]        @relation("ChampProvenanceAcceptedBy")
+  interactionsCommerciales       InteractionCommerciale[]
+  rdvsCommercial                 Rdv[]                    @relation("RdvCommercial")
+  rdvsCrees                      Rdv[]                    @relation("RdvCreatedBy")
+  leadStatusChanges              LeadStatusHistory[]
+  reponsesQuestionnaireRealisees ReponseQuestionnaire[]   @relation("ReponseQuestionnaireRealisePar")
 
   // P10
   dossierDocumentsValidees     DossierDocument[]     @relation("DossierDocumentValidatedBy")
@@ -728,6 +742,18 @@ model Client {
   // Infos techniques du logement
   surfaceHabitableM2 Int?
   anneeConstruction  Int?
+
+  // P14 - foyer/revenus (audit qualification télépro). Donnée COURANTE,
+  // mutable comme le reste de Client - la preuve de la valeur ayant servi à
+  // un calcul officiel reste dans EtudeDossier.inputsSnapshot (figé), jamais
+  // ici. revenuFiscalReference en euros entiers (jamais de centimes : ce
+  // n'est pas un montant contractuel/financier P6, seulement une donnée
+  // déclarative utilisée par le barème de catégorisation). anneeReferenceRevenu
+  // identifie l'exercice fiscal déclaré (ex. RFR N-2), jamais supposé.
+  revenuFiscalReference Int?
+  anneeReferenceRevenu  Int?
+  nombrePersonnesFoyer  Int?
+  typeOccupant          TypeOccupant?
 
   organisationId String
   organisation   Organisation @relation(fields: [organisationId], references: [id])
@@ -1392,6 +1418,9 @@ model Programme {
 
   versions ProgrammeVersion[]
 
+  // P14
+  ficheMetiers FicheMetierProgramme[]
+
   @@unique([organisationId, code])
   @@index([organisationId])
 }
@@ -1732,6 +1761,11 @@ model RegleReglementaire {
   updatedAt   DateTime             @updatedAt
 
   versions RegleReglementaireVersion[]
+
+  // P14 - référencée par métier, JAMAIS par version précise : la version
+  // applicable reste toujours résolue par getApplicableRuleVersion()
+  // (date + publie), une FicheMetier ne fige jamais un choix de version.
+  ficheMetiers FicheMetierRegleReglementaire[]
 }
 
 model RegleReglementaireVersion {
@@ -2278,6 +2312,21 @@ enum TypeQuestion {
   DATE
 }
 
+// P14 - priorité de sélection pour le moteur Next Best Question
+// (src/lib/next-best-question). L'ORDRE DE DÉCLARATION ci-dessous EST
+// l'ordre de priorité (BLOQUANT_DECISION = le plus prioritaire). Une
+// question sans categorieImpact (null) est traitée comme la priorité la
+// plus basse (équivalent COMMERCIAL) - jamais comme bloquante par défaut.
+enum CategorieImpactQuestion {
+  BLOQUANT_DECISION
+  ELIGIBILITE
+  CONFIRMATION_OPPORTUNITE
+  PROGRAMME_AIDE
+  SCENARIO
+  TECHNIQUE_RDV
+  COMMERCIAL
+}
+
 model Question {
   id                     String               @id @default(cuid())
   questionnaireVersionId String
@@ -2301,6 +2350,20 @@ model Question {
   // dynamique, seulement pour que la réponse ne reste jamais uniquement
   // dans un JSON opaque (section 10).
   champMappe  String?
+
+  // P14 - null = question de tronc commun (aucun métier spécifique). Sert
+  // uniquement de regroupement/affichage pour la phase d'approfondissement
+  // (Moteur Opportunités) - la DÉDUPLICATION entre métiers reste TOUJOURS
+  // portée par champMappe, jamais par ce champ (cf. src/lib/next-best-question).
+  metierConcerne  TypeTravaux?
+  // P14 - null traité comme la priorité la plus basse par le moteur NBQ.
+  categorieImpact CategorieImpactQuestion?
+  // P14 - départage UNIQUEMENT entre deux questions de la MÊME
+  // categorieImpact (cf. src/lib/next-best-question/engine.ts). Ne doit
+  // JAMAIS être lu par un moteur P7/P8 (aucune fonction de ces moteurs
+  // n'accepte ce champ en paramètre) : un poids commercial ne peut donc
+  // structurellement jamais influencer une décision d'éligibilité/CEE/aide.
+  poidsCommercial Int                      @default(0)
 
   options               OptionQuestion[]
   conditionsAffichage   ConditionQuestion[] @relation("QuestionConditionnee")
@@ -2338,6 +2401,16 @@ model ConditionQuestion {
   @@index([questionDeclenchanteId])
 }
 
+// P14 - EST la session de qualification télépro (audit : "ne pas créer
+// QualificationSession, étendre ReponseQuestionnaire"). createdAt fait
+// office de startedAt (une session est créée au premier autosave, jamais
+// avant) - pas de colonne séparée, updatedAt suit chaque réponse.
+enum StatutReponseQuestionnaire {
+  EN_COURS
+  TERMINEE
+  ABANDONNEE
+}
+
 // Une instance de questionnaire rempli pour un lead donné, sur UNE version
 // figée (jamais migrée automatiquement vers une version plus récente).
 model ReponseQuestionnaire {
@@ -2349,6 +2422,23 @@ model ReponseQuestionnaire {
   questionnaireVersionId String
   questionnaireVersion   QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
 
+  // P14 - télépro ayant réalisé cette session (distinct de Lead.teleprospecteurId,
+  // qui peut changer indépendamment de qui a effectivement mené cet appel).
+  realiseParId String?
+  realisePar   User?                      @relation("ReponseQuestionnaireRealisePar", fields: [realiseParId], references: [id])
+  statut       StatutReponseQuestionnaire @default(EN_COURS)
+  termineeAt   DateTime?
+
+  // P14 - gelé UNIQUEMENT au moment de la confirmation du RDV (jamais
+  // recalculé rétroactivement, même philosophie que EtudeDossier.inputHash).
+  // Contenu minimal attendu : métiers proposés, scores, raisons,
+  // informations manquantes, programmes/règles testés, timestamp.
+  opportunitesSnapshot Json?
+
+  // P14 - RDV créé à l'issue de cette session, le cas échéant.
+  rdvCreeId String?
+  rdvCree   Rdv?    @relation(fields: [rdvCreeId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2356,6 +2446,8 @@ model ReponseQuestionnaire {
 
   @@unique([leadId, questionnaireVersionId])
   @@index([organisationId])
+  @@index([realiseParId])
+  @@index([rdvCreeId])
 }
 
 model ReponseQuestion {
@@ -2448,6 +2540,9 @@ model Rdv {
   createdBy   User?    @relation("RdvCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // P14
+  sessionsQualification ReponseQuestionnaire[]
 
   @@index([organisationId])
   @@index([leadId])
@@ -2756,4 +2851,132 @@ model WebhookDelivery {
   @@index([endpointId])
   @@index([organisationId])
   @@index([statut])
+}
+
+// ============================================================
+// P14 - Moteur de qualification télépro intelligent. Additif uniquement :
+// ne modifie aucun modèle P0-P13, ne duplique aucune règle réglementaire
+// (référence RegleReglementaire, jamais une copie de ses valeurs), ne
+// duplique aucun langage de conditions (réutilise le même principe typé/
+// whitelisté que ConditionQuestion/EtapeCondition - jamais d'eval()).
+// Voir src/lib/opportunites, src/lib/next-best-question,
+// src/lib/reglementaire/menage*.ts.
+// ============================================================
+
+// FicheMetier = configuration centrale d'UNE prestation pour UN tenant
+// (audit : "point de configuration d'une prestation... aucune règle
+// officielle dupliquée, elle référence les moteurs/règles existants").
+// Ajouter une nouvelle prestation = ajouter une ligne ici + des Question
+// taguées metierConcerne = typeTravaux, jamais modifier le Moteur
+// Opportunités (src/lib/opportunites/engine.ts reste 100% générique).
+model FicheMetier {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  typeTravaux TypeTravaux
+  code        String
+  libelle     String
+  categorie   String?
+  actif       Boolean     @default(true)
+  ordre       Int         @default(0)
+
+  // Conditions d'activation typées - MÊME structure que ConditionQuestion
+  // (questionCode déclenchante + valeurAttendue), stockée en Json car une
+  // FicheMetier n'appartient à aucune QuestionnaireVersion unique (elle
+  // peut réagir à des questions de plusieurs questionnaires actifs du
+  // tenant). Interprétée par src/lib/opportunites/engine.ts avec le MÊME
+  // comparateur d'égalité que src/lib/questionnaire/engine.ts - jamais un
+  // second langage de règles, jamais d'eval().
+  conditionsActivation Json @default("[]")
+
+  // Whitelist de noms de champs réels (convention "Logement.xxx"/
+  // "Client.xxx", identique à Question.champMappe) nécessaires pour évaluer
+  // la pertinence/l'éligibilité de ce métier. La DÉDUPLICATION du Next Best
+  // Question repose sur ces noms de champs, jamais sur un identifiant de
+  // Question précis ni sur metierConcerne.
+  donneesNecessairesEligibilite Json @default("[]")
+
+  argumentaireId String?
+  argumentaire   ArgumentaireMetier? @relation(fields: [argumentaireId], references: [id])
+
+  typeRdvRecommande   TypeRdv?
+  controlesTechniques Json     @default("[]")
+  prochaineAction     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  programmes           FicheMetierProgramme[]
+  reglesReglementaires FicheMetierRegleReglementaire[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@index([typeTravaux])
+}
+
+// Jointure N:N FicheMetier <-> Programme (audit : "1 métier -> plusieurs
+// programmes, 1 programme -> plusieurs métiers" - jamais Programme.typeTravaux,
+// qui imposerait artificiellement 1 programme = 1 métier).
+model FicheMetierProgramme {
+  id            String      @id @default(cuid())
+  ficheMetierId String
+  ficheMetier   FicheMetier @relation(fields: [ficheMetierId], references: [id], onDelete: Cascade)
+  programmeId   String
+  programme     Programme   @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([ficheMetierId, programmeId])
+  @@index([programmeId])
+}
+
+// Jointure N:N FicheMetier <-> RegleReglementaire (fiche CEE/officielle).
+// Pointe TOUJOURS vers RegleReglementaire (l'identité stable de la fiche,
+// ex. "BAR-TH-171"), JAMAIS vers une RegleReglementaireVersion précise - la
+// version effectivement applicable reste résolue par
+// getApplicableRuleVersion() (date d'engagement + publie), exactement comme
+// pour tout le reste du moteur P7.
+model FicheMetierRegleReglementaire {
+  id                   String             @id @default(cuid())
+  ficheMetierId        String
+  ficheMetier          FicheMetier        @relation(fields: [ficheMetierId], references: [id], onDelete: Cascade)
+  regleReglementaireId String
+  regleReglementaire   RegleReglementaire @relation(fields: [regleReglementaireId], references: [id], onDelete: Cascade)
+  createdAt            DateTime           @default(now())
+
+  @@unique([ficheMetierId, regleReglementaireId])
+  @@index([regleReglementaireId])
+}
+
+// Argumentaire commercial, STRICTEMENT séparé de toute règle officielle
+// (audit section K). Ne contient jamais de logique de calcul : les 4 blocs
+// texte sont des templates tenant-éditables rendus via le MÊME mécanisme de
+// substitution whitelisté que EmailTemplate (src/lib/automations/templates.ts,
+// ALLOWED_VARIABLES) - jamais d'interpolation arbitraire. Le bloc AIDES
+// n'existe volontairement PAS comme champ texte ici : il est toujours généré
+// par le Moteur Opportunités/P7, jamais par du texte libre tenant, pour
+// qu'un argumentaire ne puisse structurellement jamais fabriquer un montant
+// d'aide, une éligibilité, une économie ou un résultat CEE.
+model ArgumentaireMetier {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  typeTravaux TypeTravaux
+  code        String
+  libelle     String
+
+  pourquoi       String? @db.Text
+  benefices      String? @db.Text
+  aConfirmer     String? @db.Text
+  prochaineEtape String? @db.Text
+
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fichesMetier FicheMetier[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
 }

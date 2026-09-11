@@ -125,13 +125,16 @@ export async function buildStudyContext(dossierId: string, organisationId: strin
     dateDepotDelegataireCee: qualified.connu(dossier.dateDepotDelegataireCee),
   };
 
+  // P14 - Client.typeOccupant/revenuFiscalReference/nombrePersonnesFoyer
+  // lus réellement désormais (auparavant qualified.absent() codé en dur,
+  // faute de champ source - cf. commentaire historique dans types.ts).
   const client = {
     nom: dossier.client.nom,
     prenom: dossier.client.prenom,
-    typeOccupant: qualified.absent<"PROPRIETAIRE" | "LOCATAIRE">(),
+    typeOccupant: qualified.connu(dossier.client.typeOccupant),
     precarite: qualified.connu(dossier.client.precarite),
-    revenuMenage: qualified.absent<number>(),
-    compositionMenage: qualified.absent<number>(),
+    revenuMenage: qualified.connu(dossier.client.revenuFiscalReference),
+    compositionMenage: qualified.connu(dossier.client.nombrePersonnesFoyer),
   };
 
   const logement = {
