@@ -2232,6 +2232,22 @@ enum ConfianceDonnee {
   VERIFIE
 }
 
+// P14.1 - fiabilité d'une PROPOSITION en attente (retournée par un
+// connecteur : LOW/MEDIUM/HIGH), volontairement un enum DISTINCT de
+// ConfianceDonnee. Ne jamais confondre les deux : ConfianceDonnee décrit
+// l'état épistémique de la valeur ACTUELLE/CONFIRMÉE (déclarée / estimée /
+// vérifiée par un humain) ; NiveauConfianceProposition décrit uniquement la
+// fiabilité que LE CONNECTEUR attribue à une proposition pas encore
+// confirmée. Avant P14.1, cette information était calculée par le
+// connecteur puis jetée avant persistance - l'UI affichait donc toujours
+// "DECLARE" (la valeur par défaut de confiance) quelle que soit la vraie
+// fiabilité retournée par l'API.
+enum NiveauConfianceProposition {
+  FAIBLE
+  MOYENNE
+  ELEVEE
+}
+
 // Provenance/confiance par champ (section 5) - volontairement UNE ligne par
 // (logement, champ) plutôt qu'un historique complet : suffisant pour savoir
 // d'où vient une valeur et porter une éventuelle proposition externe en
@@ -2251,14 +2267,19 @@ model ChampProvenance {
   // Proposition externe en attente (section 29) - n'écrase JAMAIS
   // valeurActuelle/source/confiance tant qu'elle n'a pas été acceptée
   // explicitement (section 30 : traçabilité complète de l'acceptation).
-  valeurProposee   String?
-  sourceProposee   SourceDonnee?
-  referenceExterne String?
-  recupereeAt      DateTime?
-  accepteeById     String?
-  accepteeBy       User?         @relation("ChampProvenanceAcceptedBy", fields: [accepteeById], references: [id])
-  accepteeAt       DateTime?
-  refuseeAt        DateTime?
+  valeurProposee    String?
+  sourceProposee    SourceDonnee?
+  // P14.1 - fiabilité de CETTE proposition précise (FAIBLE/MOYENNE/ELEVEE),
+  // distincte de `confiance` ci-dessus. Toujours effacée (remise à null) au
+  // moment de l'acceptation ou du refus : une fois la proposition résolue,
+  // seule `confiance` (VERIFIE après acceptation) fait foi.
+  confianceProposee NiveauConfianceProposition?
+  referenceExterne  String?
+  recupereeAt       DateTime?
+  accepteeById      String?
+  accepteeBy        User?         @relation("ChampProvenanceAcceptedBy", fields: [accepteeById], references: [id])
+  accepteeAt        DateTime?
+  refuseeAt         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

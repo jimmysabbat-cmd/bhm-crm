@@ -29,6 +29,15 @@ const LOGEMENT_FIELD_TYPE: Record<string, "string" | "float" | "int" | "enum"> =
 
 type ChampPropose = { champ: string; valeur: string; source: string; confiance: "LOW" | "MEDIUM" | "HIGH"; referenceExterne?: string };
 
+// P14.1 - traduction UNIQUE (un seul endroit à lire) du niveau LOW/MEDIUM/HIGH
+// retourné par un connecteur vers l'enum Prisma NiveauConfianceProposition.
+// Jamais dupliquée ailleurs.
+const CONFIANCE_CONNECTEUR_VERS_PROPOSITION: Record<"LOW" | "MEDIUM" | "HIGH", "FAIBLE" | "MOYENNE" | "ELEVEE"> = {
+  LOW: "FAIBLE",
+  MEDIUM: "MOYENNE",
+  HIGH: "ELEVEE",
+};
+
 export type EnrichissementResult = {
   logementId: string;
   propositions: ChampPropose[];
@@ -89,9 +98,18 @@ export async function proposerEnrichissementAdresse(params: {
     // Ne jamais toucher une donnée déjà VÉRIFIÉE humainement.
     if (existing?.confiance === "VERIFIE") continue;
 
+    const confianceProposee = CONFIANCE_CONNECTEUR_VERS_PROPOSITION[p.confiance];
+
     await prisma.champProvenance.upsert({
       where: { logementId_champ: { logementId: logement.id, champ: p.champ } },
-      update: { valeurProposee: p.valeur, sourceProposee: "API", referenceExterne: p.referenceExterne ?? null, recupereeAt: new Date(), refuseeAt: null },
+      update: {
+        valeurProposee: p.valeur,
+        sourceProposee: "API",
+        confianceProposee,
+        referenceExterne: p.referenceExterne ?? null,
+        recupereeAt: new Date(),
+        refuseeAt: null,
+      },
       create: {
         organisationId: params.organisationId,
         logementId: logement.id,
@@ -100,6 +118,7 @@ export async function proposerEnrichissementAdresse(params: {
         confiance: "DECLARE",
         valeurProposee: p.valeur,
         sourceProposee: "API",
+        confianceProposee,
         referenceExterne: p.referenceExterne ?? null,
         recupereeAt: new Date(),
       },
@@ -128,7 +147,7 @@ export async function reconcilierPropositionChamp(params: {
   if (params.decision === "REFUSER") {
     await prisma.champProvenance.update({
       where: { id: cp.id },
-      data: { valeurProposee: null, sourceProposee: null, referenceExterne: null, refuseeAt: new Date() },
+      data: { valeurProposee: null, sourceProposee: null, confianceProposee: null, referenceExterne: null, refuseeAt: new Date() },
     });
     return;
   }
@@ -155,6 +174,7 @@ export async function reconcilierPropositionChamp(params: {
         accepteeAt: new Date(),
         valeurProposee: null,
         sourceProposee: null,
+        confianceProposee: null,
       },
     }),
   ]);

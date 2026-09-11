@@ -30,20 +30,34 @@ export default async function LeadQualificationPage({ params }: { params: Promis
   if (!lead) notFound();
   if (!hasPermission(ctx, "VIEW_LEADS") || !canAccessLead(ctx, lead)) redirect("/leads");
 
-  const questionnaireVersion = await prisma.questionnaireVersion.findFirst({
-    where: { publiee: true, questionnaire: { code: "QUALIFICATION_COMMERCIALE", organisationId: null } },
-    orderBy: { numeroVersion: "desc" },
+  // Une session (ReponseQuestionnaire) déjà démarrée reste TOUJOURS sur sa
+  // propre version, jamais redirigée vers une version plus récente publiée
+  // depuis (même gouvernance que RegleReglementaireVersion/ProgrammeVersion :
+  // publier une nouvelle version ne modifie jamais le comportement de ce qui
+  // est déjà en cours). Seul un lead SANS session existante démarre sur la
+  // dernière version publiée.
+  const sessionExistante = await prisma.reponseQuestionnaire.findFirst({
+    where: { leadId: id },
+    orderBy: { updatedAt: "desc" },
     include: {
-      questions: { orderBy: { ordre: "asc" }, include: { options: { orderBy: { ordre: "asc" } }, conditionsAffichage: true } },
+      reponses: true,
+      questionnaireVersion: {
+        include: { questions: { orderBy: { ordre: "asc" }, include: { options: { orderBy: { ordre: "asc" } }, conditionsAffichage: true } } },
+      },
     },
   });
 
-  const reponseQuestionnaire = questionnaireVersion
-    ? await prisma.reponseQuestionnaire.findUnique({
-        where: { leadId_questionnaireVersionId: { leadId: lead.id, questionnaireVersionId: questionnaireVersion.id } },
-        include: { reponses: true },
-      })
-    : null;
+  const questionnaireVersion =
+    sessionExistante?.questionnaireVersion ??
+    (await prisma.questionnaireVersion.findFirst({
+      where: { publiee: true, questionnaire: { code: "QUALIFICATION_COMMERCIALE", organisationId: null } },
+      orderBy: { numeroVersion: "desc" },
+      include: {
+        questions: { orderBy: { ordre: "asc" }, include: { options: { orderBy: { ordre: "asc" } }, conditionsAffichage: true } },
+      },
+    }));
+
+  const reponseQuestionnaire = sessionExistante ?? null;
 
   const [statuts, sources, resultats, users, emailDrafts] = await Promise.all([
     prisma.leadPipelineStatus.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
@@ -78,6 +92,16 @@ export default async function LeadQualificationPage({ params }: { params: Promis
     getNextBestQuestionPourLead(lead.id),
     getCategorieMenagePourLead(lead.id),
   ]);
+
+  // P14.1 - une catégorie DÉCLARÉE directement (CATEGORIE_REVENUS_DECLAREE)
+  // ou déjà CALCULÉE PUIS CONFIRMÉE (CATEGORIE_REVENUS_CALCULEE) n'apparaît
+  // jamais dans categorieMenageRes (calculateCategorieMenage ne calcule
+  // qu'à partir de RFR/personnes/zone, il ne lit jamais une réponse
+  // "déclarée"). Sans ceci, la déclaration disparaîtrait de l'écran après un
+  // simple rechargement de page - jamais le comportement voulu.
+  const questionDeclareeId = questionnaireVersion?.questions.find((q) => q.code === "CATEGORIE_REVENUS_DECLAREE")?.id;
+  const reponseDeclaree = questionDeclareeId ? sessionExistante?.reponses.find((r) => r.questionId === questionDeclareeId) : null;
+  const initialCategorieDeclaree = (reponseDeclaree?.valeurOptions as string[] | null)?.[0] ?? null;
 
   return (
     <div>
@@ -181,7 +205,19 @@ export default async function LeadQualificationPage({ params }: { params: Promis
         initialOpportunites={opportunitesRes.ok ? opportunitesRes.result.opportunites : []}
         initialNbq={nbqRes.ok ? nbqRes.result : null}
         initialCategorieMenage={categorieMenageRes.ok ? categorieMenageRes.result : null}
+        initialCategorieDeclaree={initialCategorieDeclaree}
         hasAdresse={lead.adresse != null}
+        revenusQuestions={
+          questionnaireVersion
+            ? Object.fromEntries(
+                questionnaireVersion.questions
+                  .filter((q) =>
+                    ["CATEGORIE_REVENUS_DECLAREE", "NOMBRE_PERSONNES_FOYER", "REVENU_FISCAL_REFERENCE", "ANNEE_REFERENCE_REVENU", "TYPE_OCCUPANT", "CATEGORIE_REVENUS_CALCULEE"].includes(q.code)
+                  )
+                  .map((q) => [q.code, q.id])
+              )
+            : {}
+        }
       />
     </div>
   );

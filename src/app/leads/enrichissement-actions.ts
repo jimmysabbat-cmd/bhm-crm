@@ -69,9 +69,21 @@ export async function confirmerChampPropose(
   }
 }
 
-export async function getPropositionsEnAttente(leadId: string): Promise<
-  { ok: true; propositions: { id: string; champ: string; valeurProposee: string; confiance: string; sourceProposee: string | null }[] } | { ok: false; error: string }
-> {
+export type PropositionEnAttente = {
+  id: string;
+  champ: string;
+  valeurProposee: string;
+  // P14.1 - SOURCE (d'où vient la proposition, ex. "API") et CONFIANCE
+  // (fiabilité FAIBLE/MOYENNE/ELEVEE attribuée par le connecteur à CETTE
+  // proposition précise) sont deux informations distinctes, jamais
+  // confondues. `sourceProposee` = provenance ; `confianceProposee` =
+  // fiabilité. Aucune des deux n'est le statut (porté par la simple
+  // présence de la proposition = "à confirmer").
+  sourceProposee: string | null;
+  confianceProposee: string | null;
+};
+
+export async function getPropositionsEnAttente(leadId: string): Promise<{ ok: true; propositions: PropositionEnAttente[] } | { ok: false; error: string }> {
   try {
     const ctx = await requireUserContext();
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
@@ -87,7 +99,13 @@ export async function getPropositionsEnAttente(leadId: string): Promise<
 
     return {
       ok: true,
-      propositions: champs.map((c) => ({ id: c.id, champ: c.champ, valeurProposee: c.valeurProposee!, confiance: c.confiance, sourceProposee: c.sourceProposee })),
+      propositions: champs.map((c) => ({
+        id: c.id,
+        champ: c.champ,
+        valeurProposee: c.valeurProposee!,
+        sourceProposee: c.sourceProposee,
+        confianceProposee: c.confianceProposee,
+      })),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
