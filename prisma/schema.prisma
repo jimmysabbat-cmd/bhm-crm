@@ -421,6 +421,7 @@ model User {
   dossierDocumentsCreees       DossierDocument[]     @relation("DossierDocumentCreatedBy")
   transmissionPackagesTransmis TransmissionPackage[] @relation("TransmissionPackageTransmittedBy")
   transmissionPackagesCrees    TransmissionPackage[] @relation("TransmissionPackageCreatedBy")
+  transmissionPackagesRepondus TransmissionPackage[] @relation("TransmissionPackageRespondedBy")
 
   // P11
   notifications         Notification[]
@@ -913,6 +914,9 @@ model DossierPosteTravaux {
 
   createdAt DateTime @default(now())
 
+  // P15 (60 min) - missions envoyées pour CE poste (0..n, multi-sous-traitants).
+  missions TransmissionPackage[]
+
   @@index([dossierId])
 }
 
@@ -1152,6 +1156,16 @@ enum StatutTransmissionPackage {
   PRET
   TRANSMIS
   ANNULE
+  // P15 (60 min) - cycle de vie d'une MISSION envoyée à un sous-traitant
+  // via ce même modèle TransmissionPackage (posteTravauxId non nul).
+  // Valeurs additives uniquement, aucun impact sur BROUILLON/PRET/TRANSMIS/
+  // ANNULE utilisés par les flux de transmission existants (ANAH/CEE/etc.).
+  ENVOYEE
+  ACCEPTEE
+  REFUSEE
+  PLANIFIEE
+  EN_COURS
+  TERMINEE
 }
 
 // Package de transmission (P10, section 16/17) - snapshot figé de ce qui a
@@ -1175,11 +1189,35 @@ model TransmissionPackage {
   destinationDelegataireCeeId String?
   destinationDelegataireCee   DelegataireCee?         @relation(fields: [destinationDelegataireCeeId], references: [id])
 
+  // P15 (60 min, mission sous-traitant) - rattachement précis à UN poste de
+  // travaux quand ce package sert de mission (posteTravauxId non nul).
+  // Nul pour tout package de transmission classique (ANAH/CEE/etc.), qui
+  // reste au niveau dossier comme avant. Plusieurs packages/missions
+  // peuvent viser le MÊME posteTravauxId (multi-sous-traitants sur un même
+  // lot : ex. ITE = échafaudage + isolation + finition, chacun une mission
+  // indépendante).
+  posteTravauxId String?
+  posteTravaux   DossierPosteTravaux? @relation(fields: [posteTravauxId], references: [id])
+
   status   StatutTransmissionPackage @default(BROUILLON)
   // Contenu exact au moment de la création (section 29) - jamais recalculé
   // rétroactivement, même si les documents/exigences changent ensuite.
   snapshot Json
   comment  String?
+
+  // P15 (60 min) - champs mission : prix convenu et fenêtre de dates
+  // souhaitées, en colonnes réelles (pas dans snapshot JSON) pour que le
+  // futur /planning puisse les lire directement sans parser du JSON.
+  prixConvenuCts       Int?
+  dateDebutSouhaitee   DateTime?
+  dateFinSouhaitee     DateTime?
+
+  // P15 (60 min) - réponse du sous-traitant (accepter/refuser), jamais
+  // renseigné par un autre rôle que le partenaire destinataire lui-même.
+  respondedAt     DateTime?
+  respondedById   String?
+  respondedBy     User?     @relation("TransmissionPackageRespondedBy", fields: [respondedById], references: [id])
+  refusalReason   String?
 
   transmittedAt     DateTime?
   transmittedById   String?
@@ -1196,6 +1234,7 @@ model TransmissionPackage {
   @@index([dossierId])
   @@index([destinationSousTraitantId])
   @@index([destinationDelegataireCeeId])
+  @@index([posteTravauxId])
 }
 
 model TransmissionPackageDocument {
