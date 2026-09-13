@@ -80,3 +80,70 @@ export async function getPartnerPackages(ctx: UserContext): Promise<PartnerPacka
     documents: p.documents.map((d) => ({ id: d.id, nomFichier: d.dossierDocument.nomFichier, typeDocumentNom: d.typeDocument?.nom ?? null })),
   }));
 }
+
+// ============================================================
+// P15 (60 min) - "Mes missions" : TransmissionPackage rattaché à un
+// posteTravauxId précis (jamais un package de transmission classique
+// ANAH/CEE/etc., qui reste posteTravauxId=null). Un sous-traitant ne voit
+// QUE les champs présents dans le snapshot figé au moment de l'envoi
+// (jamais les autres champs du Client/du dossier), et QUE les documents
+// listés dans ce package (jamais les autres documents du dossier).
+// ============================================================
+
+export type PartnerMissionRow = {
+  packageId: string;
+  dossierReference: string;
+  posteTravauxId: string | null;
+  posteType: string | null;
+  status: string;
+  client: Record<string, string>;
+  travaux: { type?: string; surfaceM2?: number | null; quantite?: number | null; ficheReglementaireCode?: string | null };
+  instructions: string | null;
+  prixConvenuCts: number | null;
+  dateDebutSouhaitee: Date | null;
+  dateFinSouhaitee: Date | null;
+  createdAt: Date;
+  documents: { id: string; nomFichier: string; typeDocumentNom: string | null }[];
+};
+
+export async function getPartnerMissions(ctx: UserContext): Promise<PartnerMissionRow[]> {
+  if (ctx.role !== "SOUS_TRAITANT" || !ctx.sousTraitantId) return [];
+
+  const missions = await prisma.transmissionPackage.findMany({
+    where: { organisationId: ctx.organisationId, destinationSousTraitantId: ctx.sousTraitantId, posteTravauxId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      snapshot: true,
+      comment: true,
+      prixConvenuCts: true,
+      dateDebutSouhaitee: true,
+      dateFinSouhaitee: true,
+      createdAt: true,
+      dossier: { select: { reference: true } },
+      posteTravauxId: true,
+      posteTravaux: { select: { type: true } },
+      documents: { select: { id: true, dossierDocument: { select: { nomFichier: true } }, typeDocument: { select: { nom: true } } } },
+    },
+  });
+
+  return missions.map((m) => {
+    const snap = (m.snapshot ?? {}) as { client?: Record<string, string>; travaux?: PartnerMissionRow["travaux"] };
+    return {
+      packageId: m.id,
+      dossierReference: m.dossier.reference,
+      posteTravauxId: m.posteTravauxId,
+      posteType: m.posteTravaux?.type ?? null,
+      status: m.status,
+      client: snap.client ?? {},
+      travaux: snap.travaux ?? {},
+      instructions: m.comment,
+      prixConvenuCts: m.prixConvenuCts,
+      dateDebutSouhaitee: m.dateDebutSouhaitee,
+      dateFinSouhaitee: m.dateFinSouhaitee,
+      createdAt: m.createdAt,
+      documents: m.documents.map((d) => ({ id: d.id, nomFichier: d.dossierDocument.nomFichier, typeDocumentNom: d.typeDocument?.nom ?? null })),
+    };
+  });
+}

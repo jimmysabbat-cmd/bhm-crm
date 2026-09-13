@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { requireUserContext, isPartnerRole } from "@/lib/authz";
-import { getPartnerDossiers, getPartnerPackages } from "@/lib/partners/access";
+import { getPartnerDossiers, getPartnerPackages, getPartnerMissions } from "@/lib/partners/access";
 import { formatCents } from "@/lib/money";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { MissionActions } from "./MissionActions";
 
 // ============================================================
 // Espace partenaire (P11, section 23/24) - accès TRÈS limité pour un
@@ -18,7 +19,24 @@ export default async function PartenairePage() {
   const ctx = await requireUserContext();
   if (!isPartnerRole(ctx)) redirect("/");
 
-  const [dossiers, packages] = await Promise.all([getPartnerDossiers(ctx), getPartnerPackages(ctx)]);
+  const [dossiers, packages, missions] = await Promise.all([getPartnerDossiers(ctx), getPartnerPackages(ctx), getPartnerMissions(ctx)]);
+
+  const STATUT_LABELS: Record<string, string> = {
+    ENVOYEE: "Envoyée",
+    ACCEPTEE: "Acceptée",
+    REFUSEE: "Refusée",
+    PLANIFIEE: "Planifiée",
+    EN_COURS: "En cours",
+    TERMINEE: "Terminée",
+  };
+  const STATUT_COLORS: Record<string, "emerald" | "blue" | "red" | "amber"> = {
+    ENVOYEE: "blue",
+    ACCEPTEE: "emerald",
+    REFUSEE: "red",
+    PLANIFIEE: "blue",
+    EN_COURS: "amber",
+    TERMINEE: "emerald",
+  };
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-8 py-10">
@@ -28,6 +46,48 @@ export default async function PartenairePage() {
           {ctx.role === "SOUS_TRAITANT" ? "Vos chantiers assignés et vos documents." : "Vos packages de transmission."}
         </p>
       </div>
+
+      {ctx.role === "SOUS_TRAITANT" && (
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-100 px-5 py-3 text-sm font-medium text-slate-700">Mes missions ({missions.length})</div>
+          <div className="divide-y divide-slate-100">
+            {missions.map((m) => (
+              <div key={m.packageId} className="px-5 py-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="font-medium text-slate-900">
+                    {m.dossierReference} — {m.posteType ?? "Poste"}
+                  </div>
+                  <Badge color={STATUT_COLORS[m.status] ?? "blue"}>{STATUT_LABELS[m.status] ?? m.status}</Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-slate-600">
+                  {(m.client.prenom || m.client.nom) && (
+                    <div>
+                      Client : {m.client.prenom} {m.client.nom}
+                    </div>
+                  )}
+                  {m.client.telephone && <div>Téléphone : {m.client.telephone}</div>}
+                  {m.client.adresse && <div>Adresse : {m.client.adresse}</div>}
+                  {m.travaux.surfaceM2 != null && <div>Surface : {m.travaux.surfaceM2} m²</div>}
+                  {m.travaux.quantite != null && <div>Quantité : {m.travaux.quantite}</div>}
+                  {(m.dateDebutSouhaitee || m.dateFinSouhaitee) && (
+                    <div>
+                      Dates souhaitées : {m.dateDebutSouhaitee ? new Date(m.dateDebutSouhaitee).toLocaleDateString("fr-FR") : "—"} →{" "}
+                      {m.dateFinSouhaitee ? new Date(m.dateFinSouhaitee).toLocaleDateString("fr-FR") : "—"}
+                    </div>
+                  )}
+                  {m.prixConvenuCts != null && <div>Prix convenu : {formatCents(m.prixConvenuCts)}</div>}
+                </div>
+                {m.instructions && <div className="text-sm text-slate-600">Instructions : {m.instructions}</div>}
+                {m.documents.length > 0 && (
+                  <div className="text-sm text-slate-500">Documents partagés : {m.documents.map((d) => d.typeDocumentNom ?? d.nomFichier).join(", ")}</div>
+                )}
+                <MissionActions packageId={m.packageId} status={m.status} />
+              </div>
+            ))}
+            {missions.length === 0 && <div className="px-5 py-8 text-center text-sm text-slate-400">Aucune mission pour l&apos;instant.</div>}
+          </div>
+        </Card>
+      )}
 
       {ctx.role === "SOUS_TRAITANT" && (
         <Card className="overflow-hidden">

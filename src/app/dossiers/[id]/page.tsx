@@ -63,6 +63,7 @@ import {
   uploadDocument,
   deleteDocument,
 } from "../actions";
+import { EnvoyerEnMissionButton } from "../EnvoyerEnMissionButton";
 import {
   affecterProgrammeAuDossier,
   demarrerEtape,
@@ -1703,6 +1704,12 @@ export default async function DossierDetailPage({
                     Supprimer
                   </Button>
                 </div>
+                <EnvoyerEnMissionButton
+                  dossierId={dossier.id}
+                  posteTravauxId={poste.id}
+                  sousTraitants={sousTraitants}
+                  posteLabel={`${typeTravauxLabels[poste.type] ?? poste.type}${poste.surfaceM2 ? ` — ${poste.surfaceM2} m²` : ""}`}
+                />
               </form>
             ))}
             {dossier.postesTravaux
