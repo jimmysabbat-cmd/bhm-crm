@@ -29,4 +29,9 @@ export function getDpeData(input: AddressInput): Promise<ConnectorResult<DpeData
   return ademeDpeConnector.getDpeData(input);
 }
 
+// P14.2 (audit section 6) - plusieurs candidats DPE possibles pour une
+// même adresse : ne jamais choisir silenceusement, laisser le télépro
+// sélectionner explicitement.
+export { getDpeCandidates } from "./dpe-ademe";
+
 export const companyConnector = noopCompanyConnector;

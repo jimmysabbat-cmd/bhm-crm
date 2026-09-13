@@ -6,6 +6,8 @@ import { canViewStudyCostsAndMargin } from "@/lib/etude/redact";
 import { QualificationWorkspace } from "../../QualificationWorkspace";
 import { LeadCommunicationsPanel } from "../../LeadCommunicationsPanel";
 import { OpportunitesPanel } from "../../OpportunitesPanel";
+import { QualificationViewToggle } from "../../QualificationViewToggle";
+import { GuidedQualification } from "../../GuidedQualification";
 import { calculerOpportunitesPourLead, getNextBestQuestionPourLead, getCategorieMenagePourLead } from "../../qualification-actions";
 
 export default async function LeadQualificationPage({ params }: { params: Promise<{ id: string }> }) {
@@ -103,7 +105,58 @@ export default async function LeadQualificationPage({ params }: { params: Promis
   const reponseDeclaree = questionDeclareeId ? sessionExistante?.reponses.find((r) => r.questionId === questionDeclareeId) : null;
   const initialCategorieDeclaree = (reponseDeclaree?.valeurOptions as string[] | null)?.[0] ?? null;
 
-  return (
+  const revenusQuestionsMap = questionnaireVersion
+    ? Object.fromEntries(
+        questionnaireVersion.questions
+          .filter((q) => ["CATEGORIE_REVENUS_DECLAREE", "NOMBRE_PERSONNES_FOYER", "REVENU_FISCAL_REFERENCE", "ANNEE_REFERENCE_REVENU", "TYPE_OCCUPANT", "CATEGORIE_REVENUS_CALCULEE"].includes(q.code))
+          .map((q) => [q.code, q.id])
+      )
+    : {};
+
+  const guidedView = (
+    <GuidedQualification
+      lead={{
+        id: lead.id,
+        prenom: lead.prenom,
+        nom: lead.nom,
+        telephone: lead.telephone,
+        adresse: lead.adresse,
+        commercialNom: lead.commercial?.name ?? null,
+        teleprospecteurNom: lead.teleprospecteur?.name ?? null,
+      }}
+      questionnaireVersionId={questionnaireVersion?.id ?? null}
+      questions={
+        questionnaireVersion?.questions.map((q) => ({
+          id: q.id,
+          code: q.code,
+          libelle: q.libelle,
+          type: q.type,
+          unite: q.unite,
+          obligatoire: q.obligatoire,
+          section: q.section,
+          options: q.options.map((o) => ({ code: o.code, libelle: o.libelle })),
+        })) ?? []
+      }
+      reponsesExistantes={(reponseQuestionnaire?.reponses ?? []).map((r) => ({
+        questionId: r.questionId,
+        valeurTexte: r.valeurTexte,
+        valeurNombre: r.valeurNombre,
+        valeurBool: r.valeurBool,
+        valeurOptions: (r.valeurOptions as string[] | null) ?? null,
+      }))}
+      logementConnu={lead.logement != null && lead.logement.typeBatiment != null && lead.logement.surfaceHabitableM2 != null}
+      initialOpportunites={opportunitesRes.ok ? opportunitesRes.result.opportunites : []}
+      initialNbq={nbqRes.ok ? nbqRes.result : null}
+      initialCategorieMenage={categorieMenageRes.ok ? categorieMenageRes.result : null}
+      initialCategorieDeclaree={initialCategorieDeclaree}
+      revenusQuestions={revenusQuestionsMap}
+      resultats={resultats.map((r) => ({ id: r.id, key: r.key, label: r.label }))}
+      aDejaRdv={lead.rdvs.length > 0}
+      peutModifier={hasPermission(ctx, "MANAGE_LEADS")}
+    />
+  );
+
+  const detailedView = (
     <div>
       <QualificationWorkspace
       lead={{
@@ -207,18 +260,10 @@ export default async function LeadQualificationPage({ params }: { params: Promis
         initialCategorieMenage={categorieMenageRes.ok ? categorieMenageRes.result : null}
         initialCategorieDeclaree={initialCategorieDeclaree}
         hasAdresse={lead.adresse != null}
-        revenusQuestions={
-          questionnaireVersion
-            ? Object.fromEntries(
-                questionnaireVersion.questions
-                  .filter((q) =>
-                    ["CATEGORIE_REVENUS_DECLAREE", "NOMBRE_PERSONNES_FOYER", "REVENU_FISCAL_REFERENCE", "ANNEE_REFERENCE_REVENU", "TYPE_OCCUPANT", "CATEGORIE_REVENUS_CALCULEE"].includes(q.code)
-                  )
-                  .map((q) => [q.code, q.id])
-              )
-            : {}
-        }
+        revenusQuestions={revenusQuestionsMap}
       />
     </div>
   );
+
+  return <QualificationViewToggle guided={guidedView} detailed={detailedView} />;
 }

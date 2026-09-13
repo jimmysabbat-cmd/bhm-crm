@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
-import { proposerEnrichissementAdresse, reconcilierPropositionChamp, type EnrichissementResult } from "@/lib/leads/enrichissement";
+import { proposerEnrichissementAdresse, reconcilierPropositionChamp, reconcilierPlusieursPropositions, proposerChampsDpeChoisi, type EnrichissementResult } from "@/lib/leads/enrichissement";
+import type { DpeData } from "@/lib/connectors/types";
 
 // ============================================================
 // Actions serveur d'enrichissement automatique par adresse (P14). Isolation
@@ -107,6 +108,59 @@ export async function getPropositionsEnAttente(leadId: string): Promise<{ ok: tr
         confianceProposee: c.confianceProposee,
       })),
     };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
+}
+
+/** Confirmation groupée (audit section 5) - réutilise reconcilierPropositionChamp par champ, provenance conservée individuellement. */
+export async function confirmerPlusieursChamps(leadId: string, champProvenanceIds: string[]): Promise<{ ok: true; accepted: number } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireUserContext();
+    const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
+    if (!lead) throw new Error("Lead introuvable.");
+    if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
+
+    // Vérifie que CHAQUE id appartient bien à ce lead avant tout accept en
+    // lot - jamais une confiance aveugle dans une liste d'ids fournie par
+    // le client (isolation stricte, y compris cross-lead au sein du tenant).
+    const valides = await prisma.champProvenance.findMany({
+      where: { id: { in: champProvenanceIds }, organisationId: ctx.organisationId, logement: { leadId: lead.id } },
+      select: { id: true },
+    });
+
+    const { accepted } = await reconcilierPlusieursPropositions({ organisationId: ctx.organisationId, champProvenanceIds: valides.map((v) => v.id), acceptedByUserId: ctx.userId });
+
+    revalidatePath(`/leads/${leadId}/qualification`);
+    return { ok: true, accepted };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
+}
+
+/**
+ * Choix EXPLICITE d'un candidat DPE parmi plusieurs (audit section 6). Le
+ * candidat complet est transmis par le client (déjà affiché à l'écran, issu
+ * d'un appel serveur précédent) - jamais re-résolu depuis un simple index
+ * pour éviter toute divergence entre ce que le télépro a vu et ce qui est
+ * réellement persisté.
+ */
+export async function choisirDpeCandidat(
+  leadId: string,
+  dpe: DpeData,
+  source: string,
+  confiance: "LOW" | "MEDIUM" | "HIGH"
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireUserContext();
+    const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
+    if (!lead) throw new Error("Lead introuvable.");
+    if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
+
+    await proposerChampsDpeChoisi({ organisationId: ctx.organisationId, leadId: lead.id, dpe, source, confiance });
+
+    revalidatePath(`/leads/${leadId}/qualification`);
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
   }

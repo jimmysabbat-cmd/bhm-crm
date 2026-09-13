@@ -13,6 +13,8 @@ import { selectNextBestQuestion, type NbqQuestion, type NbqResult } from "@/lib/
 import { calculateCategorieMenage, type CategorieMenageResult } from "@/lib/reglementaire/menage";
 import type { AnswerValue } from "@/lib/questionnaire/engine";
 import { mapReponsesToStructuredFields, type MappableAnswer, type ClientFieldUpdate } from "@/lib/questionnaire/mapping";
+import { renderArgumentaireBlocs, type ArgumentaireBlocs } from "@/lib/opportunites/argumentaire";
+import type { TemplateVariables } from "@/lib/automations/templates";
 import type { Prisma } from "@/generated/prisma/client";
 
 // ============================================================
@@ -69,11 +71,27 @@ async function loadReponsesActuelles(leadId: string): Promise<{ reponses: Record
     },
   });
 
-  if (!reponseQuestionnaire) return { reponses: {}, questions: [] };
+  // BUG P14.2 corrigé : un lead SANS session existante (jamais encore
+  // répondu) n'a pas de ReponseQuestionnaire, mais doit tout de même
+  // recevoir la liste des questions de la dernière version PUBLIÉE - sinon
+  // le Next Best Question ne trouve RIEN à poser dès le premier appel
+  // (jamais le comportement voulu : "aucune question restante" doit
+  // signifier "tout est déjà répondu", jamais "aucune session n'existe
+  // encore"). Même résolution de version que la page (session existante ->
+  // sa propre version figée ; sinon -> dernière version publiée globale).
+  const questionnaireVersion =
+    reponseQuestionnaire?.questionnaireVersion ??
+    (await prisma.questionnaireVersion.findFirst({
+      where: { publiee: true, questionnaire: { code: "QUALIFICATION_COMMERCIALE", organisationId: null } },
+      orderBy: { numeroVersion: "desc" },
+      include: { questions: { include: { conditionsAffichage: { include: { questionDeclenchante: { select: { code: true } } } } } } },
+    }));
 
-  const reponsesByQuestionId = new Map(reponseQuestionnaire.reponses.map((r) => [r.questionId, r]));
+  if (!questionnaireVersion) return { reponses: {}, questions: [] };
+
+  const reponsesByQuestionId = new Map((reponseQuestionnaire?.reponses ?? []).map((r) => [r.questionId, r]));
   const reponsesByCode: Record<string, AnswerValue> = {};
-  const questions: NbqQuestion[] = reponseQuestionnaire.questionnaireVersion.questions.map((q) => {
+  const questions: NbqQuestion[] = questionnaireVersion.questions.map((q) => {
     const r = reponsesByQuestionId.get(q.id);
     if (r) {
       reponsesByCode[q.code] = {
@@ -351,6 +369,55 @@ export async function confirmerOpportunitesEnPostes(
 
     revalidatePath(`/dossiers/${dossierId}`);
     return { ok: true, created: aCreer.length };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
+}
+
+/**
+ * Argumentaire dynamique pour une opportunité détectée (audit section 13) -
+ * réutilise EXACTEMENT renderArgumentaireBlocs (P14) et le mécanisme de
+ * variables whitelistées d'EmailTemplate. Le bloc AIDES vient toujours de
+ * l'OpportuniteDetectee elle-même, jamais du template - un argumentaire ne
+ * peut donc structurellement jamais fabriquer un montant/une éligibilité.
+ */
+export async function getArgumentairePourOpportunite(leadId: string, ficheMetierId: string): Promise<{ ok: true; result: ArgumentaireBlocs | null } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireUserContext();
+    const lead = await loadOwnedLead(leadId, ctx.organisationId);
+    if (!hasPermission(ctx, "VIEW_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
+
+    const ficheMetier = await prisma.ficheMetier.findFirst({
+      where: { id: ficheMetierId, organisationId: ctx.organisationId },
+      include: { argumentaire: true },
+    });
+    if (!ficheMetier?.argumentaire) return { ok: true, result: null };
+
+    const opportunites = await computeOpportunitesForLead(leadId, ctx.organisationId);
+    const opportunite = opportunites.opportunites.find((o) => o.ficheMetierId === ficheMetierId);
+    if (!opportunite) return { ok: true, result: null };
+
+    const logement = await prisma.logement.findUnique({ where: { leadId } });
+    const variables: TemplateVariables = {
+      "logement.chauffagePrincipal": logement?.chauffagePrincipal ?? undefined,
+      "logement.dpe": logement?.dpe ?? undefined,
+      "logement.surfaceHabitableM2": logement?.surfaceHabitableM2 != null ? String(logement.surfaceHabitableM2) : undefined,
+      "logement.typeBatiment": logement?.typeBatiment ?? undefined,
+      "opportunite.libelle": opportunite.libelle,
+    };
+
+    const result = renderArgumentaireBlocs({
+      templates: {
+        pourquoi: ficheMetier.argumentaire.pourquoi,
+        benefices: ficheMetier.argumentaire.benefices,
+        aConfirmer: ficheMetier.argumentaire.aConfirmer,
+        prochaineEtape: ficheMetier.argumentaire.prochaineEtape,
+      },
+      opportunite,
+      variables,
+    });
+
+    return { ok: true, result };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
   }
