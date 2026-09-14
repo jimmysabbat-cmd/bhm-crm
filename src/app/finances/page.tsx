@@ -13,7 +13,7 @@ import {
   type MouvementAvecDossier,
 } from "@/lib/financial-engine";
 import { getFacturesSousTraitantAValider } from "@/lib/facturation/access";
-import { validerFactureSousTraitantAction } from "@/app/facturation/actions";
+import { validerFactureSousTraitantAction, refuserFactureSousTraitantAction } from "@/app/facturation/actions";
 import { formatCents } from "@/lib/money";
 import { categorieMouvementLabels, statutMouvementLabels } from "@/lib/dossier-labels";
 import { Card } from "@/components/ui/Card";
@@ -484,11 +484,18 @@ export default async function FinancesPage({
                         )}
                       </td>
                       <td className="px-4 py-2.5">
-                        <form action={validerFactureSousTraitantAction.bind(null, f.id)}>
-                          <button type="submit" className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
-                            Valider
-                          </button>
-                        </form>
+                        <div className="flex items-center gap-2">
+                          <form action={validerFactureSousTraitantAction.bind(null, f.id)}>
+                            <button type="submit" className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
+                              Valider
+                            </button>
+                          </form>
+                          <form action={refuserFactureSousTraitantAction.bind(null, f.id, "")}>
+                            <button type="submit" className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">
+                              Refuser
+                            </button>
+                          </form>
+                        </div>
                       </td>
                     </tr>
                   ))}

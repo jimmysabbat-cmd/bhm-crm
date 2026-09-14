@@ -458,8 +458,10 @@ model User {
   etapeConditionValidations          DossierEtapeConditionValidation[]
 
   // P16
-  facturesValidees Facture[] @relation("FactureValidatedBy")
-  facturesCreees   Facture[] @relation("FactureCreatedBy")
+  facturesValidees   Facture[]             @relation("FactureValidatedBy")
+  facturesCreees     Facture[]             @relation("FactureCreatedBy")
+  reglementsCrees    ReglementFacture[]    @relation("ReglementFactureCreatedBy")
+  facturesTransmises FactureTransmission[] @relation("FactureTransmissionBy")
 
   @@index([organisationId])
   @@index([sousTraitantId])
@@ -1534,16 +1536,50 @@ model MouvementFinancier {
 enum TypeFacture {
   DONNEUR_ORDRE
   SOUS_TRAITANT
+  // P16 (ajout MVP dépôt manuel) - facture émise directement au client final
+  // (pas d'intermédiaire donneur d'ordre). Destinataire = Dossier.client,
+  // jamais un nouveau FK dédié (aucune donnée dupliquée).
+  CLIENT
 }
 
+// P16 (ajout MVP dépôt manuel) - cycle de vie étendu. EMISE est conservée
+// (jamais de suppression de valeur d'enum) mais n'est plus écrite par le
+// nouveau code : TRANSMISE la remplace fonctionnellement pour DONNEUR_ORDRE/
+// CLIENT. RECUE/A_CONTROLER/VALIDEE/A_PAYER/REFUSEE sont le pendant pour
+// SOUS_TRAITANT (facture reçue, jamais un paiement automatique sur simple
+// dépôt - cf. validatedAt). PARTIELLEMENT_PAYEE/PAYEE restent pilotées par
+// la somme des ReglementFacture, jamais par une resaisie manuelle du
+// montant réglé (cf. recomputeFactureStatutAndMouvement dans mutations.ts) -
+// mais le statut reste changeable manuellement pour les autres valeurs.
 enum StatutFacture {
   BROUILLON
-  EMISE
+  A_TRANSMETTRE
+  TRANSMISE
+  RECUE
+  A_CONTROLER
+  VALIDEE
+  A_PAYER
   PARTIELLEMENT_PAYEE
   PAYEE
   EN_RETARD
+  REFUSEE
   ANNULEE
   LITIGE
+  EMISE
+}
+
+// P16 (ajout MVP dépôt manuel) - modes de règlement d'une facture, une
+// facture pouvant être réglée en plusieurs fois et par plusieurs modes
+// différents (cf. ReglementFacture).
+enum ModeReglement {
+  VIREMENT
+  CHEQUE
+  CB
+  ESPECES
+  PRELEVEMENT
+  AIDE
+  MANDATAIRE
+  AUTRE
 }
 
 model Facture {
@@ -1598,7 +1634,9 @@ model Facture {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  lignes FactureLigne[]
+  lignes        FactureLigne[]
+  reglements    ReglementFacture[]
+  transmissions FactureTransmission[]
 
   @@unique([organisationId, type, numero])
   @@index([organisationId])
@@ -1645,6 +1683,49 @@ model CompteurFacture {
   dernierNumero  Int          @default(0)
 
   @@unique([organisationId, type, annee])
+}
+
+// P16 (ajout MVP dépôt manuel) - une facture peut être réglée en plusieurs
+// fois et par plusieurs modes différents (ex. 2000€ virement + 1000€ chèque
+// + 7000€ mandataire/aide sur une même facture de 10000€). Chaque règlement
+// est une ligne d'audit détaillée ; le montant réellement encaissé/payé
+// remonté au moteur financier central (MouvementFinancier.montantReelCts)
+// est TOUJOURS recalculé comme la somme de ces lignes - jamais resaisi
+// séparément, jamais deux sources de vérité (cf. recomputeFactureStatutAndMouvement
+// dans src/lib/facturation/mutations.ts).
+model ReglementFacture {
+  id        String  @id @default(cuid())
+  factureId String
+  facture   Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+
+  montantCts  Int
+  date        DateTime
+  mode        ModeReglement
+  reference   String?
+  commentaire String?
+
+  createdById String?
+  createdBy   User?    @relation("ReglementFactureCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([factureId])
+}
+
+// P16 (ajout MVP dépôt manuel) - historique de transmission d'une facture
+// (au donneur d'ordre via son portail, ou trace de transmission au client
+// final). Une facture peut être retransmise (ex. renvoi sur demande) - donc
+// plusieurs lignes possibles, jamais une seule date écrasée.
+model FactureTransmission {
+  id        String  @id @default(cuid())
+  factureId String
+  facture   Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+
+  destinataire String
+  transmisAt   DateTime @default(now())
+  transmisById String?
+  transmisBy   User?    @relation("FactureTransmissionBy", fields: [transmisById], references: [id])
+
+  @@index([factureId])
 }
 
 // Journal d'audit minimal - qui a fait quoi, quand. entityId est une chaîne

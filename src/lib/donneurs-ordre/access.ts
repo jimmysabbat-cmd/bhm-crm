@@ -107,6 +107,7 @@ export type FactureDoRow = {
   numero: string;
   dossierReference: string;
   montantTTCCts: number;
+  resteCts: number;
   dateEmission: Date;
   dateEcheance: Date | null;
   statut: string;
@@ -115,7 +116,7 @@ export type FactureDoRow = {
 export async function getFacturesForDonneurOrdre(ctx: UserContext): Promise<FactureDoRow[]> {
   const donneurOrdreId = requireDonneurOrdre(ctx);
   const factures = await prisma.facture.findMany({
-    where: { donneurOrdreId, organisationId: ctx.organisationId, type: "DONNEUR_ORDRE", statut: { not: "BROUILLON" } },
+    where: { donneurOrdreId, organisationId: ctx.organisationId, type: "DONNEUR_ORDRE", statut: { notIn: ["BROUILLON", "A_TRANSMETTRE"] } },
     select: {
       id: true,
       numero: true,
@@ -123,7 +124,7 @@ export async function getFacturesForDonneurOrdre(ctx: UserContext): Promise<Fact
       dateEmission: true,
       dateEcheance: true,
       statut: true,
-      mouvementFinancier: { select: { statut: true } },
+      reglements: { select: { montantCts: true } },
       dossier: { select: { reference: true } },
     },
     orderBy: { dateEmission: "desc" },
@@ -131,11 +132,12 @@ export async function getFacturesForDonneurOrdre(ctx: UserContext): Promise<Fact
   return factures.map((f) => ({
     id: f.id,
     numero: f.numero,
+    resteCts: Math.max(f.montantTTCCts - f.reglements.reduce((s, r) => s + r.montantCts, 0), 0),
     dossierReference: f.dossier.reference,
     montantTTCCts: f.montantTTCCts,
     dateEmission: f.dateEmission,
     dateEcheance: f.dateEcheance,
-    statut: deriveFactureStatutAffiche(f, f.mouvementFinancier),
+    statut: deriveFactureStatutAffiche(f),
   }));
 }
 

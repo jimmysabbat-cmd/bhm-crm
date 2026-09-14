@@ -1,36 +1,30 @@
 import { prisma } from "@/lib/prisma";
 import type { UserContext } from "@/lib/authz";
-import type { StatutFacture, StatutMouvementFinancier } from "@/generated/prisma/enums";
+import type { StatutFacture, TypeFacture } from "@/generated/prisma/enums";
 
 // ============================================================
-// P16 - couche d'accès facturation (DONNEUR_ORDRE + SOUS_TRAITANT).
+// P16 - couche d'accès facturation (CLIENT/DONNEUR_ORDRE/SOUS_TRAITANT).
 //
-// Principe directeur : Facture.statut ne porte QUE le cycle de vie du
-// document lui-même (BROUILLON -> EMISE -> ANNULEE, ou LITIGE en cas de
-// contestation manuelle). Le règlement (payée/partiellement payée/en
-// retard) n'est JAMAIS un second état stocké en parallèle - il est dérivé
-// en lecture du MouvementFinancier lié (source de vérité unique du moteur
-// financier central, cf. financial-engine.ts), exactement comme les
-// créances/dettes du reste du CRM (jamais de table dédiée, cf. commentaire
-// au-dessus de getCreancesForDossier). Ça garantit qu'une facture ne peut
-// jamais afficher "payée" sans qu'un mouvement financier réel ne l'atteste,
-// et qu'un même paiement ne peut jamais être compté par deux mécanismes
-// différents.
+// Principe directeur : Facture.statut est désormais la source directe
+// (BROUILLON/A_TRANSMETTRE/TRANSMISE/RECUE/A_CONTROLER/VALIDEE/A_PAYER/
+// PARTIELLEMENT_PAYEE/PAYEE/REFUSEE/ANNULEE/LITIGE) - PARTIELLEMENT_PAYEE/
+// PAYEE ne sont JAMAIS resaisis manuellement, ils sont recalculés à chaque
+// règlement (cf. recomputeFactureStatutAndMouvement dans mutations.ts)
+// depuis la somme des ReglementFacture, elle-même reflétée dans l'UNIQUE
+// MouvementFinancier lié (P6). deriveFactureStatutAffiche() n'ajoute qu'une
+// seule chose en lecture : EN_RETARD si l'échéance est dépassée et rien
+// n'est encore soldé - jamais stocké, jamais un second état persistant.
 // ============================================================
 
 export type FactureStatutAffiche = StatutFacture;
 
-export function deriveFactureStatutAffiche(
-  facture: { statut: StatutFacture; dateEcheance: Date | null },
-  mouvement: { statut: StatutMouvementFinancier } | null
-): FactureStatutAffiche {
-  if (facture.statut === "ANNULEE" || facture.statut === "BROUILLON" || facture.statut === "LITIGE") return facture.statut;
-  if (mouvement) {
-    if (mouvement.statut === "RECU" || mouvement.statut === "PAYE") return "PAYEE";
-    if (mouvement.statut === "PARTIEL") return "PARTIELLEMENT_PAYEE";
+const STATUTS_EN_ATTENTE_PAIEMENT = new Set<StatutFacture>(["TRANSMISE", "A_PAYER", "PARTIELLEMENT_PAYEE"]);
+
+export function deriveFactureStatutAffiche(facture: { statut: StatutFacture; dateEcheance: Date | null }): FactureStatutAffiche {
+  if (STATUTS_EN_ATTENTE_PAIEMENT.has(facture.statut) && facture.dateEcheance && facture.dateEcheance.getTime() < Date.now()) {
+    return "EN_RETARD";
   }
-  if (facture.dateEcheance && facture.dateEcheance.getTime() < Date.now()) return "EN_RETARD";
-  return "EMISE";
+  return facture.statut;
 }
 
 function requireSousTraitant(ctx: UserContext): string {
@@ -38,7 +32,7 @@ function requireSousTraitant(ctx: UserContext): string {
   return ctx.sousTraitantId;
 }
 
-// --- Facture DONNEUR_ORDRE : préparation côté interne -----------------------
+// --- Facture DONNEUR_ORDRE (génération auto, chemin avancé conservé) --------
 
 export type PosteFacturableDonneurOrdre = {
   id: string;
@@ -75,48 +69,90 @@ export async function getPostesFacturablesDonneurOrdre(dossierId: string, organi
     quantite: p.quantite,
     montantDevisHTCts: p.montantDevisHTCts!,
     montantDevisTTCCts: p.montantDevisTTCCts,
-    dejaFacture: p.factureLignes.some((l) => l.facture.statut !== "ANNULEE"),
+    dejaFacture: p.factureLignes.some((l) => l.facture.statut !== "ANNULEE" && l.facture.statut !== "REFUSEE"),
   }));
 }
 
 // --- Listes de factures (interne, cockpit dossier) --------------------------
 
+export type ReglementRow = {
+  id: string;
+  montantCts: number;
+  date: Date;
+  mode: string;
+  reference: string | null;
+  commentaire: string | null;
+  createdByName: string | null;
+};
+
 export type FactureDossierRow = {
   id: string;
-  type: "DONNEUR_ORDRE" | "SOUS_TRAITANT";
+  type: TypeFacture;
   numero: string;
   destinataireNom: string;
   montantHTCts: number;
   montantTTCCts: number;
+  montantRegleCts: number;
+  resteCts: number;
   dateEmission: Date;
   dateEcheance: Date | null;
   statutAffiche: FactureStatutAffiche;
   validatedAt: Date | null;
   fichierPdfPath: string | null;
   mouvementFinancierId: string | null;
+  reglements: ReglementRow[];
 };
 
 export async function getFacturesForDossier(dossierId: string, organisationId: string): Promise<FactureDossierRow[]> {
   const factures = await prisma.facture.findMany({
     where: { dossierId, organisationId },
-    include: { donneurOrdre: { select: { nom: true } }, sousTraitant: { select: { nom: true } }, mouvementFinancier: { select: { id: true, statut: true } } },
+    include: {
+      donneurOrdre: { select: { nom: true } },
+      sousTraitant: { select: { nom: true } },
+      reglements: { orderBy: { date: "desc" }, include: { createdBy: { select: { name: true } } } },
+    },
     orderBy: { createdAt: "desc" },
   });
 
-  return factures.map((f) => ({
-    id: f.id,
-    type: f.type,
-    numero: f.numero,
-    destinataireNom: f.donneurOrdre?.nom ?? f.sousTraitant?.nom ?? "—",
-    montantHTCts: f.montantHTCts,
-    montantTTCCts: f.montantTTCCts,
-    dateEmission: f.dateEmission,
-    dateEcheance: f.dateEcheance,
-    statutAffiche: deriveFactureStatutAffiche(f, f.mouvementFinancier),
-    validatedAt: f.validatedAt,
-    fichierPdfPath: f.fichierPdfPath,
-    mouvementFinancierId: f.mouvementFinancierId,
-  }));
+  return factures.map((f) => {
+    const montantRegleCts = f.reglements.reduce((s, r) => s + r.montantCts, 0);
+    return {
+      id: f.id,
+      type: f.type,
+      numero: f.numero,
+      destinataireNom: f.donneurOrdre?.nom ?? f.sousTraitant?.nom ?? "Client",
+      montantHTCts: f.montantHTCts,
+      montantTTCCts: f.montantTTCCts,
+      montantRegleCts,
+      resteCts: Math.max(f.montantTTCCts - montantRegleCts, 0),
+      dateEmission: f.dateEmission,
+      dateEcheance: f.dateEcheance,
+      statutAffiche: deriveFactureStatutAffiche(f),
+      validatedAt: f.validatedAt,
+      fichierPdfPath: f.fichierPdfPath,
+      mouvementFinancierId: f.mouvementFinancierId,
+      reglements: f.reglements.map((r) => ({ id: r.id, montantCts: r.montantCts, date: r.date, mode: r.mode, reference: r.reference, commentaire: r.commentaire, createdByName: r.createdBy?.name ?? null })),
+    };
+  });
+}
+
+// --- Cockpit dossier : synthèse facturation (section 8) ---------------------
+
+export type FacturationSummary = {
+  factureCts: number;
+  encaisseCts: number;
+  resteAEncaisserCts: number;
+};
+
+/** Facturé/Encaissé/Reste à encaisser côté revenu (CLIENT + DONNEUR_ORDRE, hors annulées/refusées) - jamais les factures ST (dépense, pas revenu). */
+export async function getFacturationSummaryForDossier(dossierId: string, organisationId: string): Promise<FacturationSummary> {
+  const factures = await prisma.facture.findMany({
+    where: { dossierId, organisationId, type: { in: ["CLIENT", "DONNEUR_ORDRE"] }, statut: { notIn: ["ANNULEE", "REFUSEE"] } },
+    include: { reglements: { select: { montantCts: true } } },
+  });
+  const factureCts = factures.reduce((s, f) => s + f.montantTTCCts, 0);
+  const encaisseCts = factures.reduce((s, f) => s + f.reglements.reduce((s2, r) => s2 + r.montantCts, 0), 0);
+  return { factureCts, encaisseCts, resteAEncaisserCts: Math.max(factureCts - encaisseCts, 0) };
 }
 
 // --- Portail sous-traitant : missions facturables + mes factures ------------
@@ -131,7 +167,7 @@ export type MissionFacturableRow = {
   factureExistante: { id: string; numero: string; statutAffiche: FactureStatutAffiche } | null;
 };
 
-/** Missions TERMINEE de ce sous-traitant, avec indication de la facture déjà déposée le cas échéant (jamais un second dépôt tant que la première n'est pas annulée). */
+/** Missions TERMINEE de ce sous-traitant, avec indication de la facture déjà déposée le cas échéant (jamais un second dépôt tant que la première n'est pas annulée/refusée). */
 export async function getMissionsFacturablesSousTraitant(ctx: UserContext): Promise<MissionFacturableRow[]> {
   const sousTraitantId = requireSousTraitant(ctx);
 
@@ -150,11 +186,11 @@ export async function getMissionsFacturablesSousTraitant(ctx: UserContext): Prom
 
   const factures = await prisma.facture.findMany({
     where: { organisationId: ctx.organisationId, type: "SOUS_TRAITANT", sousTraitantId, dossierId: { in: missions.map((m) => m.dossierId) } },
-    include: { mouvementFinancier: { select: { statut: true } }, lignes: { select: { posteTravauxId: true } } },
+    select: { id: true, numero: true, statut: true, dateEcheance: true, lignes: { select: { posteTravauxId: true } } },
   });
 
   return missions.map((m) => {
-    const facture = factures.find((f) => f.statut !== "ANNULEE" && f.lignes.some((l) => l.posteTravauxId === m.posteTravauxId));
+    const facture = factures.find((f) => f.statut !== "ANNULEE" && f.statut !== "REFUSEE" && f.lignes.some((l) => l.posteTravauxId === m.posteTravauxId));
     return {
       packageId: m.id,
       dossierId: m.dossierId,
@@ -162,7 +198,7 @@ export async function getMissionsFacturablesSousTraitant(ctx: UserContext): Prom
       posteTravauxId: m.posteTravauxId!,
       posteType: m.posteTravaux?.type ?? null,
       prixConvenuCts: m.prixConvenuCts,
-      factureExistante: facture ? { id: facture.id, numero: facture.numero, statutAffiche: deriveFactureStatutAffiche(facture, facture.mouvementFinancier) } : null,
+      factureExistante: facture ? { id: facture.id, numero: facture.numero, statutAffiche: deriveFactureStatutAffiche(facture) } : null,
     };
   });
 }
@@ -172,6 +208,7 @@ export type FactureSousTraitantRow = {
   numero: string;
   dossierReference: string;
   montantTTCCts: number;
+  montantRegleCts: number;
   dateEmission: Date;
   statutAffiche: FactureStatutAffiche;
   validatedAt: Date | null;
@@ -181,7 +218,7 @@ export async function getFacturesForSousTraitant(ctx: UserContext): Promise<Fact
   const sousTraitantId = requireSousTraitant(ctx);
   const factures = await prisma.facture.findMany({
     where: { organisationId: ctx.organisationId, type: "SOUS_TRAITANT", sousTraitantId },
-    include: { dossier: { select: { reference: true } }, mouvementFinancier: { select: { statut: true } } },
+    include: { dossier: { select: { reference: true } }, reglements: { select: { montantCts: true } } },
     orderBy: { createdAt: "desc" },
   });
   return factures.map((f) => ({
@@ -189,8 +226,9 @@ export async function getFacturesForSousTraitant(ctx: UserContext): Promise<Fact
     numero: f.numero,
     dossierReference: f.dossier.reference,
     montantTTCCts: f.montantTTCCts,
+    montantRegleCts: f.reglements.reduce((s, r) => s + r.montantCts, 0),
     dateEmission: f.dateEmission,
-    statutAffiche: deriveFactureStatutAffiche(f, f.mouvementFinancier),
+    statutAffiche: deriveFactureStatutAffiche(f),
     validatedAt: f.validatedAt,
   }));
 }
@@ -210,7 +248,7 @@ export type FactureAValiderRow = {
 
 export async function getFacturesSousTraitantAValider(organisationId: string): Promise<FactureAValiderRow[]> {
   const factures = await prisma.facture.findMany({
-    where: { organisationId, type: "SOUS_TRAITANT", statut: { not: "ANNULEE" }, validatedAt: null },
+    where: { organisationId, type: "SOUS_TRAITANT", statut: { notIn: ["ANNULEE", "REFUSEE"] }, validatedAt: null },
     include: { sousTraitant: { select: { nom: true } }, dossier: { select: { reference: true } } },
     orderBy: { createdAt: "asc" },
   });

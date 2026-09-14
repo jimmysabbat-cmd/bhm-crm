@@ -6,22 +6,22 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 
 const STATUT_LABELS: Record<string, string> = {
-  BROUILLON: "Brouillon",
-  EMISE: "Émise",
+  TRANSMISE: "Transmise",
   PARTIELLEMENT_PAYEE: "Partiellement payée",
   PAYEE: "Payée",
   EN_RETARD: "En retard",
   ANNULEE: "Annulée",
   LITIGE: "Litige",
+  EMISE: "Transmise",
 };
 const STATUT_COLORS: Record<string, "emerald" | "blue" | "red" | "amber" | "slate"> = {
-  BROUILLON: "slate",
-  EMISE: "blue",
+  TRANSMISE: "blue",
   PARTIELLEMENT_PAYEE: "amber",
   PAYEE: "emerald",
   EN_RETARD: "red",
   ANNULEE: "slate",
   LITIGE: "red",
+  EMISE: "blue",
 };
 
 export default async function FacturesDoPage() {
@@ -36,12 +36,13 @@ export default async function FacturesDoPage() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-5 py-3">Numéro</th>
-              <th className="px-4 py-3">Dossier</th>
-              <th className="px-4 py-3">Montant TTC</th>
-              <th className="px-4 py-3">Émise le</th>
+              <th className="px-5 py-3">N°</th>
+              <th className="px-4 py-3">Chantier</th>
+              <th className="px-4 py-3">Date</th>
+              <th className="px-4 py-3 text-right">TTC</th>
               <th className="px-4 py-3">Échéance</th>
               <th className="px-4 py-3">Statut</th>
+              <th className="px-4 py-3 text-right">Reste dû</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
@@ -50,22 +51,23 @@ export default async function FacturesDoPage() {
               <tr key={f.id} className="border-t border-slate-100">
                 <td className="px-5 py-3 font-medium text-slate-900">{f.numero}</td>
                 <td className="px-4 py-3 text-slate-600">{f.dossierReference}</td>
-                <td className="px-4 py-3 text-slate-600">{formatCents(f.montantTTCCts)}</td>
                 <td className="px-4 py-3 text-slate-500">{f.dateEmission.toLocaleDateString("fr-FR")}</td>
+                <td className="px-4 py-3 text-right text-slate-600">{formatCents(f.montantTTCCts)}</td>
                 <td className="px-4 py-3 text-slate-500">{f.dateEcheance ? f.dateEcheance.toLocaleDateString("fr-FR") : "—"}</td>
                 <td className="px-4 py-3">
                   <Badge color={STATUT_COLORS[f.statut] ?? "slate"}>{STATUT_LABELS[f.statut] ?? f.statut}</Badge>
                 </td>
+                <td className="px-4 py-3 text-right font-medium text-slate-900">{formatCents(f.resteCts)}</td>
                 <td className="px-4 py-3">
                   <a href={`/api/factures/${f.id}/pdf`} target="_blank" rel="noreferrer" className="text-xs font-medium text-emerald-700 hover:underline">
-                    PDF
+                    Voir / télécharger
                   </a>
                 </td>
               </tr>
             ))}
             {factures.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-400">
+                <td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-400">
                   Aucune facture pour l&apos;instant.
                 </td>
               </tr>

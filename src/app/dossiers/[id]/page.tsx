@@ -70,7 +70,7 @@ import { MissionsPanel } from "../MissionsPanel";
 import { getMissionsForDossierAction } from "../mission-actions";
 import { ComplementDonneurOrdrePanel } from "../ComplementDonneurOrdrePanel";
 import { FacturesPanel } from "../FacturesPanel";
-import { getFacturesForDossier, getPostesFacturablesDonneurOrdre } from "@/lib/facturation/access";
+import { getFacturesForDossier, getPostesFacturablesDonneurOrdre, getFacturationSummaryForDossier } from "@/lib/facturation/access";
 import {
   affecterProgrammeAuDossier,
   demarrerEtape,
@@ -228,7 +228,7 @@ export default async function DossierDetailPage({
           },
         },
         documents: { orderBy: { createdAt: "desc" } },
-        mouvementsFinanciers: { orderBy: { createdAt: "desc" } },
+        mouvementsFinanciers: { orderBy: { createdAt: "desc" }, include: { facture: { select: { id: true } } } },
         programmeVersion: { include: { programme: true } },
         dossierEtapes: {
           include: {
@@ -264,9 +264,10 @@ export default async function DossierDetailPage({
   if (!dossier) notFound();
 
   const missions = await getMissionsForDossierAction(dossier.id);
-  const [factures, postesFacturables, prochainesActions, blocagesDocumentaires, rdvs] = await Promise.all([
+  const [factures, postesFacturables, facturationSummary, prochainesActions, blocagesDocumentaires, rdvs] = await Promise.all([
     getFacturesForDossier(dossier.id, ctx.organisationId),
     dossier.donneurOrdreId ? getPostesFacturablesDonneurOrdre(dossier.id, ctx.organisationId) : Promise.resolve([]),
+    getFacturationSummaryForDossier(dossier.id, ctx.organisationId),
     getNextActionsForDossier(dossier.id),
     getDocumentBlockingReasons(dossier.id, ctx.organisationId),
     prisma.rdv.findMany({
@@ -1546,41 +1547,49 @@ export default async function DossierDetailPage({
                             <Button type="submit" variant="secondary" className="text-xs">
                               Enregistrer
                             </Button>
-                            {m.type === "ENTREE" && m.statut !== "RECU" && m.statut !== "ANNULE" && (
-                              <button
-                                type="submit"
-                                formAction={async () => {
-                                  "use server";
-                                  await marquerMouvementRecu(m.id);
-                                }}
-                                className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
-                              >
-                                Marquer reçu
-                              </button>
-                            )}
-                            {m.type === "SORTIE" && m.statut !== "PAYE" && m.statut !== "ANNULE" && (
-                              <button
-                                type="submit"
-                                formAction={async () => {
-                                  "use server";
-                                  await marquerMouvementPaye(m.id);
-                                }}
-                                className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
-                              >
-                                Marquer payé
-                              </button>
-                            )}
-                            {m.statut !== "ANNULE" && (
-                              <button
-                                type="submit"
-                                formAction={async () => {
-                                  "use server";
-                                  await annulerMouvementFinancier(m.id);
-                                }}
-                                className="text-xs font-medium text-slate-400 hover:text-red-600"
-                              >
-                                Annuler
-                              </button>
+                            {m.facture ? (
+                              <a href="#factures" className="text-xs font-medium text-slate-400 hover:text-emerald-700">
+                                Lié à une facture - gérer via Facturation ↓
+                              </a>
+                            ) : (
+                              <>
+                                {m.type === "ENTREE" && m.statut !== "RECU" && m.statut !== "ANNULE" && (
+                                  <button
+                                    type="submit"
+                                    formAction={async () => {
+                                      "use server";
+                                      await marquerMouvementRecu(m.id);
+                                    }}
+                                    className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                                  >
+                                    Marquer reçu
+                                  </button>
+                                )}
+                                {m.type === "SORTIE" && m.statut !== "PAYE" && m.statut !== "ANNULE" && (
+                                  <button
+                                    type="submit"
+                                    formAction={async () => {
+                                      "use server";
+                                      await marquerMouvementPaye(m.id);
+                                    }}
+                                    className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                                  >
+                                    Marquer payé
+                                  </button>
+                                )}
+                                {m.statut !== "ANNULE" && (
+                                  <button
+                                    type="submit"
+                                    formAction={async () => {
+                                      "use server";
+                                      await annulerMouvementFinancier(m.id);
+                                    }}
+                                    className="text-xs font-medium text-slate-400 hover:text-red-600"
+                                  >
+                                    Annuler
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </form>
@@ -2095,7 +2104,16 @@ export default async function DossierDetailPage({
       )}
 
       <div id="factures">
-        <FacturesPanel dossierId={dossier.id} factures={factures} postesFacturables={postesFacturables} />
+        <FacturesPanel
+          dossierId={dossier.id}
+          factures={factures}
+          postesFacturables={postesFacturables}
+          summary={facturationSummary}
+          aUnDonneurOrdre={!!dossier.donneurOrdreId}
+          donneurOrdreNom={dossier.donneurOrdre?.nom ?? null}
+          postes={Object.entries(posteLabels).map(([id, label]) => ({ id, label }))}
+          sousTraitants={sousTraitants}
+        />
       </div>
 
       <Card id="documents">

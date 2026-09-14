@@ -9,20 +9,26 @@ import { MissionActions } from "./MissionActions";
 import { DeposerFactureForm } from "./DeposerFactureForm";
 
 const FACTURE_STATUT_LABELS: Record<string, string> = {
-  BROUILLON: "Brouillon",
-  EMISE: "Envoyée",
+  RECUE: "Reçue - en attente de contrôle",
+  A_CONTROLER: "À contrôler",
+  VALIDEE: "Validée",
+  A_PAYER: "À payer",
   PARTIELLEMENT_PAYEE: "Partiellement payée",
   PAYEE: "Payée",
   EN_RETARD: "En retard",
+  REFUSEE: "Refusée",
   ANNULEE: "Annulée",
   LITIGE: "Litige",
 };
 const FACTURE_STATUT_COLORS: Record<string, "emerald" | "blue" | "red" | "amber" | "slate"> = {
-  BROUILLON: "slate",
-  EMISE: "blue",
+  RECUE: "slate",
+  A_CONTROLER: "amber",
+  VALIDEE: "blue",
+  A_PAYER: "amber",
   PARTIELLEMENT_PAYEE: "amber",
   PAYEE: "emerald",
   EN_RETARD: "red",
+  REFUSEE: "red",
   ANNULEE: "slate",
   LITIGE: "red",
 };

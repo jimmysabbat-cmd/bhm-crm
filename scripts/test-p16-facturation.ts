@@ -9,12 +9,18 @@ import {
   getFacturesSousTraitantAValider,
 } from "../src/lib/facturation/access";
 import { getFacturesForDonneurOrdre } from "../src/lib/donneurs-ordre/access";
-import { calculateForecastCosts, calculateActualCosts } from "../src/lib/financial-engine";
+import { calculateForecastCosts, calculateActualCosts, calculateContractualRevenue } from "../src/lib/financial-engine";
 import {
   creerFactureDonneurOrdre,
   emettreFactureDonneurOrdre,
   validerFactureSousTraitant,
+  refuserFactureSousTraitant,
   deposerFactureSousTraitant,
+  ajouterReglementFacture,
+  supprimerReglementFacture,
+  creerFactureManuelle,
+  transmettreFacture,
+  changerStatutFacture,
 } from "../src/lib/facturation/mutations";
 import type { UserContext } from "../src/lib/authz";
 
@@ -107,7 +113,7 @@ async function main() {
   console.log("\n2. Émission facture donneur d'ordre");
   await emettreFactureDonneurOrdre({ organisationId: org.id, userId: admin.id, factureId: factureDO.id });
   const factureDOEmise = await prisma.facture.findUniqueOrThrow({ where: { id: factureDO.id }, include: { mouvementFinancier: true } });
-  assert(factureDOEmise.statut === "EMISE", "Statut EMISE après émission");
+  assert(factureDOEmise.statut === "TRANSMISE", "Statut TRANSMISE après émission");
   assert(!!factureDOEmise.fichierPdfPath, "PDF généré et chemin enregistré");
   const pdfBuffer = await readDocumentFile(factureDOEmise.fichierPdfPath!);
   assert(pdfBuffer.length > 100, "Le PDF généré est un vrai fichier non vide");
@@ -137,17 +143,50 @@ async function main() {
   const ctxDo = ctxFor({ id: userDo.id, organisationId: org.id, role: "DONNEUR_ORDRE", sousTraitantId: null, donneurOrdreId: donneurOrdre.id });
   const facturesVuesParDo = await getFacturesForDonneurOrdre(ctxDo);
   assert(facturesVuesParDo.length === 1, "Le DO ne voit que la facture ÉMISE, jamais le brouillon");
-  assert(facturesVuesParDo[0].statut === "EMISE", "Statut affiché EMISE avant tout règlement");
+  assert(facturesVuesParDo[0].statut === "TRANSMISE", "Statut affiché TRANSMISE avant tout règlement");
 
   const ctxDoAutre = ctxFor({ id: userDoAutre.id, organisationId: org.id, role: "DONNEUR_ORDRE", sousTraitantId: null, donneurOrdreId: donneurOrdreAutre.id });
   const facturesVuesParAutreDo = await getFacturesForDonneurOrdre(ctxDoAutre);
   assert(facturesVuesParAutreDo.length === 0, "Isolation : un autre donneur d'ordre ne voit aucune facture de celui-ci");
 
-  // --- 5. Règlement dérivé du mouvement, jamais un second état ---
-  console.log("\n5. Règlement dérivé du mouvement financier");
-  await prisma.mouvementFinancier.update({ where: { id: factureDOEmise.mouvementFinancier!.id }, data: { statut: "RECU", montantReelCts: factureDOEmise.montantTTCCts, dateReelle: new Date() } });
-  const facturesApresPaiement = await getFacturesForDonneurOrdre(ctxDo);
-  assert(facturesApresPaiement.find((f) => f.id === factureDO.id)?.statut === "PAYEE", "Statut affiché PAYEE dès que le mouvement lié est RECU (jamais un second champ à resynchroniser)");
+  // --- 5. Règlements multiples : la facture peut être réglée en plusieurs fois et plusieurs modes ---
+  console.log("\n5. Règlements multiples");
+
+  let reglementAvantTransmissionRejete = false;
+  try {
+    await ajouterReglementFacture({ organisationId: org.id, userId: admin.id, factureId: factureDO2.id, montantCts: 1000, date: new Date(), mode: "VIREMENT", reference: null, commentaire: null });
+  } catch {
+    reglementAvantTransmissionRejete = true;
+  }
+  assert(reglementAvantTransmissionRejete, "Impossible d'ajouter un règlement tant que la facture n'a pas de mouvement lié (jamais transmise/validée)");
+
+  await ajouterReglementFacture({ organisationId: org.id, userId: admin.id, factureId: factureDOEmise.id, montantCts: 200000, date: new Date("2027-01-05"), mode: "VIREMENT", reference: "VIR-001", commentaire: null });
+  const factureApres1erReglement = await prisma.facture.findUniqueOrThrow({ where: { id: factureDOEmise.id }, include: { mouvementFinancier: true } });
+  assert(factureApres1erReglement.statut === "PARTIELLEMENT_PAYEE", "1er règlement partiel (200000/420000) -> statut PARTIELLEMENT_PAYEE");
+  assert(factureApres1erReglement.mouvementFinancier?.montantReelCts === 200000, "Mouvement.montantReelCts = somme des règlements (200000)");
+  assert(factureApres1erReglement.mouvementFinancier?.statut === "PARTIEL", "Mouvement en PARTIEL tant que non soldé");
+
+  await ajouterReglementFacture({ organisationId: org.id, userId: admin.id, factureId: factureDOEmise.id, montantCts: 220000, date: new Date("2027-01-20"), mode: "CHEQUE", reference: "CHQ-42", commentaire: "Solde" });
+  const factureApres2eReglement = await prisma.facture.findUniqueOrThrow({ where: { id: factureDOEmise.id }, include: { mouvementFinancier: true, reglements: true } });
+  assert(factureApres2eReglement.statut === "PAYEE", "2e règlement (220000) porte le total à 420000 = montant TTC -> PAYEE");
+  assert(factureApres2eReglement.mouvementFinancier?.montantReelCts === 420000, "Mouvement.montantReelCts = somme exacte des 2 règlements (jamais recréé, un seul mouvement)");
+  assert(factureApres2eReglement.mouvementFinancier?.statut === "RECU", "Mouvement soldé -> RECU");
+  assert(factureApres2eReglement.reglements.length === 2, "2 lignes de règlement distinctes conservées (audit détaillé)");
+
+  const facturesVuesParDoApresPaiement = await getFacturesForDonneurOrdre(ctxDo);
+  assert(facturesVuesParDoApresPaiement.find((f) => f.id === factureDO.id)?.statut === "PAYEE", "Le portail DO reflète PAYEE (statut désormais autoritaire, plus de dérivation en lecture)");
+  assert(facturesVuesParDoApresPaiement.find((f) => f.id === factureDO.id)?.resteCts === 0, "Reste dû = 0 après solde complet");
+
+  // Suppression d'un règlement : recalcul, jamais un statut figé
+  const idReglementCheque = factureApres2eReglement.reglements.find((r) => r.mode === "CHEQUE")!.id;
+  await supprimerReglementFacture({ organisationId: org.id, userId: admin.id, reglementId: idReglementCheque });
+  const factureApresSuppression = await prisma.facture.findUniqueOrThrow({ where: { id: factureDOEmise.id }, include: { mouvementFinancier: true } });
+  assert(factureApresSuppression.statut === "PARTIELLEMENT_PAYEE", "Suppression du chèque -> repasse PARTIELLEMENT_PAYEE (recalcul, jamais une resaisie)");
+  assert(factureApresSuppression.mouvementFinancier?.montantReelCts === 200000, "Le mouvement retombe exactement à 200000 (somme des règlements restants)");
+
+  // Non double comptage côté entrées P6 : la facture CLIENT/DO n'ajoute jamais le CA une 2e fois (CA reste Dossier.montantDevisTTC, jamais recalculé depuis une Facture)
+  const caContractuelApresFacturation = await calculateContractualRevenue(dossier.id);
+  assert(caContractuelApresFacturation.amountCts === 600000, "Le CA contractuel reste Dossier.montantDevisTTC (600000), jamais modifié par la création/le règlement d'une facture");
 
   // --- 6. Facture sous-traitant : dépôt, validation, dette fournisseur ---
   console.log("\n6. Facture sous-traitant");
@@ -180,7 +219,7 @@ async function main() {
   });
   const factureST = await prisma.facture.findFirstOrThrow({ where: { organisationId: org.id, type: "SOUS_TRAITANT", sousTraitantId: sousTraitant.id } });
   assert(factureST.numero === "ST-FACT-001", "Le numéro est la référence libre du sous-traitant, jamais généré par nous");
-  assert(factureST.statut === "EMISE" && factureST.validatedAt === null, "Déposée = EMISE mais NON validée (aucun paiement automatique)");
+  assert(factureST.statut === "RECUE" && factureST.validatedAt === null, "Déposée = RECUE mais NON validée (aucun paiement automatique)");
   assert(factureST.montantTTCCts === 96000, "Montant TTC calculé depuis le HT saisi (800€ HT + 20%)");
 
   let doubleDepotRejete = false;
@@ -240,13 +279,92 @@ async function main() {
     "Les coûts réels ne bougent PAS tant que le mouvement n'est pas marqué PAYE/PARTIEL (A_PAYER seul ne compte pas)"
   );
 
-  await prisma.mouvementFinancier.update({ where: { id: factureSTValidee.mouvementFinancier!.id }, data: { statut: "PAYE", montantReelCts: 96000, dateReelle: new Date() } });
+  await ajouterReglementFacture({ organisationId: org.id, userId: admin.id, factureId: factureSTValidee.id, montantCts: 96000, date: new Date(), mode: "VIREMENT", reference: null, commentaire: "Paiement fournisseur" });
   const coutsReelsApresPaiement = await calculateActualCosts(dossier.id);
-  assert(coutsReelsApresPaiement.totalCts === coutsReelsAvantValidation.totalCts + 96000, "Coût réel augmente d'exactement une fois le montant payé, jamais deux fois");
+  assert(coutsReelsApresPaiement.totalCts === coutsReelsAvantValidation.totalCts + 96000, "Coût réel augmente d'exactement une fois le montant payé (via règlement), jamais deux fois");
+  const factureSTPayee = await prisma.facture.findUniqueOrThrow({ where: { id: factureSTValidee.id } });
+  assert(factureSTPayee.statut === "PAYEE", "Facture ST -> PAYEE une fois le règlement fournisseur enregistré");
+
+  // --- 8. Refus d'une facture ST déposée (avant validation) ---
+  console.log("\n8. Refus facture sous-traitant");
+  const posteRefus = await prisma.dossierPosteTravaux.create({ data: { dossierId: dossier.id, type: "COMBLES", montantDevisHTCts: 50000 } });
+  const missionRefus = await prisma.transmissionPackage.create({
+    data: { organisationId: org.id, dossierId: dossier.id, destinationType: "SOUS_TRAITANT", destinationSousTraitantId: sousTraitant.id, posteTravauxId: posteRefus.id, status: "TERMINEE", snapshot: {} },
+  });
+  await deposerFactureSousTraitant({ organisationId: org.id, userId: userSt.id, sousTraitantId: sousTraitant.id, packageId: missionRefus.id, numero: "ST-FACT-REFUS", montantHTCts: 30000, tauxTVA: 0.2, file: null });
+  const factureARefuser = await prisma.facture.findFirstOrThrow({ where: { organisationId: org.id, numero: "ST-FACT-REFUS" } });
+  await refuserFactureSousTraitant({ organisationId: org.id, userId: admin.id, factureId: factureARefuser.id, motif: "Montant incorrect" });
+  const factureRefusee = await prisma.facture.findUniqueOrThrow({ where: { id: factureARefuser.id } });
+  assert(factureRefusee.statut === "REFUSEE", "Statut REFUSEE après refus");
+  assert(factureRefusee.mouvementFinancierId === null, "Aucun mouvement créé pour une facture refusée (jamais de dette pour un refus)");
+  const aValiderSansRefusee = await getFacturesSousTraitantAValider(org.id);
+  assert(!aValiderSansRefusee.some((f) => f.id === factureARefuser.id), "Une facture refusée disparaît de la file de validation");
+
+  // --- 9. Dépôt manuel MVP (CLIENT) + reprise d'une facture déjà réglée ---
+  console.log("\n9. Dépôt manuel + reprise");
+  const factureClient = await creerFactureManuelle({
+    organisationId: org.id,
+    userId: admin.id,
+    dossierId: dossier.id,
+    type: "CLIENT",
+    posteTravauxId: null,
+    sousTraitantId: null,
+    numero: "CLI-2027-001",
+    dateFacture: new Date("2027-02-01"),
+    dateEcheance: new Date("2027-03-01"),
+    montantHTCts: 50000,
+    tauxTVA: 0.2,
+    commentaire: "Acompte client",
+    file: null,
+    statutInitial: null,
+    montantDejaRegleCts: 0,
+    reglementDate: null,
+    reglementMode: null,
+    reglementReference: null,
+  });
+  assert(factureClient.type === "CLIENT" && factureClient.statut === "BROUILLON", "Facture CLIENT créée en BROUILLON, numéro saisi manuellement");
+  assert(factureClient.mouvementFinancierId === null, "Aucun mouvement tant que non transmise");
+
+  await transmettreFacture({ organisationId: org.id, userId: admin.id, factureId: factureClient.id, destinataire: "Client final" });
+  const factureClientTransmise = await prisma.facture.findUniqueOrThrow({ where: { id: factureClient.id }, include: { mouvementFinancier: true, transmissions: true } });
+  assert(factureClientTransmise.statut === "TRANSMISE", "Transmission -> TRANSMISE");
+  assert(factureClientTransmise.mouvementFinancier?.categorie === "ENCAISSEMENT_CLIENT", "Créance CLIENT en ENCAISSEMENT_CLIENT (flux client existant, jamais un nouveau flux parallèle)");
+  assert(factureClientTransmise.transmissions.length === 1, "Historique de transmission tracé (1 ligne)");
+
+  // Reprise : une facture déjà envoyée et intégralement payée avant l'usage du CRM, saisie en une fois
+  const factureReprise = await creerFactureManuelle({
+    organisationId: org.id,
+    userId: admin.id,
+    dossierId: dossier.id,
+    type: "CLIENT",
+    posteTravauxId: null,
+    sousTraitantId: null,
+    numero: "CLI-2026-REPRISE",
+    dateFacture: new Date("2026-06-01"),
+    dateEcheance: new Date("2026-07-01"),
+    montantHTCts: 100000,
+    tauxTVA: 0.2,
+    commentaire: "Chantier terminé il y a 2 mois, déjà réglé",
+    file: null,
+    statutInitial: "PAYEE",
+    montantDejaRegleCts: 120000,
+    reglementDate: new Date("2026-07-10"),
+    reglementMode: "VIREMENT",
+    reglementReference: "REPRISE-1",
+  });
+  const factureRepriseVerif = await prisma.facture.findUniqueOrThrow({ where: { id: factureReprise.id }, include: { mouvementFinancier: true, reglements: true } });
+  assert(factureRepriseVerif.statut === "PAYEE", "Reprise directe en PAYEE, sans rejouer transmission/attente (workflow non artificiellement répété)");
+  assert(factureRepriseVerif.reglements.length === 1 && factureRepriseVerif.reglements[0].montantCts === 120000, "Le règlement historique est réellement enregistré (pas juste une étiquette de statut)");
+  assert(factureRepriseVerif.mouvementFinancier?.montantReelCts === 120000, "Le moteur financier P6 voit cet encaissement historique comme n'importe quel autre");
+
+  // Changement manuel de statut : ne touche jamais le mouvement lié
+  await changerStatutFacture({ organisationId: org.id, userId: admin.id, factureId: factureClientTransmise.id, statut: "LITIGE" });
+  const factureApresChangementManuel = await prisma.facture.findUniqueOrThrow({ where: { id: factureClientTransmise.id }, include: { mouvementFinancier: true } });
+  assert(factureApresChangementManuel.statut === "LITIGE", "Changement manuel de statut appliqué");
+  assert(!factureApresChangementManuel.mouvementFinancier?.montantReelCts, "Le changement manuel de statut ne modifie JAMAIS le mouvement financier (seuls les règlements le peuvent)");
 
   const dossierRow = await getFacturesForDossier(dossier.id, org.id);
-  assert(dossierRow.length === 3, "Le cockpit dossier voit les 3 factures (2 DO + 1 ST)");
-  assert(dossierRow.filter((f) => f.type === "DONNEUR_ORDRE").length === 2 && dossierRow.filter((f) => f.type === "SOUS_TRAITANT").length === 1, "Répartition DO/ST correcte");
+  assert(dossierRow.length === 6, "Le cockpit dossier voit les 6 factures (2 DO + 2 ST + 2 CLIENT)");
 
   console.log(`\n${passed} OK / ${failed} FAIL`);
   await prisma.$disconnect();
