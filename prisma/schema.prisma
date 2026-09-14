@@ -2889,6 +2889,11 @@ enum AutomationTriggerType {
   DO_CHANTIER_PROGRAMME
   DO_CHANTIER_TERMINE
   DO_FACTURE_DISPONIBLE
+  // Facture DONNEUR_ORDRE émise, non réglée, dont l'échéance est dépassée -
+  // distinct de DO_FACTURE_DISPONIBLE (déclenché une fois à l'émission) et
+  // du FINANCIAL_PAYMENT_LATE générique (qui couvre déjà, sans email, la
+  // dette fournisseur ST via la tâche PAIEMENT_RETARD - jamais dupliqué ici).
+  DO_FACTURE_ECHUE
   REGIE_NOUVEAU_LEAD
   RDV_CREE
   RDV_MODIFIE_OU_ANNULE

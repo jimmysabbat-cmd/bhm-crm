@@ -13,7 +13,8 @@ import type { Role, TypeTache, DestinationTransmission } from "@/generated/prism
 // P16 - triggers dont l'email va au partenaire/donneur d'ordre (lien +
 // destinataire déjà résolu par le trigger, jamais dossier.client.email).
 const MISSION_TRIGGER_TYPES = new Set(["MISSION_ST_CREEE", "MISSION_ST_ACCEPTEE", "MISSION_ST_REFUSEE", "MISSION_CHANTIER_PROGRAMME", "MISSION_DATE_MODIFIEE", "MISSION_TERMINEE"]);
-const DO_TRIGGER_TYPES = new Set(["DO_DEMANDE_RECUE", "DO_COMPLEMENT_REQUIS", "DO_COMPLEMENT_RECU", "DO_CHANTIER_ACCEPTE", "DO_CHANTIER_PROGRAMME", "DO_CHANTIER_TERMINE", "DO_FACTURE_DISPONIBLE"]);
+const DO_TRIGGER_TYPES = new Set(["DO_DEMANDE_RECUE", "DO_COMPLEMENT_REQUIS", "DO_COMPLEMENT_RECU", "DO_CHANTIER_ACCEPTE", "DO_CHANTIER_PROGRAMME", "DO_CHANTIER_TERMINE", "DO_FACTURE_DISPONIBLE", "DO_FACTURE_ECHUE"]);
+const DO_FACTURE_TRIGGER_TYPES = new Set(["DO_FACTURE_DISPONIBLE", "DO_FACTURE_ECHUE"]);
 const RDV_TRIGGER_TYPES = new Set(["RDV_CREE", "RDV_MODIFIE_OU_ANNULE"]);
 
 async function buildMissionEmailVariables(rule: AutomationRuleData, match: TriggerMatch): Promise<{ variables: TemplateVariables; destinataire: string | null }> {
@@ -51,7 +52,7 @@ async function buildDoEmailVariables(rule: AutomationRuleData, match: TriggerMat
   if (!dossier) return { variables: {}, destinataire: null };
 
   let factureVars: TemplateVariables = {};
-  if (rule.triggerType === "DO_FACTURE_DISPONIBLE" && match.context.factureId) {
+  if (DO_FACTURE_TRIGGER_TYPES.has(rule.triggerType) && match.context.factureId) {
     const facture = await prisma.facture.findFirst({ where: { id: match.context.factureId as string }, select: { numero: true, montantTTCCts: true, dateEcheance: true } });
     if (facture) {
       factureVars = {

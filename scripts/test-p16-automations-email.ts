@@ -2,7 +2,7 @@ import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { runAutomationRuleById } from "../src/lib/automations/engine";
 import { createMissionPackage } from "../src/lib/documents/mission";
-import { missionLinkForPartner, demandeLinkForDonneurOrdre, dossierLinkForInternal } from "../src/lib/links";
+import { missionLinkForPartner, demandeLinkForDonneurOrdre, dossierLinkForInternal, facturesLinkForDonneurOrdre } from "../src/lib/links";
 
 // ============================================================
 // P16 - tests bout-en-bout du moteur P11 étendu (mission ST, portail
@@ -147,6 +147,55 @@ async function main() {
   assert(!!draftRdv?.corps.includes(dossierLinkForInternal(dossierBHM.id)), "Lien correct vers le dossier");
   void rdv;
 
+  // --- 6. Facture DO échue : relance J0/J+7, arrêt dès réglée ---
+  console.log("\n6. Facture donneur d'ordre échue");
+  const echeanceFacture = new Date();
+  const factureEchue = await prisma.facture.create({
+    data: {
+      organisationId: orgBHM.id,
+      dossierId: dossierDoA.id,
+      type: "DONNEUR_ORDRE",
+      numero: `FDO-TEST-${suffix}`,
+      donneurOrdreId: doA.id,
+      montantHTCts: 100000,
+      tauxTVA: 0.2,
+      montantTVACts: 20000,
+      montantTTCCts: 120000,
+      dateEcheance: echeanceFacture,
+      statut: "EMISE",
+    },
+  });
+  const mouvementFacture = await prisma.mouvementFinancier.create({
+    data: {
+      organisationId: orgBHM.id,
+      dossierId: dossierDoA.id,
+      type: "ENTREE",
+      categorie: "ENCAISSEMENT_DONNEUR_ORDRE",
+      montantPrevuCts: 120000,
+      datePrevue: factureEchue.dateEcheance,
+      statut: "A_RECEVOIR",
+    },
+  });
+  await prisma.facture.update({ where: { id: factureEchue.id }, data: { mouvementFinancierId: mouvementFacture.id } });
+
+  const ruleFactureEchueJ0 = await makeRule(orgBHM.id, "TEST_DO_FACTURE_ECHUE_J0", "DO_FACTURE_ECHUE", { templateCode: "FACTURE_ECHUE" }, { stepIndex: 0 });
+  const runFactureEchueJ0 = await runAutomationRuleById(ruleFactureEchueJ0.id, orgBHM.id, { now: echeanceFacture });
+  assert(runFactureEchueJ0.executed === 1, "Facture échue J0 : brouillon créé");
+  const draftFactureEchue = await prisma.emailDraft.findFirst({ where: { organisationId: orgBHM.id, destinataire: userDoA.email, corps: { contains: factureEchue.numero } } });
+  assert(!!draftFactureEchue, "Le brouillon mentionne bien le numéro de la facture échue");
+  assert(!!draftFactureEchue?.corps.includes(facturesLinkForDonneurOrdre()), "Lien correct vers /portail-do/factures");
+
+  const ruleFactureEchueJ7 = await makeRule(orgBHM.id, "TEST_DO_FACTURE_ECHUE_J7", "DO_FACTURE_ECHUE", { templateCode: "FACTURE_ECHUE" }, { stepIndex: 1 });
+  const runFactureEchueJ7Trop = await runAutomationRuleById(ruleFactureEchueJ7.id, orgBHM.id, { now: new Date(echeanceFacture.getTime() + 4 * 86_400_000) });
+  assert(runFactureEchueJ7Trop.matched === 0, "Facture échue J+7 : ne matche pas avant J+7 (fenêtre respectée)");
+  const runFactureEchueJ7 = await runAutomationRuleById(ruleFactureEchueJ7.id, orgBHM.id, { now: new Date(echeanceFacture.getTime() + 8 * 86_400_000) });
+  assert(runFactureEchueJ7.executed === 1, "Facture échue J+7 : relance envoyée");
+
+  await prisma.mouvementFinancier.update({ where: { id: mouvementFacture.id }, data: { statut: "RECU", montantReelCts: 120000, dateReelle: new Date() } });
+  const ruleFactureEchueJ15 = await makeRule(orgBHM.id, "TEST_DO_FACTURE_ECHUE_J15", "DO_FACTURE_ECHUE", { templateCode: "FACTURE_ECHUE" }, { stepIndex: 2 });
+  const runFactureEchueJ15 = await runAutomationRuleById(ruleFactureEchueJ15.id, orgBHM.id, { now: new Date(echeanceFacture.getTime() + 16 * 86_400_000) });
+  assert(runFactureEchueJ15.matched === 0, "Facture réglée entre-temps : J+15 ne matche plus (arrêt automatique)");
+
   // --- 5. Isolation BHM != RUA, ST A != ST B, DO A != DO B ---
   console.log("\n5. Isolation tenant / partenaire");
   const ruleMissionCreeeRUA = await makeRule(orgRUA.id, "TEST_MISSION_ST_CREEE_RUA", "MISSION_ST_CREEE", { templateCode: "MISSION_ST_NOUVELLE" }, { stepIndex: 0 });
@@ -164,6 +213,8 @@ async function main() {
   await prisma.automationExecution.deleteMany({ where: { organisationId: { in: [orgBHM.id, orgRUA.id] } } });
   await prisma.automationRule.deleteMany({ where: { organisationId: { in: [orgBHM.id, orgRUA.id] } } });
   await prisma.rdv.deleteMany({ where: { organisationId: orgBHM.id } });
+  await prisma.facture.deleteMany({ where: { organisationId: orgBHM.id } });
+  await prisma.mouvementFinancier.deleteMany({ where: { organisationId: orgBHM.id } });
   await prisma.transmissionPackage.deleteMany({ where: { organisationId: orgBHM.id } });
   await prisma.dossierPosteTravaux.deleteMany({ where: { dossierId: { in: [dossierBHM.id, dossierDoA.id] } } });
   await prisma.dossier.deleteMany({ where: { organisationId: orgBHM.id } });

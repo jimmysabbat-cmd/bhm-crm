@@ -436,6 +436,35 @@ export async function detectDoFactureDisponible(rule: Rule): Promise<TriggerMatc
   return matches;
 }
 
+// Distinct de FINANCIAL_PAYMENT_LATE (générique, sans email, déjà utilisé
+// pour la dette fournisseur ST via la tâche PAIEMENT_RETARD - jamais
+// dupliqué ici) : ce trigger ne concerne QUE les factures DONNEUR_ORDRE
+// émises, non réglées, dont l'échéance est dépassée - relance le DO
+// directement par email, cadence idempotente J0/J+7/J+15 avec arrêt
+// automatique dès que le mouvement lié passe RECU/PAYE (cf. stepWindowMatches).
+const DO_FACTURE_ECHUE_STEPS = [0, 7, 15];
+
+export async function detectDoFactureEchue(rule: Rule, now: Date): Promise<TriggerMatch[]> {
+  const stepIndex = cfgNumber(rule.triggerConfig, "stepIndex") ?? 0;
+  const delayJours = DO_FACTURE_ECHUE_STEPS[stepIndex] ?? 0;
+  const nextDelayJours = DO_FACTURE_ECHUE_STEPS[stepIndex + 1] ?? null;
+
+  const factures = await prisma.facture.findMany({
+    where: { organisationId: rule.organisationId, type: "DONNEUR_ORDRE", statut: "EMISE", donneurOrdreId: { not: null }, dateEcheance: { not: null, lte: now } },
+    select: { id: true, dossierId: true, donneurOrdreId: true, dateEcheance: true, mouvementFinancier: { select: { statut: true } } },
+  });
+
+  const matches: TriggerMatch[] = [];
+  for (const f of factures) {
+    if (f.mouvementFinancier && (f.mouvementFinancier.statut === "RECU" || f.mouvementFinancier.statut === "PAYE")) continue;
+    if (!stepWindowMatches(f.dateEcheance!, now, delayJours, nextDelayJours)) continue;
+    const destinataireEmail = await firstActiveUserEmail({ donneurOrdreId: f.donneurOrdreId, role: "DONNEUR_ORDRE" });
+    if (!destinataireEmail) continue;
+    matches.push({ entityType: "Facture", entityId: f.id, triggerKey: `step-${stepIndex}`, context: { factureId: f.id, dossierId: f.dossierId, destinataireEmail } });
+  }
+  return matches;
+}
+
 export async function detectRegieNouveauLead(rule: Rule): Promise<TriggerMatch[]> {
   const leads = await prisma.lead.findMany({ where: { organisationId: rule.organisationId }, select: { id: true, commercialId: true, teleprospecteurId: true } });
   return leads.map((l) => ({
@@ -536,6 +565,8 @@ export async function detectTriggerMatches(rule: Rule & { triggerType: string },
       return detectDoChantierTermine(rule);
     case "DO_FACTURE_DISPONIBLE":
       return detectDoFactureDisponible(rule);
+    case "DO_FACTURE_ECHUE":
+      return detectDoFactureEchue(rule, now);
     case "REGIE_NOUVEAU_LEAD":
       return detectRegieNouveauLead(rule);
     case "RDV_CREE":

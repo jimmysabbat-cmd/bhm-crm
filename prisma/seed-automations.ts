@@ -258,6 +258,9 @@ function defaultRules(organisationId: string) {
     { code: "DO_CHANTIER_PROGRAMME_EMAIL", nom: "Chantier programmé - email DO", triggerType: "DO_CHANTIER_PROGRAMME", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_CHANTIER_PROGRAMME" }, delayJours: 0 },
     { code: "DO_CHANTIER_TERMINE_EMAIL", nom: "Chantier terminé - email DO", triggerType: "DO_CHANTIER_TERMINE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_CHANTIER_TERMINE" }, delayJours: 0 },
     { code: "DO_FACTURE_DISPONIBLE_EMAIL", nom: "Facture disponible - email DO", triggerType: "DO_FACTURE_DISPONIBLE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_FACTURE_DISPONIBLE" }, delayJours: 0 },
+    { code: "DO_FACTURE_ECHUE_J0", nom: "Facture échue - email DO (J0)", triggerType: "DO_FACTURE_ECHUE", triggerConfig: { stepIndex: 0 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "FACTURE_ECHUE" }, delayJours: 0 },
+    { code: "DO_FACTURE_ECHUE_J7", nom: "Facture échue - relance DO (J+7)", triggerType: "DO_FACTURE_ECHUE", triggerConfig: { stepIndex: 1 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "FACTURE_ECHUE" }, delayJours: 7 },
+    { code: "DO_FACTURE_ECHUE_J15", nom: "Facture échue - relance DO (J+15)", triggerType: "DO_FACTURE_ECHUE", triggerConfig: { stepIndex: 2 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "FACTURE_ECHUE" }, delayJours: 15 },
 
     { code: "REGIE_NOUVEAU_LEAD_NOTIF", nom: "Nouveau lead - notif tenant", triggerType: "REGIE_NOUVEAU_LEAD", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "COMMERCIAL", title: "Nouveau lead", message: "Un nouveau lead a été enregistré." }, delayJours: 0 },
     { code: "RDV_CREE_EMAIL", nom: "RDV créé - email commercial", triggerType: "RDV_CREE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "RDV_CREE" }, delayJours: 0 },
