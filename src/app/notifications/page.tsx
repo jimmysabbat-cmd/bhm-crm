@@ -1,9 +1,17 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUserContext, hasPermission } from "@/lib/authz";
 import { getNotificationsForUser } from "@/lib/notifications/service";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { markRead, markAllRead } from "./actions";
+
+// P16 - lien direct vers l'écran exact quand l'entité liée est un Dossier
+// (cas le plus fréquent) - jamais un lien vers le tableau de bord.
+function notificationHref(n: { entityType: string | null; entityId: string | null }): string | null {
+  if (n.entityType === "Dossier" && n.entityId) return `/dossiers/${n.entityId}`;
+  return null;
+}
 
 // ============================================================
 // Centre de notifications (P11, section 14/15) - rafraîchissement page
@@ -42,7 +50,17 @@ export default async function NotificationsPage() {
                 {n.readAt == null && <Badge color="emerald">Non lu</Badge>}
               </div>
               <p className="mt-0.5 text-sm text-slate-500">{n.message}</p>
-              <p className="mt-1 text-xs text-slate-400">{n.createdAt.toLocaleString("fr-FR")}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {n.createdAt.toLocaleString("fr-FR")}
+                {notificationHref(n) && (
+                  <>
+                    {" · "}
+                    <Link href={notificationHref(n)!} className="font-medium text-emerald-700 hover:underline">
+                      Voir
+                    </Link>
+                  </>
+                )}
+              </p>
             </div>
             {n.readAt == null && (
               <form action={markRead.bind(null, n.id)}>

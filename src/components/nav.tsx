@@ -24,6 +24,7 @@ function findLogo(): { src: string; isSvg: boolean } | null {
 const links: SidebarLink[] = [
   { href: "/", label: "Trésorerie", icon: "tresorerie" },
   { href: "/dossiers", label: "Dossiers", icon: "dossiers" },
+  { href: "/planning", label: "Planning", icon: "planning" },
   { href: "/taches", label: "Tâches & relances", icon: "taches" },
 ];
 
@@ -188,6 +189,22 @@ export async function Nav() {
   // menu dédié et volontairement minimal.
   if (role === "SOUS_TRAITANT" || role === "DELEGATAIRE_CEE") {
     return <NavShell links={[{ href: "/partenaire", label: "Espace partenaire", icon: "partenaire" }]} userName={userName} userEmail={userEmail} />;
+  }
+
+  // P16 - portail donneur d'ordre : menu dédié, aucun lien interne (mêmes
+  // garanties d'isolation que SOUS_TRAITANT/DELEGATAIRE_CEE ci-dessus).
+  if (role === "DONNEUR_ORDRE") {
+    const doLinks: SidebarLink[] = [
+      { href: "/portail-do", label: "Tableau de bord", icon: "donneurOrdre" },
+      { href: "/portail-do/nouvelle-demande", label: "Nouvelle demande", icon: "dossiers" },
+      { href: "/portail-do/mes-demandes", label: "Mes demandes", icon: "leads" },
+      { href: "/portail-do/a-programmer", label: "À programmer", icon: "taches" },
+      { href: "/portail-do/programmes", label: "Programmés", icon: "planning" },
+      { href: "/portail-do/en-cours", label: "En cours", icon: "automations" },
+      { href: "/portail-do/termines", label: "Terminés", icon: "documents" },
+      { href: "/portail-do/factures", label: "Factures", icon: "factures" },
+    ];
+    return <NavShell links={doLinks} userName={userName} userEmail={userEmail} />;
   }
 
   // Section 21 du prompt P6 : /finances accessible à ADMIN/direction et aux

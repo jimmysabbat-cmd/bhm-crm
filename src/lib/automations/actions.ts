@@ -4,8 +4,98 @@ import { renderTemplate, type TemplateVariables } from "@/lib/automations/templa
 import { createNotification } from "@/lib/notifications/service";
 import { buildTransmissionPackagePreview } from "@/lib/documents/transmission";
 import { emitDomainEvent, type DomainEvent } from "@/lib/webhooks/service";
+import { missionLinkForPartner, dossierLinkForInternal, demandeLinkForDonneurOrdre, facturesLinkForDonneurOrdre } from "@/lib/links";
+import { formatCents } from "@/lib/money";
+import { typeTravauxLabels } from "@/lib/dossier-labels";
 import type { ActionOutcome, AutomationRuleData, TriggerMatch } from "./types";
 import type { Role, TypeTache, DestinationTransmission } from "@/generated/prisma/enums";
+
+// P16 - triggers dont l'email va au partenaire/donneur d'ordre (lien +
+// destinataire déjà résolu par le trigger, jamais dossier.client.email).
+const MISSION_TRIGGER_TYPES = new Set(["MISSION_ST_CREEE", "MISSION_ST_ACCEPTEE", "MISSION_ST_REFUSEE", "MISSION_CHANTIER_PROGRAMME", "MISSION_DATE_MODIFIEE", "MISSION_TERMINEE"]);
+const DO_TRIGGER_TYPES = new Set(["DO_DEMANDE_RECUE", "DO_COMPLEMENT_REQUIS", "DO_COMPLEMENT_RECU", "DO_CHANTIER_ACCEPTE", "DO_CHANTIER_PROGRAMME", "DO_CHANTIER_TERMINE", "DO_FACTURE_DISPONIBLE"]);
+const RDV_TRIGGER_TYPES = new Set(["RDV_CREE", "RDV_MODIFIE_OU_ANNULE"]);
+
+async function buildMissionEmailVariables(rule: AutomationRuleData, match: TriggerMatch): Promise<{ variables: TemplateVariables; destinataire: string | null }> {
+  const missionId = match.context.missionId as string;
+  const mission = await prisma.transmissionPackage.findFirst({
+    where: { id: missionId, organisationId: rule.organisationId },
+    select: { dossierId: true, dateDebutSouhaitee: true, dateFinSouhaitee: true, comment: true, snapshot: true, dossier: { select: { reference: true } }, posteTravaux: { select: { type: true } } },
+  });
+  if (!mission) return { variables: {}, destinataire: null };
+  const snapshot = (mission.snapshot ?? {}) as { client?: Record<string, string>; travaux?: { surfaceM2?: number | null; quantite?: number | null } };
+  const client = snapshot.client ?? {};
+  const destinataireNom = [client.prenom, client.nom].filter(Boolean).join(" ") || null;
+  return {
+    destinataire: (match.context.destinataireEmail as string | null) ?? null,
+    variables: {
+      "lien.url": missionLinkForPartner(),
+      "dossier.reference": mission.dossier.reference,
+      "mission.destinataire": destinataireNom ?? undefined,
+      "mission.prestation": mission.posteTravaux ? (typeTravauxLabels[mission.posteTravaux.type] ?? mission.posteTravaux.type) : undefined,
+      "mission.dateDebut": mission.dateDebutSouhaitee ? mission.dateDebutSouhaitee.toLocaleDateString("fr-FR") : undefined,
+      "mission.dateFin": mission.dateFinSouhaitee ? mission.dateFinSouhaitee.toLocaleDateString("fr-FR") : undefined,
+      "mission.instructions": mission.comment ?? undefined,
+      "mission.motifRefus": (match.context.motif as string | null) ?? undefined,
+      "dossier.adresse": client.adresse ?? undefined,
+    },
+  };
+}
+
+async function buildDoEmailVariables(rule: AutomationRuleData, match: TriggerMatch): Promise<{ variables: TemplateVariables; destinataire: string | null }> {
+  const dossierId = match.context.dossierId as string;
+  const dossier = await prisma.dossier.findFirst({
+    where: { id: dossierId, organisationId: rule.organisationId },
+    select: { reference: true, complementDemandeMessage: true, complementReponseMessage: true, donneurOrdre: { select: { nom: true } } },
+  });
+  if (!dossier) return { variables: {}, destinataire: null };
+
+  let factureVars: TemplateVariables = {};
+  if (rule.triggerType === "DO_FACTURE_DISPONIBLE" && match.context.factureId) {
+    const facture = await prisma.facture.findFirst({ where: { id: match.context.factureId as string }, select: { numero: true, montantTTCCts: true, dateEcheance: true } });
+    if (facture) {
+      factureVars = {
+        "facture.numero": facture.numero,
+        "facture.montantTTC": formatCents(facture.montantTTCCts),
+        "facture.echeance": facture.dateEcheance ? facture.dateEcheance.toLocaleDateString("fr-FR") : undefined,
+        "lien.url": facturesLinkForDonneurOrdre(),
+      };
+    }
+  }
+
+  return {
+    destinataire: (match.context.destinataireEmail as string | null) ?? null,
+    variables: {
+      "lien.url": demandeLinkForDonneurOrdre(dossierId),
+      "demande.reference": dossier.reference,
+      "donneurOrdre.nom": dossier.donneurOrdre?.nom,
+      "demande.message": dossier.complementDemandeMessage ?? dossier.complementReponseMessage ?? undefined,
+      ...factureVars,
+    },
+  };
+}
+
+async function buildRdvEmailVariables(rule: AutomationRuleData, match: TriggerMatch): Promise<{ variables: TemplateVariables; destinataire: string | null }> {
+  const rdvId = match.context.rdvId as string;
+  const rdv = await prisma.rdv.findFirst({
+    where: { id: rdvId, organisationId: rule.organisationId },
+    select: { date: true, type: true, adresse: true, dossierId: true, commercial: { select: { email: true, name: true } }, dossier: { select: { reference: true } }, lead: { select: { prenom: true, nom: true } } },
+  });
+  if (!rdv) return { variables: {}, destinataire: null };
+  return {
+    destinataire: rdv.commercial?.email ?? null,
+    variables: {
+      "lien.url": rdv.dossierId ? dossierLinkForInternal(rdv.dossierId) : undefined,
+      "rdv.date": rdv.date.toLocaleString("fr-FR"),
+      "rdv.type": rdv.type === "TELEPHONIQUE" ? "Téléphonique" : rdv.type === "VISITE" ? "Visite" : "Autre",
+      "rdv.adresse": rdv.adresse ?? undefined,
+      "dossier.reference": rdv.dossier?.reference,
+      "commercial.nom": rdv.commercial?.name,
+      "client.prenom": rdv.lead?.prenom,
+      "client.nom": rdv.lead?.nom,
+    },
+  };
+}
 
 // ============================================================
 // Exécution des actions (P11, section 3) - chaque action est une fonction
@@ -91,6 +181,24 @@ async function buildEmailFromMatch(rule: AutomationRuleData, match: TriggerMatch
 
   if (!templateCode) throw new Error("actionConfig.templateCode requis pour préparer cet email.");
   const template = await getEmailTemplate(templateCode, rule.organisationId);
+
+  // P16 - missions ST/régie et portail donneur d'ordre/RDV : destinataire et
+  // variables résolus par un constructeur dédié (jamais dossier.client.email,
+  // qui ne serait ni le sous-traitant, ni le donneur d'ordre, ni le
+  // commercial).
+  if (MISSION_TRIGGER_TYPES.has(rule.triggerType)) {
+    const built = await buildMissionEmailVariables(rule, match);
+    return { sujet: renderTemplate(template.sujetTemplate, built.variables), corps: renderTemplate(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
+  }
+  if (DO_TRIGGER_TYPES.has(rule.triggerType)) {
+    const built = await buildDoEmailVariables(rule, match);
+    return { sujet: renderTemplate(template.sujetTemplate, built.variables), corps: renderTemplate(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
+  }
+  if (RDV_TRIGGER_TYPES.has(rule.triggerType)) {
+    const built = await buildRdvEmailVariables(rule, match);
+    return { sujet: renderTemplate(template.sujetTemplate, built.variables), corps: renderTemplate(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
+  }
+
   const dossier = dossierId
     ? await prisma.dossier.findFirst({ where: { id: dossierId, organisationId: rule.organisationId }, select: { reference: true, client: { select: { prenom: true, nom: true, email: true } }, organisation: { select: { nom: true } } } })
     : null;
@@ -101,6 +209,7 @@ async function buildEmailFromMatch(rule: AutomationRuleData, match: TriggerMatch
     "organisation.nom": dossier?.organisation.nom,
     "document.nom": match.context.typeDocumentNom as string | undefined,
     "document.motifRefus": (match.context.motif as string | null) ?? undefined,
+    "lien.url": dossierId ? dossierLinkForInternal(dossierId) : undefined,
   };
   return {
     sujet: renderTemplate(template.sujetTemplate, variables),

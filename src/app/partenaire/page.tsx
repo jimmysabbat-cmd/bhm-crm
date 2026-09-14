@@ -1,10 +1,31 @@
 import { redirect } from "next/navigation";
 import { requireUserContext, isPartnerRole } from "@/lib/authz";
 import { getPartnerDossiers, getPartnerPackages, getPartnerMissions } from "@/lib/partners/access";
+import { getMissionsFacturablesSousTraitant, getFacturesForSousTraitant } from "@/lib/facturation/access";
 import { formatCents } from "@/lib/money";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { MissionActions } from "./MissionActions";
+import { DeposerFactureForm } from "./DeposerFactureForm";
+
+const FACTURE_STATUT_LABELS: Record<string, string> = {
+  BROUILLON: "Brouillon",
+  EMISE: "Envoyée",
+  PARTIELLEMENT_PAYEE: "Partiellement payée",
+  PAYEE: "Payée",
+  EN_RETARD: "En retard",
+  ANNULEE: "Annulée",
+  LITIGE: "Litige",
+};
+const FACTURE_STATUT_COLORS: Record<string, "emerald" | "blue" | "red" | "amber" | "slate"> = {
+  BROUILLON: "slate",
+  EMISE: "blue",
+  PARTIELLEMENT_PAYEE: "amber",
+  PAYEE: "emerald",
+  EN_RETARD: "red",
+  ANNULEE: "slate",
+  LITIGE: "red",
+};
 
 // ============================================================
 // Espace partenaire (P11, section 23/24) - accès TRÈS limité pour un
@@ -19,7 +40,13 @@ export default async function PartenairePage() {
   const ctx = await requireUserContext();
   if (!isPartnerRole(ctx)) redirect("/");
 
-  const [dossiers, packages, missions] = await Promise.all([getPartnerDossiers(ctx), getPartnerPackages(ctx), getPartnerMissions(ctx)]);
+  const [dossiers, packages, missions, missionsFacturables, factures] = await Promise.all([
+    getPartnerDossiers(ctx),
+    getPartnerPackages(ctx),
+    getPartnerMissions(ctx),
+    ctx.role === "SOUS_TRAITANT" ? getMissionsFacturablesSousTraitant(ctx) : Promise.resolve([]),
+    ctx.role === "SOUS_TRAITANT" ? getFacturesForSousTraitant(ctx) : Promise.resolve([]),
+  ]);
 
   const STATUT_LABELS: Record<string, string> = {
     ENVOYEE: "Envoyée",
@@ -123,6 +150,52 @@ export default async function PartenairePage() {
               )}
             </tbody>
           </table>
+        </Card>
+      )}
+
+      {ctx.role === "SOUS_TRAITANT" && (missionsFacturables.length > 0 || factures.length > 0) && (
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-100 px-5 py-3 text-sm font-medium text-slate-700">Mes factures</div>
+          <div className="divide-y divide-slate-100">
+            {missionsFacturables.map((m) => (
+              <div key={m.packageId} className="px-5 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm">
+                    <span className="font-medium text-slate-900">{m.dossierReference}</span>
+                    <span className="text-slate-400"> — {m.posteType ?? "Poste"}</span>
+                    {m.prixConvenuCts != null && <span className="text-slate-500"> · prix convenu {formatCents(m.prixConvenuCts)}</span>}
+                  </div>
+                  {m.factureExistante ? (
+                    <Badge color={FACTURE_STATUT_COLORS[m.factureExistante.statutAffiche] ?? "slate"}>
+                      Facture {m.factureExistante.numero} — {FACTURE_STATUT_LABELS[m.factureExistante.statutAffiche] ?? m.factureExistante.statutAffiche}
+                    </Badge>
+                  ) : (
+                    <DeposerFactureForm packageId={m.packageId} prixSuggereEuros={m.prixConvenuCts != null ? m.prixConvenuCts / 100 : null} />
+                  )}
+                </div>
+              </div>
+            ))}
+            {factures.length > 0 && (
+              <div className="px-5 py-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">Historique</p>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {factures.map((f) => (
+                      <tr key={f.id} className="border-t border-slate-100 first:border-t-0">
+                        <td className="py-2 font-medium text-slate-900">{f.numero}</td>
+                        <td className="py-2 text-slate-500">{f.dossierReference}</td>
+                        <td className="py-2 text-slate-500">{formatCents(f.montantTTCCts)}</td>
+                        <td className="py-2 text-slate-500">{f.dateEmission.toLocaleDateString("fr-FR")}</td>
+                        <td className="py-2">
+                          <Badge color={FACTURE_STATUT_COLORS[f.statutAffiche] ?? "slate"}>{FACTURE_STATUT_LABELS[f.statutAffiche] ?? f.statutAffiche}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </Card>
       )}
 

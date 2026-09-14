@@ -101,6 +101,119 @@ const TEMPLATES: { code: string; nom: string; sujetTemplate: string; bodyTemplat
     sujetTemplate: "Rappel de paiement - dossier {{dossier.reference}}",
     bodyTemplate: "Bonjour {{client.prenom}},\n\nNous n'avons pas encore reçu votre règlement pour le dossier {{dossier.reference}}. Merci de régulariser dans les meilleurs délais.\n\nCordialement,\n{{organisation.nom}}",
   },
+  // P16 - missions ST, portail donneur d'ordre, RDV, action requise.
+  // "lien.url" pointe toujours vers l'écran exact du destinataire (jamais
+  // le tableau de bord) - cf. src/lib/links.ts.
+  {
+    code: "MISSION_ST_NOUVELLE",
+    nom: "Nouvelle mission sous-traitant",
+    sujetTemplate: "Nouvelle mission - dossier {{dossier.reference}}",
+    bodyTemplate:
+      "Bonjour,\n\nUne nouvelle mission vous a été confiée pour le dossier {{dossier.reference}} :\n- Prestation : {{mission.prestation}}\n- Client : {{mission.destinataire}}\n- Adresse : {{dossier.adresse}}\n- Dates souhaitées : {{mission.dateDebut}} → {{mission.dateFin}}\n- Instructions : {{mission.instructions}}\n\nVoir / accepter la mission : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "MISSION_ST_ACCEPTEE",
+    nom: "Mission acceptée par le sous-traitant",
+    sujetTemplate: "Mission acceptée - dossier {{dossier.reference}}",
+    bodyTemplate: "Bonjour,\n\nLa mission du dossier {{dossier.reference}} a été acceptée par le sous-traitant.\n\nVoir le dossier : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "MISSION_ST_REFUSEE",
+    nom: "Mission refusée par le sous-traitant",
+    sujetTemplate: "Mission refusée - dossier {{dossier.reference}}",
+    bodyTemplate: "Bonjour,\n\nLa mission du dossier {{dossier.reference}} a été REFUSÉE par le sous-traitant.\nMotif : {{mission.motifRefus}}\n\nVoir le dossier : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "CHANTIER_PROGRAMME",
+    nom: "Chantier programmé",
+    sujetTemplate: "Chantier programmé - dossier {{dossier.reference}}",
+    bodyTemplate: "Bonjour,\n\nLe chantier du dossier {{dossier.reference}} est programmé du {{mission.dateDebut}} au {{mission.dateFin}}.\n\nVoir la mission : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "CHANTIER_DATE_MODIFIEE",
+    nom: "Date de chantier modifiée",
+    sujetTemplate: "Date modifiée - dossier {{dossier.reference}}",
+    bodyTemplate: "Bonjour,\n\nLes dates du chantier du dossier {{dossier.reference}} ont été mises à jour : {{mission.dateDebut}} → {{mission.dateFin}}.\n\nVoir la mission : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "CHANTIER_TERMINE",
+    nom: "Chantier terminé",
+    sujetTemplate: "Chantier terminé - dossier {{dossier.reference}}",
+    bodyTemplate: "Bonjour,\n\nLe chantier du dossier {{dossier.reference}} est marqué comme terminé - contrôle / facturation requis.\n\nVoir le dossier : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "DO_NOUVELLE_DEMANDE",
+    nom: "Nouvelle demande donneur d'ordre",
+    sujetTemplate: "Nouvelle demande reçue - {{demande.reference}}",
+    bodyTemplate: "Bonjour,\n\nUne nouvelle demande a été reçue de {{donneurOrdre.nom}} : {{demande.reference}}.\n\nVoir la demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "DO_COMPLEMENT_REQUIS",
+    nom: "Complément requis (donneur d'ordre)",
+    sujetTemplate: "Information requise pour votre chantier {{demande.reference}}",
+    bodyTemplate:
+      "Bonjour,\n\nUne information est requise pour votre chantier {{demande.reference}} :\n{{demande.message}}\n\nComplétez votre demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "DO_COMPLEMENT_RECU",
+    nom: "Complément reçu (donneur d'ordre)",
+    sujetTemplate: "Complément reçu - {{demande.reference}}",
+    bodyTemplate: "Bonjour,\n\n{{donneurOrdre.nom}} a répondu à la demande de complément pour {{demande.reference}} :\n{{demande.message}}\n\nVoir la demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "DO_CHANTIER_ACCEPTE",
+    nom: "Chantier accepté (donneur d'ordre)",
+    sujetTemplate: "Votre chantier {{demande.reference}} est accepté",
+    bodyTemplate: "Bonjour,\n\nVotre chantier {{demande.reference}} a été accepté et va être programmé.\n\nSuivre votre demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "DO_CHANTIER_PROGRAMME",
+    nom: "Chantier programmé (donneur d'ordre)",
+    sujetTemplate: "Votre chantier {{demande.reference}} est programmé",
+    bodyTemplate: "Bonjour,\n\nVotre chantier {{demande.reference}} est programmé.\n\nSuivre votre demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "DO_CHANTIER_TERMINE",
+    nom: "Chantier terminé (donneur d'ordre)",
+    sujetTemplate: "Votre chantier {{demande.reference}} est terminé",
+    bodyTemplate: "Bonjour,\n\nVotre chantier {{demande.reference}} est terminé.\n\nSuivre votre demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "DO_FACTURE_DISPONIBLE",
+    nom: "Facture disponible (donneur d'ordre)",
+    sujetTemplate: "Facture {{facture.numero}} disponible",
+    bodyTemplate: "Bonjour,\n\nLa facture {{facture.numero}} ({{facture.montantTTC}}, échéance {{facture.echeance}}) est disponible.\n\nVoir la facture : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "FACTURE_ECHUE",
+    nom: "Facture échue",
+    sujetTemplate: "Facture {{facture.numero}} échue",
+    bodyTemplate: "Bonjour,\n\nLa facture {{facture.numero}} ({{facture.montantTTC}}) est échue depuis le {{facture.echeance}} et reste impayée.\n\nVoir la facture : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "REGIE_NOUVEAU_LEAD",
+    nom: "Nouveau lead",
+    sujetTemplate: "Nouveau lead reçu",
+    bodyTemplate: "Bonjour,\n\nUn nouveau lead a été enregistré : {{client.prenom}} {{client.nom}}.\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "RDV_CREE",
+    nom: "RDV créé",
+    sujetTemplate: "Nouveau RDV le {{rdv.date}}",
+    bodyTemplate: "Bonjour {{commercial.nom}},\n\nUn RDV {{rdv.type}} a été créé le {{rdv.date}}{{dossier.reference}}.\n\nVoir le dossier : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "RDV_MODIFIE",
+    nom: "RDV modifié ou annulé",
+    sujetTemplate: "RDV modifié - {{rdv.date}}",
+    bodyTemplate: "Bonjour {{commercial.nom}},\n\nLe RDV {{rdv.type}} du {{rdv.date}} a été modifié ou annulé.\n\nVoir le dossier : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "ACTION_REQUISE",
+    nom: "Action requise",
+    sujetTemplate: "Action requise - dossier {{dossier.reference}}",
+    bodyTemplate: "Bonjour,\n\nUne action est requise sur le dossier {{dossier.reference}}.\n\nVoir le dossier : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
 ];
 
 // Règles par défaut (section 18) - toutes PREPARE_ONLY, aucune n'envoie de
@@ -123,6 +236,32 @@ function defaultRules(organisationId: string) {
     { code: "PAIEMENT_RETARD", nom: "Paiement en retard", triggerType: "FINANCIAL_PAYMENT_LATE", triggerConfig: {}, actionType: "CREATE_TASK", actionConfig: { titre: "Paiement en retard à relancer", assigneRole: "COMPTABILITE", typeTache: "RELANCE_CLIENT" }, delayJours: 0 },
     { code: "ETUDE_OBSOLETE", nom: "Étude obsolète", triggerType: "STUDY_STALE", triggerConfig: {}, actionType: "CREATE_TASK", actionConfig: { titre: "Étude à recalculer (données modifiées)", typeTache: "AUTRE" }, delayJours: 2 },
     { code: "WORKFLOW_ETAPE_RETARD", nom: "Étape workflow en retard", triggerType: "WORKFLOW_STEP_LATE", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { title: "Étape en retard", message: "Une étape de workflow a dépassé son échéance." }, delayJours: 0 },
+
+    // P16 - missions ST/régie, portail donneur d'ordre, RDV.
+    { code: "MISSION_ST_CREEE_J0", nom: "Mission créée - email sous-traitant (J0)", triggerType: "MISSION_ST_CREEE", triggerConfig: { stepIndex: 0 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "MISSION_ST_NOUVELLE" }, delayJours: 0 },
+    { code: "MISSION_ST_CREEE_J3", nom: "Mission créée - relance sous-traitant (J+3)", triggerType: "MISSION_ST_CREEE", triggerConfig: { stepIndex: 1 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "MISSION_ST_NOUVELLE" }, delayJours: 3 },
+    { code: "MISSION_ST_CREEE_J7", nom: "Mission créée - relance sous-traitant (J+7)", triggerType: "MISSION_ST_CREEE", triggerConfig: { stepIndex: 2 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "MISSION_ST_NOUVELLE" }, delayJours: 7 },
+    { code: "MISSION_ST_ACCEPTEE_NOTIF", nom: "Mission acceptée - notif tenant", triggerType: "MISSION_ST_ACCEPTEE", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMIN", title: "Mission acceptée", message: "Un sous-traitant a accepté une mission." }, delayJours: 0 },
+    { code: "MISSION_ST_REFUSEE_NOTIF", nom: "Mission refusée - notif urgente tenant", triggerType: "MISSION_ST_REFUSEE", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMIN", title: "Mission refusée", message: "Un sous-traitant a REFUSÉ une mission - action requise." }, delayJours: 0 },
+    { code: "MISSION_CHANTIER_PROGRAMME_EMAIL", nom: "Chantier programmé - email ST", triggerType: "MISSION_CHANTIER_PROGRAMME", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "CHANTIER_PROGRAMME" }, delayJours: 0 },
+    { code: "MISSION_CHANTIER_PROGRAMME_NOTIF", nom: "Chantier programmé - notif interne", triggerType: "MISSION_CHANTIER_PROGRAMME", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMINISTRATIF", title: "Chantier programmé", message: "Un chantier vient d'être programmé." }, delayJours: 0 },
+    { code: "MISSION_DATE_MODIFIEE_EMAIL", nom: "Date de chantier modifiée - email ST", triggerType: "MISSION_DATE_MODIFIEE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "CHANTIER_DATE_MODIFIEE" }, delayJours: 0 },
+    { code: "MISSION_TERMINEE_NOTIF", nom: "Chantier terminé - contrôle/facturation", triggerType: "MISSION_TERMINEE", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMINISTRATIF", title: "Chantier terminé", message: "Chantier terminé - contrôle / facturation requis." }, delayJours: 0 },
+
+    { code: "DO_DEMANDE_RECUE_NOTIF", nom: "Nouvelle demande DO - notif tenant", triggerType: "DO_DEMANDE_RECUE", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMIN", title: "Nouvelle demande donneur d'ordre", message: "Un donneur d'ordre a envoyé un nouveau chantier." }, delayJours: 0 },
+    { code: "DO_DEMANDE_RECUE_EMAIL", nom: "Nouvelle demande DO - email tenant", triggerType: "DO_DEMANDE_RECUE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_NOUVELLE_DEMANDE" }, delayJours: 0 },
+    { code: "DO_COMPLEMENT_REQUIS_J0", nom: "Complément requis - email DO (J0)", triggerType: "DO_COMPLEMENT_REQUIS", triggerConfig: { stepIndex: 0 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_COMPLEMENT_REQUIS" }, delayJours: 0 },
+    { code: "DO_COMPLEMENT_REQUIS_J1", nom: "Complément requis - relance urgente DO (J+1)", triggerType: "DO_COMPLEMENT_REQUIS", triggerConfig: { stepIndex: 1 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_COMPLEMENT_REQUIS" }, delayJours: 1 },
+    { code: "DO_COMPLEMENT_REQUIS_J3", nom: "Complément requis - relance DO (J+3)", triggerType: "DO_COMPLEMENT_REQUIS", triggerConfig: { stepIndex: 2 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_COMPLEMENT_REQUIS" }, delayJours: 3 },
+    { code: "DO_COMPLEMENT_RECU_NOTIF", nom: "Complément reçu - notif tenant", triggerType: "DO_COMPLEMENT_RECU", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMINISTRATIF", title: "Complément reçu", message: "Le donneur d'ordre a répondu à une demande de complément." }, delayJours: 0 },
+    { code: "DO_CHANTIER_ACCEPTE_EMAIL", nom: "Chantier accepté - email DO", triggerType: "DO_CHANTIER_ACCEPTE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_CHANTIER_ACCEPTE" }, delayJours: 0 },
+    { code: "DO_CHANTIER_PROGRAMME_EMAIL", nom: "Chantier programmé - email DO", triggerType: "DO_CHANTIER_PROGRAMME", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_CHANTIER_PROGRAMME" }, delayJours: 0 },
+    { code: "DO_CHANTIER_TERMINE_EMAIL", nom: "Chantier terminé - email DO", triggerType: "DO_CHANTIER_TERMINE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_CHANTIER_TERMINE" }, delayJours: 0 },
+    { code: "DO_FACTURE_DISPONIBLE_EMAIL", nom: "Facture disponible - email DO", triggerType: "DO_FACTURE_DISPONIBLE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "DO_FACTURE_DISPONIBLE" }, delayJours: 0 },
+
+    { code: "REGIE_NOUVEAU_LEAD_NOTIF", nom: "Nouveau lead - notif tenant", triggerType: "REGIE_NOUVEAU_LEAD", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "COMMERCIAL", title: "Nouveau lead", message: "Un nouveau lead a été enregistré." }, delayJours: 0 },
+    { code: "RDV_CREE_EMAIL", nom: "RDV créé - email commercial", triggerType: "RDV_CREE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "RDV_CREE" }, delayJours: 0 },
+    { code: "RDV_MODIFIE_EMAIL", nom: "RDV modifié/annulé - email commercial", triggerType: "RDV_MODIFIE_OU_ANNULE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "RDV_MODIFIE" }, delayJours: 0 },
   ].map((r) => ({ ...r, organisationId, mode: "PREPARE_ONLY" as const, actif: true }));
 }
 

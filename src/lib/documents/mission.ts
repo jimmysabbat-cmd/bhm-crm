@@ -9,6 +9,14 @@ import { prisma } from "@/lib/prisma";
 // automatique par destination) et rattachement à UN posteTravauxId
 // précis. Plusieurs missions (plusieurs sous-traitants) peuvent viser le
 // même posteTravauxId - jamais de contrainte 1 poste = 1 sous-traitant.
+//
+// P16 - le même mécanisme sert aussi à assigner une équipe interne
+// (Regie) : destinataire = sousTraitantId OU regieId, jamais les deux
+// (destinationType SOUS_TRAITANT ou REGIE en conséquence). Une équipe
+// interne n'a pas de portail (pas d'accepter/refuser côté partenaire) -
+// le statut se pilote ensuite en interne (cf. updateMissionStatutAction).
+// C'est cette unification qui permet au futur /planning de lire TOUTES
+// les missions (ST et régie) depuis une seule source de vérité.
 // ============================================================
 
 export type ChampsClientPartages = {
@@ -33,7 +41,8 @@ export async function createMissionPackage(params: {
   organisationId: string;
   dossierId: string;
   posteTravauxId: string;
-  sousTraitantId: string;
+  sousTraitantId: string | null;
+  regieId: string | null;
   champsPartages: ChampsClientPartages;
   documentIds: string[];
   dateDebutSouhaitee: Date | null;
@@ -42,6 +51,10 @@ export async function createMissionPackage(params: {
   prixConvenuCts: number | null;
   createdById: string;
 }): Promise<string> {
+  if (!params.sousTraitantId === !params.regieId) {
+    throw new Error("Choisissez exactement un destinataire : sous-traitant OU équipe interne.");
+  }
+
   // Vérifications d'appartenance (jamais de confiance dans les IDs reçus du client)
   const poste = await prisma.dossierPosteTravaux.findFirst({
     where: { id: params.posteTravauxId, dossierId: params.dossierId },
@@ -49,8 +62,13 @@ export async function createMissionPackage(params: {
   });
   if (!poste || poste.dossier.organisationId !== params.organisationId) throw new Error("Poste de travaux introuvable.");
 
-  const sousTraitant = await prisma.sousTraitant.findFirst({ where: { id: params.sousTraitantId, organisationId: params.organisationId } });
-  if (!sousTraitant) throw new Error("Sous-traitant introuvable.");
+  if (params.sousTraitantId) {
+    const sousTraitant = await prisma.sousTraitant.findFirst({ where: { id: params.sousTraitantId, organisationId: params.organisationId } });
+    if (!sousTraitant) throw new Error("Sous-traitant introuvable.");
+  } else if (params.regieId) {
+    const regie = await prisma.regie.findFirst({ where: { id: params.regieId, organisationId: params.organisationId } });
+    if (!regie) throw new Error("Équipe interne introuvable.");
+  }
 
   const documents =
     params.documentIds.length > 0
@@ -81,8 +99,9 @@ export async function createMissionPackage(params: {
       organisationId: params.organisationId,
       dossierId: params.dossierId,
       posteTravauxId: params.posteTravauxId,
-      destinationType: "SOUS_TRAITANT",
+      destinationType: params.sousTraitantId ? "SOUS_TRAITANT" : "REGIE",
       destinationSousTraitantId: params.sousTraitantId,
+      destinationRegieId: params.regieId,
       status: "ENVOYEE",
       snapshot: JSON.parse(JSON.stringify(snapshot)),
       comment: params.instructions,

@@ -12,6 +12,8 @@ import {
   type LigneEntreeUnifiee,
   type MouvementAvecDossier,
 } from "@/lib/financial-engine";
+import { getFacturesSousTraitantAValider } from "@/lib/facturation/access";
+import { validerFactureSousTraitantAction } from "@/app/facturation/actions";
 import { formatCents } from "@/lib/money";
 import { categorieMouvementLabels, statutMouvementLabels } from "@/lib/dossier-labels";
 import { Card } from "@/components/ui/Card";
@@ -162,12 +164,13 @@ export default async function FinancesPage({
   const dateFin = new Date(dateDebut);
   dateFin.setDate(dateFin.getDate() + (granularite === "mois" ? 180 : 56));
 
-  const [entreeLignesBrutes, sortiesBrutes, creances, cashflow, marges] = await Promise.all([
+  const [entreeLignesBrutes, sortiesBrutes, creances, cashflow, marges, facturesAValider] = await Promise.all([
     getEntreeLignesForOrganisation(ctx.organisationId),
     peutVoirCoutsInternes ? getMouvementsNonSoldes(ctx.organisationId, "SORTIE") : Promise.resolve([]),
     getCreancesForOrganisation(ctx.organisationId),
     getCashflowForecast(ctx.organisationId, dateDebut, dateFin, granularite),
     getMargesDossiers(ctx.organisationId),
+    peutVoirCoutsInternes ? getFacturesSousTraitantAValider(ctx.organisationId) : Promise.resolve([]),
   ]);
 
   // Ne montrer que ce qui reste réellement dû (section 3/4 du prompt P6B) -
@@ -441,6 +444,64 @@ export default async function FinancesPage({
           réalisée au sens comptable (aucune facturation/reconnaissance de revenu n&apos;existe encore dans le CRM).
         </p>
       </section>
+
+      {peutVoirCoutsInternes && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-slate-900">G. Factures sous-traitant à valider ({facturesAValider.length})</h2>
+          <Card className="overflow-hidden">
+            {facturesAValider.length === 0 ? (
+              <p className="p-5 text-sm text-slate-400">Aucune facture sous-traitant en attente de validation.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-2.5">Sous-traitant</th>
+                    <th className="px-4 py-2.5">Dossier</th>
+                    <th className="px-4 py-2.5">N°</th>
+                    <th className="px-4 py-2.5">Déposée le</th>
+                    <th className="px-4 py-2.5 text-right">Montant TTC</th>
+                    <th className="px-4 py-2.5"></th>
+                    <th className="px-4 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {facturesAValider.map((f) => (
+                    <tr key={f.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                      <td className="px-4 py-2.5 font-medium text-slate-900">{f.sousTraitantNom}</td>
+                      <td className="px-4 py-2.5">
+                        <Link href={`/dossiers/${f.dossierId}`} className="text-slate-600 hover:text-emerald-700">
+                          {f.dossierReference}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500">{f.numero}</td>
+                      <td className="px-4 py-2.5 text-slate-500">{f.dateEmission.toLocaleDateString("fr-FR")}</td>
+                      <td className="px-4 py-2.5 text-right font-medium text-slate-900">{formatCents(f.montantTTCCts)}</td>
+                      <td className="px-4 py-2.5">
+                        {f.fichierPdfPath && (
+                          <a href={`/api/factures/${f.id}/pdf`} target="_blank" rel="noreferrer" className="text-xs font-medium text-slate-600 hover:underline">
+                            Justificatif
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <form action={validerFactureSousTraitantAction.bind(null, f.id)}>
+                          <button type="submit" className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
+                            Valider
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+          <p className="text-xs text-slate-400">
+            La validation fait naître la dette fournisseur dans le moteur financier (section B ci-dessus) - jamais de paiement
+            automatique sur simple dépôt par le sous-traitant.
+          </p>
+        </section>
+      )}
 
       <p className="flex items-center gap-1.5 text-xs text-slate-400">
         <Wallet className="h-3.5 w-3.5" />

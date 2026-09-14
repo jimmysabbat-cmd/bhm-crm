@@ -42,18 +42,17 @@ export class NoopEmailProvider implements EmailProvider {
 }
 
 /**
- * SMTP générique optionnel (section 11) - configurable via variables
- * d'environnement, AUCUN secret en dur dans le code. N'effectue un envoi
- * réel QUE si EMAIL_SEND_ENABLED=true (section 34) ; sinon se comporte
- * comme NoopEmailProvider pour rester sûr par défaut en dev/QA (section
- * 35). L'envoi SMTP réel nécessiterait une dépendance externe (ex.
- * nodemailer) non ajoutée en P11 - cette classe prépare l'abstraction et
- * valide la configuration, sans effectuer l'appel réseau tant qu'aucune
- * lib SMTP n'est branchée : à cadrer explicitement si un vrai envoi SMTP
- * est requis.
+ * SMTP générique (P16) - configurable UNIQUEMENT via variables
+ * d'environnement (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD/SMTP_FROM/
+ * SMTP_SECURE), AUCUN secret en dur dans le code. N'effectue un envoi réel
+ * QUE si EMAIL_SEND_ENABLED=true (section 34) - sinon se comporte comme
+ * NoopEmailProvider pour rester sûr par défaut en dev/QA (section 35).
+ * Le transport nodemailer est créé paresseusement (une seule fois, jamais
+ * à chaque envoi) et jamais si l'envoi réel est désactivé.
  */
 export class SMTPEmailProvider implements EmailProvider {
   readonly name = "smtp";
+  private transporter: import("nodemailer").Transporter | null = null;
 
   constructor(
     private readonly config: {
@@ -62,6 +61,7 @@ export class SMTPEmailProvider implements EmailProvider {
       user: string | undefined;
       pass: string | undefined;
       from: string | undefined;
+      secure: boolean;
     }
   ) {}
 
@@ -72,16 +72,35 @@ export class SMTPEmailProvider implements EmailProvider {
     return { valid: true };
   }
 
-  async sendEmail(_params: SendEmailParams): Promise<SendEmailResult> {
+  async sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
     const check = this.validateConfiguration();
     if (!check.valid) return { ok: false, error: check.reason };
     if (!isEmailSendEnabled()) {
       return { ok: false, error: "EMAIL_SEND_ENABLED=false - envoi réel désactivé (dev/test/QA)." };
     }
-    // Pas de client SMTP réel branché en P11 (aucune dépendance ajoutée -
-    // cf. limites du rapport final) : ce fournisseur reste préparé mais
-    // n'émet aucun appel réseau tant qu'une lib SMTP n'est pas décidée.
-    return { ok: false, error: "SMTPEmailProvider : envoi réel non implémenté en P11 (abstraction préparée uniquement)." };
+
+    try {
+      if (!this.transporter) {
+        const nodemailer = await import("nodemailer");
+        this.transporter = nodemailer.createTransport({
+          host: this.config.host,
+          port: this.config.port,
+          secure: this.config.secure,
+          auth: this.config.user ? { user: this.config.user, pass: this.config.pass } : undefined,
+        });
+      }
+      const info = await this.transporter.sendMail({
+        from: this.config.from,
+        to: params.to,
+        subject: params.subject,
+        text: params.body,
+      });
+      return { ok: true, providerMessageId: info.messageId };
+    } catch (e) {
+      // Jamais de mot de passe/secret dans le message d'erreur journalisé -
+      // seul le message d'erreur nodemailer (protocole SMTP) est propagé.
+      return { ok: false, error: e instanceof Error ? e.message : "Erreur SMTP inconnue." };
+    }
   }
 }
 
@@ -104,11 +123,17 @@ export function getEmailProvider(): EmailProvider {
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
       user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      pass: process.env.SMTP_PASSWORD,
       from: process.env.SMTP_FROM,
+      secure: process.env.SMTP_SECURE === "true",
     });
   } else {
     cachedProvider = new NoopEmailProvider();
   }
   return cachedProvider;
+}
+
+/** Réservé aux tests - force le prochain getEmailProvider() à recréer le fournisseur (ex. après changement d'env). */
+export function resetEmailProviderCache(): void {
+  cachedProvider = null;
 }

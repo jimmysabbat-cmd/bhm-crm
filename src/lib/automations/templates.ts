@@ -31,6 +31,26 @@ export const ALLOWED_VARIABLES = [
   "logement.surfaceHabitableM2",
   "logement.typeBatiment",
   "opportunite.libelle",
+  // P16 - missions (ST/régie), portail donneur d'ordre, RDV. `lien.url` est
+  // volontairement générique et réutilisé par tous les nouveaux templates
+  // (une seule variable de lien, jamais une variante par cas) - toujours
+  // une URL "normale" vers l'écran exact (cf. src/lib/links.ts), jamais un
+  // token magique. Seuls les champs EXPLICITEMENT partagés (cf. P15
+  // ChampsClientPartages) alimentent client.*/mission.adresse - jamais le
+  // dossier entier.
+  "lien.url",
+  "mission.destinataire",
+  "mission.prestation",
+  "mission.dateDebut",
+  "mission.dateFin",
+  "mission.instructions",
+  "mission.motifRefus",
+  "donneurOrdre.nom",
+  "demande.reference",
+  "demande.message",
+  "facture.numero",
+  "facture.montantTTC",
+  "facture.echeance",
 ] as const;
 
 export type AllowedVariable = (typeof ALLOWED_VARIABLES)[number];

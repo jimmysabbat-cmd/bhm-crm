@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { getDossierDocumentsAction, envoyerEnMissionAction } from "./mission-actions";
 
 type SousTraitant = { id: string; nom: string };
+type Regie = { id: string; nom: string };
 type DocRow = { id: string; nomFichier: string; typeNom: string | null };
 
 const CHAMPS_CLIENT: { key: "nom" | "prenom" | "telephone" | "email" | "adresse"; label: string }[] = [
@@ -19,16 +20,20 @@ export function EnvoyerEnMissionButton({
   dossierId,
   posteTravauxId,
   sousTraitants,
+  regies,
   posteLabel,
 }: {
   dossierId: string;
   posteTravauxId: string;
   sousTraitants: SousTraitant[];
+  regies: Regie[];
   posteLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const [docs, setDocs] = useState<DocRow[]>([]);
+  const [destinataireType, setDestinataireType] = useState<"SOUS_TRAITANT" | "REGIE">("SOUS_TRAITANT");
   const [sousTraitantId, setSousTraitantId] = useState("");
+  const [regieId, setRegieId] = useState("");
   const [champs, setChamps] = useState<Record<string, boolean>>({ nom: true, prenom: true, adresse: true });
   const [docIds, setDocIds] = useState<Set<string>>(new Set());
   const [dateDebut, setDateDebut] = useState("");
@@ -64,14 +69,51 @@ export function EnvoyerEnMissionButton({
           <div className="mt-4 space-y-5">
             <div>
               <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Destinataire</label>
-              <select value={sousTraitantId} onChange={(e) => setSousTraitantId(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <option value="">— Choisir un sous-traitant —</option>
-                {sousTraitants.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nom}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1 flex gap-4 text-sm text-slate-700">
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="destinataireType"
+                    checked={destinataireType === "SOUS_TRAITANT"}
+                    onChange={() => {
+                      setDestinataireType("SOUS_TRAITANT");
+                      setRegieId("");
+                    }}
+                  />
+                  Sous-traitant
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="destinataireType"
+                    checked={destinataireType === "REGIE"}
+                    onChange={() => {
+                      setDestinataireType("REGIE");
+                      setSousTraitantId("");
+                    }}
+                  />
+                  Équipe interne
+                </label>
+              </div>
+              {destinataireType === "SOUS_TRAITANT" ? (
+                <select value={sousTraitantId} onChange={(e) => setSousTraitantId(e.target.value)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <option value="">— Choisir un sous-traitant —</option>
+                  {sousTraitants.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nom}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select value={regieId} onChange={(e) => setRegieId(e.target.value)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <option value="">— Choisir une équipe interne —</option>
+                  {regies.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.nom}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div>
@@ -139,14 +181,15 @@ export function EnvoyerEnMissionButton({
               </Button>
               <Button
                 type="button"
-                disabled={!sousTraitantId || pending}
+                disabled={(!sousTraitantId && !regieId) || pending}
                 onClick={() =>
                   startTransition(async () => {
                     setError(null);
                     const res = await envoyerEnMissionAction({
                       dossierId,
                       posteTravauxId,
-                      sousTraitantId,
+                      sousTraitantId: sousTraitantId || null,
+                      regieId: regieId || null,
                       champsPartages: champs,
                       documentIds: Array.from(docIds),
                       dateDebutSouhaitee: dateDebut || null,

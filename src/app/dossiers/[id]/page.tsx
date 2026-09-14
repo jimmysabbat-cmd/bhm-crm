@@ -17,6 +17,7 @@ import {
   Workflow,
   AlertTriangle,
   Banknote,
+  CalendarClock,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext, hasPermission, canAccessDossierStudy, canAccessDossierCommunication, isPartnerRole } from "@/lib/authz";
@@ -28,7 +29,8 @@ import { getDocumentChecklistForDossier } from "@/lib/documents/checklist";
 import { DocumentChecklistPanel } from "../DocumentChecklistPanel";
 import { CommunicationsPanel } from "../CommunicationsPanel";
 import { getMissingDocumentsRelanceData } from "@/lib/documents/relance";
-import { recalculateDossierWorkflow, calculerDelaiEtape } from "@/lib/workflow";
+import { recalculateDossierWorkflow, calculerDelaiEtape, getNextActionsForDossier } from "@/lib/workflow";
+import { getDocumentBlockingReasons } from "@/lib/documents/blocking";
 import { mouvementIsLate, mouvementJoursRetard, calculateBlockedAmountForDossier } from "@/lib/finance";
 import { getFinancialSummaryForDossier, getCreancesForDossier, getDettesForDossier, financialDataQualityLabels } from "@/lib/financial-engine";
 import { formatCents } from "@/lib/money";
@@ -64,6 +66,11 @@ import {
   deleteDocument,
 } from "../actions";
 import { EnvoyerEnMissionButton } from "../EnvoyerEnMissionButton";
+import { MissionsPanel } from "../MissionsPanel";
+import { getMissionsForDossierAction } from "../mission-actions";
+import { ComplementDonneurOrdrePanel } from "../ComplementDonneurOrdrePanel";
+import { FacturesPanel } from "../FacturesPanel";
+import { getFacturesForDossier, getPostesFacturablesDonneurOrdre } from "@/lib/facturation/access";
 import {
   affecterProgrammeAuDossier,
   demarrerEtape,
@@ -141,6 +148,24 @@ const FINANCIAL_DATA_QUALITY_COLOR: Record<string, "slate" | "blue" | "amber" | 
   INSUFFICIENT: "red",
 };
 
+const RDV_TYPE_LABELS: Record<string, string> = {
+  TELEPHONIQUE: "RDV téléphonique",
+  VISITE: "Visite / RDV commercial",
+  AUTRE: "RDV",
+};
+const RDV_STATUT_LABELS: Record<string, string> = {
+  PLANIFIE: "Planifié",
+  CONFIRME: "Confirmé",
+  REALISE: "Réalisé",
+  ANNULE: "Annulé",
+};
+const RDV_STATUT_COLORS: Record<string, "slate" | "blue" | "amber" | "emerald" | "red"> = {
+  PLANIFIE: "blue",
+  CONFIRME: "emerald",
+  REALISE: "slate",
+  ANNULE: "red",
+};
+
 export default async function DossierDetailPage({
   params,
 }: {
@@ -192,6 +217,7 @@ export default async function DossierDetailPage({
         statutCee: true,
         statutTravaux: true,
         delegataireCee: true,
+        donneurOrdre: { select: { nom: true } },
         taches: { orderBy: { dateEcheance: "asc" } },
         postesTravaux: {
           orderBy: { createdAt: "asc" },
@@ -236,6 +262,23 @@ export default async function DossierDetailPage({
   ]);
 
   if (!dossier) notFound();
+
+  const missions = await getMissionsForDossierAction(dossier.id);
+  const [factures, postesFacturables, prochainesActions, blocagesDocumentaires, rdvs] = await Promise.all([
+    getFacturesForDossier(dossier.id, ctx.organisationId),
+    dossier.donneurOrdreId ? getPostesFacturablesDonneurOrdre(dossier.id, ctx.organisationId) : Promise.resolve([]),
+    getNextActionsForDossier(dossier.id),
+    getDocumentBlockingReasons(dossier.id, ctx.organisationId),
+    prisma.rdv.findMany({
+      where: { dossierId: dossier.id },
+      include: { commercial: { select: { name: true } } },
+      orderBy: { date: "desc" },
+    }),
+  ]);
+  const prochaineAction = prochainesActions.find((a) => a.statut === "BLOQUE") ?? prochainesActions[0] ?? null;
+  const posteLabels: Record<string, string> = Object.fromEntries(
+    dossier.postesTravaux.map((p) => [p.id, `${typeTravauxLabels[p.type] ?? p.type}${p.surfaceM2 ? ` — ${p.surfaceM2} m²` : ""}`])
+  );
 
   // Section 26 : la synthèse financière moteur (P6) est masquée aux rôles
   // qui ne doivent pas voir les coûts internes / la marge (COMMERCIAL,
@@ -456,9 +499,52 @@ export default async function DossierDetailPage({
           <p className="mt-1 text-sm text-slate-500">
             {dossier.type.label}
             {dossier.createdBy && ` · créé par ${dossier.createdBy.name}`}
+            {dossier.donneurOrdre && ` · donneur d'ordre : ${dossier.donneurOrdre.nom}`}
           </p>
         </div>
         <Badge color={statutColor(dossier.statut.key)}>{dossier.statut.label}</Badge>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-200/50">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Blocage</p>
+            {blocagesDocumentaires.length === 0 && !prochaineAction?.raisonBlocage ? (
+              <p className="mt-1 text-sm text-emerald-700">Aucun blocage identifié.</p>
+            ) : (
+              <ul className="mt-1 space-y-0.5 text-sm text-red-600">
+                {prochaineAction?.raisonBlocage && <li>{prochaineAction.raisonBlocage}</li>}
+                {blocagesDocumentaires.map((b) => (
+                  <li key={b.requirementId}>Document manquant : {b.typeDocumentNom}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Prochaine action</p>
+            {prochaineAction ? (
+              <p className="mt-1 text-sm text-slate-700">
+                {prochaineAction.nom}
+                {prochaineAction.responsable && ` · ${prochaineAction.responsable}`}
+                {prochaineAction.retard != null && prochaineAction.retard > 0 && (
+                  <span className="ml-1 font-medium text-red-600">(+{prochaineAction.retard} j de retard)</span>
+                )}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-slate-400">Aucune étape de workflow en attente.</p>
+            )}
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs font-medium text-emerald-700">
+          <a href="#postes-travaux" className="hover:underline">Postes</a>
+          <a href="#documents" className="hover:underline">Documents</a>
+          <a href="#flux-financiers" className="hover:underline">Financier</a>
+          <a href="#rdv" className="hover:underline">RDV</a>
+          <a href="/planning" className="hover:underline">Planning</a>
+          {missions.length > 0 && <a href="#missions" className="hover:underline">Missions</a>}
+          {dossier.donneurOrdreId && <a href="#donneur-ordre" className="hover:underline">Donneur d&apos;ordre</a>}
+          {(factures.length > 0 || postesFacturables.length > 0) && <a href="#factures" className="hover:underline">Factures</a>}
+        </div>
       </div>
 
       <details className="group rounded-2xl border border-slate-200/70 bg-white shadow-sm shadow-slate-200/50">
@@ -1566,7 +1652,7 @@ export default async function DossierDetailPage({
       </Card>
       </div>
 
-      <Card>
+      <Card id="postes-travaux">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Wrench className="h-4 w-4 text-emerald-600" />
@@ -1708,6 +1794,7 @@ export default async function DossierDetailPage({
                   dossierId={dossier.id}
                   posteTravauxId={poste.id}
                   sousTraitants={sousTraitants}
+                  regies={regies}
                   posteLabel={`${typeTravauxLabels[poste.type] ?? poste.type}${poste.surfaceM2 ? ` — ${poste.surfaceM2} m²` : ""}`}
                 />
               </form>
@@ -1968,7 +2055,50 @@ export default async function DossierDetailPage({
         </div>
       </Card>
 
-      <Card>
+      <Card id="rdv" className="overflow-hidden">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-emerald-600" />
+            <CardTitle>RDV ({rdvs.length})</CardTitle>
+          </div>
+          <a href="/planning" className="text-xs font-medium text-emerald-700 hover:underline">
+            Voir le planning
+          </a>
+        </CardHeader>
+        <div className="divide-y divide-slate-100">
+          {rdvs.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
+              <div>
+                <span className="font-medium text-slate-900">{RDV_TYPE_LABELS[r.type] ?? r.type}</span>
+                <span className="ml-2 text-slate-500">{r.date.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}</span>
+                {r.commercial && <span className="ml-2 text-slate-400">· {r.commercial.name}</span>}
+              </div>
+              <Badge color={RDV_STATUT_COLORS[r.statut] ?? "slate"}>{RDV_STATUT_LABELS[r.statut] ?? r.statut}</Badge>
+            </div>
+          ))}
+          {rdvs.length === 0 && <p className="px-5 py-6 text-center text-sm text-slate-400">Aucun RDV pour ce dossier.</p>}
+        </div>
+      </Card>
+
+      <div id="missions">
+        <MissionsPanel missions={missions} posteLabels={posteLabels} />
+      </div>
+
+      {dossier.donneurOrdreId && (
+        <div id="donneur-ordre">
+          <ComplementDonneurOrdrePanel
+            dossierId={dossier.id}
+            demande={dossier.complementDemandeMessage && dossier.complementDemandeAt ? { message: dossier.complementDemandeMessage, at: dossier.complementDemandeAt } : null}
+            reponse={dossier.complementReponseMessage && dossier.complementReponseAt ? { message: dossier.complementReponseMessage, at: dossier.complementReponseAt } : null}
+          />
+        </div>
+      )}
+
+      <div id="factures">
+        <FacturesPanel dossierId={dossier.id} factures={factures} postesFacturables={postesFacturables} />
+      </div>
+
+      <Card id="documents">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Paperclip className="h-4 w-4 text-emerald-600" />

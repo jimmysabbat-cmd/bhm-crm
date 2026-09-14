@@ -45,6 +45,9 @@ export type UserContext = {
   // (aucun besoin d'accès partenaire dans ces suites).
   sousTraitantId?: string | null;
   delegataireCeeId?: string | null;
+  // P16 - même logique pour un compte portail donneur d'ordre (rôle
+  // DONNEUR_ORDRE rattaché à User.donneurOrdreId).
+  donneurOrdreId?: string | null;
   // P12 (section 0/17/18) : true uniquement quand ce contexte représente
   // un PLATFORM SUPER ADMIN actuellement "entré" dans un tenant.
   // organisationId reflète alors le tenant ENTRÉ, jamais la ligne User du
@@ -94,6 +97,7 @@ export async function requireUserContext(): Promise<UserContext> {
       actif: true,
       sousTraitantId: true,
       delegataireCeeId: true,
+      donneurOrdreId: true,
       isPlatformSuperAdmin: true,
       organisation: { select: { status: true } },
     },
@@ -123,6 +127,7 @@ export async function requireUserContext(): Promise<UserContext> {
       effectiveRole: "ADMIN",
       sousTraitantId: null,
       delegataireCeeId: null,
+      donneurOrdreId: null,
       isPlatformSuperAdmin: true,
     };
   }
@@ -145,6 +150,7 @@ export async function requireUserContext(): Promise<UserContext> {
     effectiveRole: user.role,
     sousTraitantId: user.sousTraitantId,
     delegataireCeeId: user.delegataireCeeId,
+    donneurOrdreId: user.donneurOrdreId,
     isPlatformSuperAdmin: false,
   };
 }
@@ -381,7 +387,7 @@ export function canAccessDossierCommunication(ctx: UserContext, dossier: { creat
 // rôle) n'est jamais un partenaire, même si son entité liée existait par
 // erreur en base.
 export function isPartnerRole(ctx: UserContext): boolean {
-  return ctx.role === "SOUS_TRAITANT" || ctx.role === "DELEGATAIRE_CEE";
+  return ctx.role === "SOUS_TRAITANT" || ctx.role === "DELEGATAIRE_CEE" || ctx.role === "DONNEUR_ORDRE";
 }
 
 // Un dossier est visible pour un partenaire uniquement s'il a au moins un
@@ -409,4 +415,11 @@ export function canAccessPackageAsPartner(
   if (ctx.role === "SOUS_TRAITANT") return ctx.sousTraitantId != null && pkg.destinationSousTraitantId === ctx.sousTraitantId;
   if (ctx.role === "DELEGATAIRE_CEE") return ctx.delegataireCeeId != null && pkg.destinationDelegataireCeeId === ctx.delegataireCeeId;
   return false;
+}
+
+// P16 - un dossier n'est visible pour un donneur d'ordre QUE s'il porte
+// EXACTEMENT son donneurOrdreId (jamais déduit d'un nom/d'une correspondance
+// texte, même logique que canAccessDossierAsPartner ci-dessus).
+export function canAccessDossierAsDonneurOrdre(ctx: UserContext, dossier: { donneurOrdreId: string | null }): boolean {
+  return ctx.role === "DONNEUR_ORDRE" && ctx.donneurOrdreId != null && dossier.donneurOrdreId === ctx.donneurOrdreId;
 }

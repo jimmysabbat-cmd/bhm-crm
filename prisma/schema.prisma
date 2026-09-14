@@ -32,6 +32,11 @@ enum Role {
   // DelegataireCee via User.delegataireCeeId, même logique restreinte que
   // SOUS_TRAITANT (aucun accès interne, uniquement ses dossiers/packages).
   DELEGATAIRE_CEE
+  // P16 - accès partenaire "donneur d'ordre" : compte externe rattaché à un
+  // DonneurOrdre via User.donneurOrdreId, même logique restreinte que
+  // SOUS_TRAITANT/DELEGATAIRE_CEE (uniquement ses propres dossiers/
+  // documents/factures, jamais de finance interne).
+  DONNEUR_ORDRE
 }
 
 enum Precarite {
@@ -157,6 +162,10 @@ enum CategorieMouvementFinancier {
   LOCATION_MATERIEL
   ECHAFAUDAGE
   FRAIS_FINANCEMENT
+  // P16 - encaissement d'une facture émise à un donneur d'ordre (apport
+  // d'affaire). Flux distinct de ENCAISSEMENT_CLIENT (cf. fluxDe() dans
+  // financial-engine.ts) - ne remplace jamais le repli legacy CLIENT.
+  ENCAISSEMENT_DONNEUR_ORDRE
 }
 
 enum StatutMouvementFinancier {
@@ -188,6 +197,8 @@ enum PartiePrenante {
   APPORTEUR
   MAR
   AUTRE
+  // P16 - facturation donneur d'ordre
+  DONNEUR_ORDRE
 }
 
 // Condition d'exigibilité d'un mouvement (utile surtout pour les
@@ -338,6 +349,11 @@ model Organisation {
   // P14
   fichesMetier        FicheMetier[]
   argumentairesMetier ArgumentaireMetier[]
+
+  // P16
+  donneurOrdres    DonneurOrdre[]
+  factures         Facture[]
+  compteursFacture CompteurFacture[]
 }
 
 model User {
@@ -378,6 +394,9 @@ model User {
   sousTraitant             SousTraitant?   @relation(fields: [sousTraitantId], references: [id])
   delegataireCeeId         String?
   delegataireCeePartenaire DelegataireCee? @relation(fields: [delegataireCeeId], references: [id])
+  // P16 - même logique pour un compte portail donneur d'ordre.
+  donneurOrdreId           String?
+  donneurOrdre             DonneurOrdre?   @relation(fields: [donneurOrdreId], references: [id])
 
   // P13 (Partenaire générique, TRANSITOIRE) - accès portail pour un
   // partenaire de n'importe quel rôle (sous-traitant, délégataire CEE,
@@ -438,9 +457,14 @@ model User {
   regleReglementaireVersionsValidees RegleReglementaireVersion[]       @relation("RegleReglementaireVersionValidatedBy")
   etapeConditionValidations          DossierEtapeConditionValidation[]
 
+  // P16
+  facturesValidees Facture[] @relation("FactureValidatedBy")
+  facturesCreees   Facture[] @relation("FactureCreatedBy")
+
   @@index([organisationId])
   @@index([sousTraitantId])
   @@index([delegataireCeeId])
+  @@index([donneurOrdreId])
   @@index([partenaireId])
 }
 
@@ -551,6 +575,12 @@ model Regie {
   createdAt      DateTime      @default(now())
 
   postesTravaux DossierPosteTravaux[]
+
+  // P16 - missions envoyées à CETTE équipe interne (destinationRegieId non
+  // nul sur TransmissionPackage) - même mécanisme "Envoyer en mission" que
+  // pour un sous-traitant externe, pour unifier la source de données du
+  // futur /planning (aucune duplication de modèle).
+  missions TransmissionPackage[]
 
   @@index([organisationId])
 }
@@ -837,6 +867,23 @@ model Dossier {
   dateDebutTravaux   DateTime?
   dateFinTravaux     DateTime?
 
+  // P16 - donneur d'ordre à l'origine de ce dossier (apport d'affaire),
+  // nul pour un dossier commercial classique (lead/prospection interne).
+  // La demande envoyée par le donneur d'ordre alimente DIRECTEMENT ce
+  // Dossier (+ Client + DossierPosteTravaux) - jamais de copie parallèle.
+  donneurOrdreId String?
+  donneurOrdre   DonneurOrdre? @relation(fields: [donneurOrdreId], references: [id])
+
+  // P16 - demande de complément d'information au donneur d'ordre (portail
+  // DO). complementDemandeMessage non nul = complément en attente (déclenche
+  // DO_COMPLEMENT_REQUIS) ; sa mise à null par la réponse du DO déclenche
+  // DO_COMPLEMENT_RECU. Champ libre volontairement simple (pas de fil de
+  // discussion structuré en V1).
+  complementDemandeMessage String?
+  complementReponseMessage String?
+  complementDemandeAt      DateTime?
+  complementReponseAt      DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -862,6 +909,9 @@ model Dossier {
   emailDrafts   EmailDraft[]
   emailSendLogs EmailSendLog[]
 
+  // P16
+  factures Facture[]
+
   @@index([statutId])
   @@index([typeId])
   @@index([clientId])
@@ -869,6 +919,7 @@ model Dossier {
   @@index([statutCeeId])
   @@index([statutTravauxId])
   @@index([programmeVersionId])
+  @@index([donneurOrdreId])
 }
 
 model DossierPosteTravaux {
@@ -917,6 +968,9 @@ model DossierPosteTravaux {
   // P15 (60 min) - missions envoyées pour CE poste (0..n, multi-sous-traitants).
   missions TransmissionPackage[]
 
+  // P16 - lignes de facture (DO ou ST) référençant ce poste, le cas échéant.
+  factureLignes FactureLigne[]
+
   @@index([dossierId])
 }
 
@@ -948,6 +1002,36 @@ model SousTraitant {
   // P13 (Partenaire générique, TRANSITOIRE) - voir DelegataireCee.partenaireId.
   partenaireId String?     @unique
   partenaire   Partenaire? @relation(fields: [partenaireId], references: [id])
+
+  // P16 - factures déposées par ce sous-traitant (voir Facture).
+  factures Facture[]
+
+  @@index([organisationId])
+}
+
+// P16 - Donneur d'ordre : entreprise externe qui envoie des chantiers à
+// BHM/RUA pour exécution (apport d'affaire), sur le même principe que
+// SousTraitant/DelegataireCee (référentiel tenant-specific, comptes
+// utilisateurs rattachés via User.donneurOrdreId, accès portail
+// strictement limité à ses propres dossiers/documents/factures - jamais
+// de finance interne, jamais les dossiers d'un autre donneur d'ordre).
+model DonneurOrdre {
+  id               String        @id @default(cuid())
+  organisationId   String?
+  organisation     Organisation? @relation(fields: [organisationId], references: [id])
+  nom              String
+  contactEmail     String?
+  contactTelephone String?
+  ordre            Int           @default(0)
+  actif            Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+
+  // Comptes utilisateurs rattachés (portail donneur d'ordre) et dossiers
+  // qu'il a envoyés (alimentent directement les objets canoniques Dossier/
+  // DossierPosteTravaux - jamais de copie parallèle "Demande").
+  utilisateurs User[]
+  dossiers     Dossier[]
+  factures     Facture[]
 
   @@index([organisationId])
 }
@@ -1077,6 +1161,9 @@ enum DestinationTransmission {
   CLIENT
   COMPTABILITE
   AUTRE
+  // P16 - mission envoyée à une équipe interne (Regie) au lieu d'un
+  // sous-traitant externe, même mécanisme TransmissionPackage.
+  REGIE
 }
 
 // Référentiel des types de document (P10, section 1) - configurable, remplace
@@ -1188,6 +1275,11 @@ model TransmissionPackage {
   destinationSousTraitant     SousTraitant?           @relation(fields: [destinationSousTraitantId], references: [id])
   destinationDelegataireCeeId String?
   destinationDelegataireCee   DelegataireCee?         @relation(fields: [destinationDelegataireCeeId], references: [id])
+  // P16 - mission envoyée à une équipe interne (Regie) plutôt qu'à un
+  // sous-traitant externe ; jamais renseigné en même temps que
+  // destinationSousTraitantId (destinataire unique par mission).
+  destinationRegieId          String?
+  destinationRegie            Regie?                  @relation(fields: [destinationRegieId], references: [id])
 
   // P15 (60 min, mission sous-traitant) - rattachement précis à UN poste de
   // travaux quand ce package sert de mission (posteTravauxId non nul).
@@ -1208,16 +1300,16 @@ model TransmissionPackage {
   // P15 (60 min) - champs mission : prix convenu et fenêtre de dates
   // souhaitées, en colonnes réelles (pas dans snapshot JSON) pour que le
   // futur /planning puisse les lire directement sans parser du JSON.
-  prixConvenuCts       Int?
-  dateDebutSouhaitee   DateTime?
-  dateFinSouhaitee     DateTime?
+  prixConvenuCts     Int?
+  dateDebutSouhaitee DateTime?
+  dateFinSouhaitee   DateTime?
 
   // P15 (60 min) - réponse du sous-traitant (accepter/refuser), jamais
   // renseigné par un autre rôle que le partenaire destinataire lui-même.
-  respondedAt     DateTime?
-  respondedById   String?
-  respondedBy     User?     @relation("TransmissionPackageRespondedBy", fields: [respondedById], references: [id])
-  refusalReason   String?
+  respondedAt   DateTime?
+  respondedById String?
+  respondedBy   User?     @relation("TransmissionPackageRespondedBy", fields: [respondedById], references: [id])
+  refusalReason String?
 
   transmittedAt     DateTime?
   transmittedById   String?
@@ -1227,6 +1319,10 @@ model TransmissionPackage {
   createdById String?
   createdBy   User?    @relation("TransmissionPackageCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
+  // P16 - permet de détecter un changement de date/statut pour le trigger
+  // d'automatisation MISSION_DATE_MODIFIEE (triggerKey dérivé de cette
+  // valeur), jamais utilisé comme donnée métier ailleurs.
+  updatedAt   DateTime @updatedAt
 
   documents TransmissionPackageDocument[]
 
@@ -1234,6 +1330,7 @@ model TransmissionPackage {
   @@index([dossierId])
   @@index([destinationSousTraitantId])
   @@index([destinationDelegataireCeeId])
+  @@index([destinationRegieId])
   @@index([posteTravauxId])
 }
 
@@ -1404,9 +1501,150 @@ model MouvementFinancier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // P16 - facture (DO ou ST) dont le paiement/encaissement de CE mouvement
+  // assure le suivi (cf. Facture.mouvementFinancierId, FK portée par
+  // Facture pour rester un ajout purement additif ici). Optionnel : tout
+  // mouvement créé avant P16, ou sans facture associée, garde ce champ nul.
+  facture Facture?
+
   @@index([dossierId])
   @@index([organisationId])
   @@index([statut])
+}
+
+// ============================================================
+// Facturation (P16) - deux flux distincts, jamais confondus avec le CA
+// contractuel/marge réalisée du moteur P6 (cf. financial-engine.ts,
+// getInvoiceStatus() qui reste le point d'entrée à enrichir) :
+//   - DONNEUR_ORDRE : BHM/RUA émet une facture (numérotée séquentiellement
+//     par organisation+année via CompteurFacture) à un DonneurOrdre pour
+//     un chantier terminé, visible dans son portail.
+//   - SOUS_TRAITANT : un sous-traitant dépose sa propre facture (numero =
+//     sa référence libre, jamais générée par nous) pour validation interne
+//     puis paiement.
+// Le règlement de l'une ou l'autre passe par un MouvementFinancier créé
+// via l'action existante createMouvementFinancier (jamais une écriture
+// directe ici) pour ne jamais dupliquer la logique anti-double-comptage
+// P6C (categorie ENCAISSEMENT_DONNEUR_ORDRE ou PAIEMENT_SOUS_TRAITANT,
+// déjà exclue des coûts prévisionnels par postes - cf.
+// SORTIES_COUVERTES_PAR_POSTES). Facture.mouvementFinancierId (unique)
+// évite qu'un même règlement ne génère deux mouvements.
+// ============================================================
+
+enum TypeFacture {
+  DONNEUR_ORDRE
+  SOUS_TRAITANT
+}
+
+enum StatutFacture {
+  BROUILLON
+  EMISE
+  PARTIELLEMENT_PAYEE
+  PAYEE
+  EN_RETARD
+  ANNULEE
+  LITIGE
+}
+
+model Facture {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  dossierId      String
+  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  type   TypeFacture
+  // Facture DONNEUR_ORDRE : numéro séquentiel généré (CompteurFacture).
+  // Facture SOUS_TRAITANT : référence propre du sous-traitant (texte libre,
+  // jamais générée par nous - il n'y a pas d'obligation légale de
+  // séquentialité côté BHM pour une facture qu'elle REÇOIT).
+  numero String
+
+  donneurOrdreId String?
+  donneurOrdre   DonneurOrdre? @relation(fields: [donneurOrdreId], references: [id])
+  sousTraitantId String?
+  sousTraitant   SousTraitant? @relation(fields: [sousTraitantId], references: [id])
+
+  montantHTCts  Int
+  tauxTVA       Float // ex. 0.20, 0.055, 0.10
+  montantTVACts Int
+  montantTTCCts Int
+
+  dateEmission DateTime      @default(now())
+  dateEcheance DateTime?
+  statut       StatutFacture @default(BROUILLON)
+
+  // Facture DONNEUR_ORDRE : PDF généré par nos soins (cf. src/lib/facturation/pdf.ts).
+  // Facture SOUS_TRAITANT : justificatif déposé par le sous-traitant.
+  // Dans les deux cas, stocké via le DocumentStorageProvider (P12, cf.
+  // src/lib/documents.ts) comme n'importe quelle autre pièce - jamais un
+  // second circuit de stockage de fichiers, et jamais dupliqué dans
+  // DossierDocument (Facture.fichierPdfPath est l'unique source).
+  fichierPdfPath String?
+
+  // Validation interne obligatoire avant paiement d'une facture ST (jamais
+  // un paiement automatique sur simple dépôt).
+  validatedById String?
+  validatedBy   User?     @relation("FactureValidatedBy", fields: [validatedById], references: [id])
+  validatedAt   DateTime?
+
+  // Un seul MouvementFinancier de règlement par facture (jamais deux, pour
+  // ne jamais compter un paiement deux fois - cf. commentaire de section).
+  mouvementFinancierId String?             @unique
+  mouvementFinancier   MouvementFinancier? @relation(fields: [mouvementFinancierId], references: [id])
+
+  createdById String?
+  createdBy   User?    @relation("FactureCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lignes FactureLigne[]
+
+  @@unique([organisationId, type, numero])
+  @@index([organisationId])
+  @@index([dossierId])
+  @@index([donneurOrdreId])
+  @@index([sousTraitantId])
+  @@index([statut])
+}
+
+model FactureLigne {
+  id        String  @id @default(cuid())
+  factureId String
+  facture   Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+
+  // Poste de travaux concerné par cette ligne, le cas échéant (préremplissage
+  // depuis DossierPosteTravaux.montantDevisHTCts/montantPoseSousTraitanceCts
+  // selon le type de facture - jamais une resaisie manuelle des montants
+  // déjà connus du dossier).
+  posteTravauxId String?
+  posteTravaux   DossierPosteTravaux? @relation(fields: [posteTravauxId], references: [id])
+
+  designation       String
+  quantite          Float  @default(1)
+  prixUnitaireHTCts Int
+  tauxTVA           Float
+  montantHTCts      Int
+  ordre             Int    @default(0)
+
+  @@index([factureId])
+  @@index([posteTravauxId])
+}
+
+// Compteur de numérotation séquentielle par organisation/type/année (P16) -
+// jamais de trou dans la séquence pour une facture DONNEUR_ORDRE (obligation
+// légale française) : incrémenté dans une transaction Prisma dédiée
+// (src/lib/facturation/numerotation.ts), jamais par simple lecture-écriture
+// non atomique.
+model CompteurFacture {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  type           TypeFacture
+  annee          Int
+  dernierNumero  Int          @default(0)
+
+  @@unique([organisationId, type, annee])
 }
 
 // Journal d'audit minimal - qui a fait quoi, quand. entityId est une chaîne
@@ -2316,7 +2554,7 @@ model ChampProvenance {
   referenceExterne  String?
   recupereeAt       DateTime?
   accepteeById      String?
-  accepteeBy        User?         @relation("ChampProvenanceAcceptedBy", fields: [accepteeById], references: [id])
+  accepteeBy        User?                       @relation("ChampProvenanceAcceptedBy", fields: [accepteeById], references: [id])
   accepteeAt        DateTime?
   refuseeAt         DateTime?
 
@@ -2634,6 +2872,26 @@ enum AutomationTriggerType {
   ANAH_STATUS_CHANGED
   STUDY_STALE
   MANUAL_TRIGGER
+  // P16 - missions (ST/régie), portail donneur d'ordre, RDV commerciaux.
+  // Toujours détectés par re-dérivation d'état (jamais un événement poussé
+  // en synchrone depuis une Server Action) - même discipline que les
+  // triggers ci-dessus (cf. triggers.ts).
+  MISSION_ST_CREEE
+  MISSION_ST_ACCEPTEE
+  MISSION_ST_REFUSEE
+  MISSION_CHANTIER_PROGRAMME
+  MISSION_DATE_MODIFIEE
+  MISSION_TERMINEE
+  DO_DEMANDE_RECUE
+  DO_COMPLEMENT_REQUIS
+  DO_COMPLEMENT_RECU
+  DO_CHANTIER_ACCEPTE
+  DO_CHANTIER_PROGRAMME
+  DO_CHANTIER_TERMINE
+  DO_FACTURE_DISPONIBLE
+  REGIE_NOUVEAU_LEAD
+  RDV_CREE
+  RDV_MODIFIE_OU_ANNULE
 }
 
 enum AutomationActionType {

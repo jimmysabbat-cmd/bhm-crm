@@ -69,6 +69,7 @@ export const PACKAGE_PROFILE_LABELS: Record<DestinationTransmission, string> = {
   CLIENT: "Client",
   COMPTABILITE: "Comptabilité",
   AUTRE: "Autre",
+  REGIE: "Équipe interne (régie)",
 };
 
 // Destinations externes à l'entreprise - jamais de pièce sensible

@@ -3,13 +3,16 @@ import type { ReactNode } from "react";
 export function Card({
   children,
   className = "",
+  id,
 }: {
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
     <div
-      className={`rounded-2xl border border-slate-200/70 bg-white shadow-sm shadow-slate-200/50 ${className}`}
+      id={id}
+      className={`rounded-2xl border border-slate-200/70 bg-white shadow-sm shadow-slate-200/50 scroll-mt-6 ${className}`}
     >
       {children}
     </div>

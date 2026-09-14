@@ -98,6 +98,7 @@ export const categorieMouvementLabels: Record<CategorieMouvementFinancier, strin
   LOCATION_MATERIEL: "Location matériel",
   ECHAFAUDAGE: "Échafaudage",
   FRAIS_FINANCEMENT: "Frais de financement",
+  ENCAISSEMENT_DONNEUR_ORDRE: "Encaissement donneur d'ordre",
 };
 
 export const statutMouvementLabels: Record<StatutMouvementFinancier, string> = {
@@ -126,6 +127,7 @@ export const partiePrenanteLabels: Record<PartiePrenante, string> = {
   APPORTEUR: "Apporteur d'affaires",
   MAR: "MAR",
   AUTRE: "Autre",
+  DONNEUR_ORDRE: "Donneur d'ordre",
 };
 
 export const conditionExigibiliteLabels: Record<ConditionExigibilite, string> = {
