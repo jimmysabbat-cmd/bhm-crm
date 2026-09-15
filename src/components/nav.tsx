@@ -32,11 +32,13 @@ function NavShell({
   links,
   userName,
   userEmail,
+  organisationName,
   tenantBanner,
 }: {
   links: SidebarLink[];
   userName: string;
   userEmail: string;
+  organisationName: string;
   tenantBanner?: { tenantName: string } | null;
 }) {
   const initial = userName[0]?.toUpperCase() ?? "?";
@@ -55,7 +57,7 @@ function NavShell({
         )}
         <div>
           <p className="text-sm font-semibold text-white">BHM CRM</p>
-          <p className="text-[11px] text-slate-500">Le Bonheur d&apos;Habiter Mieux</p>
+          <p className="truncate text-[11px] text-slate-500">{organisationName}</p>
         </div>
       </div>
 
@@ -181,14 +183,29 @@ export async function Nav() {
       { href: "/notifications", label: "Notifications", icon: "notifications", badge: unreadCount },
       { href: "/parametrage", label: "Paramétrage", icon: "parametrage" },
     ];
-    return <NavShell links={allLinksAdmin} userName={userName} userEmail={userEmail} tenantBanner={{ tenantName: tenant.nom }} />;
+    return <NavShell links={allLinksAdmin} userName={userName} userEmail={userEmail} organisationName={tenant.nom} tenantBanner={{ tenantName: tenant.nom }} />;
   }
+
+  // Sous-titre de la sidebar : nom RÉEL du tenant de l'utilisateur, jamais
+  // une valeur figée - un compte RUA ne doit jamais voir "Le Bonheur
+  // d'Habiter Mieux" affiché comme s'il travaillait pour BHM.
+  const userOrg = userId
+    ? await prisma.user.findUnique({ where: { id: userId }, select: { organisation: { select: { nom: true } } } })
+    : null;
+  const organisationName = userOrg?.organisation?.nom ?? "BHM CRM";
 
   // P11 (section 23/24) - un compte partenaire n'a JAMAIS accès aux liens
   // internes (dossiers/finances/leads/paramétrage...), même masqués : un
   // menu dédié et volontairement minimal.
   if (role === "SOUS_TRAITANT" || role === "DELEGATAIRE_CEE") {
-    return <NavShell links={[{ href: "/partenaire", label: "Espace partenaire", icon: "partenaire" }]} userName={userName} userEmail={userEmail} />;
+    return (
+      <NavShell
+        links={[{ href: "/partenaire", label: "Espace partenaire", icon: "partenaire" }]}
+        userName={userName}
+        userEmail={userEmail}
+        organisationName={organisationName}
+      />
+    );
   }
 
   // P16 - portail donneur d'ordre : menu dédié, aucun lien interne (mêmes
@@ -204,7 +221,7 @@ export async function Nav() {
       { href: "/portail-do/termines", label: "Terminés", icon: "documents" },
       { href: "/portail-do/factures", label: "Factures", icon: "factures" },
     ];
-    return <NavShell links={doLinks} userName={userName} userEmail={userEmail} />;
+    return <NavShell links={doLinks} userName={userName} userEmail={userEmail} organisationName={organisationName} />;
   }
 
   // Section 21 du prompt P6 : /finances accessible à ADMIN/direction et aux
@@ -234,5 +251,5 @@ export async function Nav() {
     ...(isAdmin ? [{ href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }] : []),
   ];
 
-  return <NavShell links={allLinks} userName={userName} userEmail={userEmail} />;
+  return <NavShell links={allLinks} userName={userName} userEmail={userEmail} organisationName={organisationName} />;
 }

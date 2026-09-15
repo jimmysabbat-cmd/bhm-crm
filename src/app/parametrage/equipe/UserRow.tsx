@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateUserRoleAction, adminGeneratePasswordResetLinkAction, toggleUserActif } from "../actions";
 
-const ROLES = ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "COMPTA", "COMPTABILITE", "TECHNIQUE", "REGIE", "SOUS_TRAITANT", "TELEPROSPECTEUR", "DELEGATAIRE_CEE"];
+const ROLES = ["ADMIN", "ADMINISTRATIF", "COMMERCIAL", "COMPTA", "COMPTABILITE", "TECHNIQUE", "REGIE", "SOUS_TRAITANT", "TELEPROSPECTEUR", "DELEGATAIRE_CEE", "DONNEUR_ORDRE"];
 
 export function UserRoleSelect({ userId, role }: { userId: string; role: string }) {
   const [pending, startTransition] = useTransition();

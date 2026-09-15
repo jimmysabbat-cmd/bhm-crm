@@ -10,10 +10,17 @@ import { UserRoleSelect, UserRowActions } from "./UserRow";
 
 export default async function EquipePage() {
   const ctx = await requireUserContext();
-  const users = await prisma.user.findMany({
-    where: { organisationId: ctx.organisationId },
-    orderBy: { createdAt: "asc" },
-  });
+  const [users, donneursOrdre] = await Promise.all([
+    prisma.user.findMany({
+      where: { organisationId: ctx.organisationId },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.donneurOrdre.findMany({
+      where: { organisationId: ctx.organisationId, actif: true },
+      orderBy: { nom: "asc" },
+      select: { id: true, nom: true },
+    }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -77,7 +84,24 @@ export default async function EquipePage() {
               <option value="COMMERCIAL">Commercial</option>
               <option value="COMPTA">Comptabilité</option>
               <option value="ADMIN">Administrateur</option>
+              <option value="DONNEUR_ORDRE">Donneur d&apos;ordre (partenaire externe)</option>
             </select>
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Si rôle = Donneur d&apos;ordre, rattacher à</label>
+            <select name="donneurOrdreId" defaultValue="" className={inputClass}>
+              <option value="">—</option>
+              {donneursOrdre.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nom}
+                </option>
+              ))}
+            </select>
+            {donneursOrdre.length === 0 && (
+              <p className="text-xs text-slate-400">
+                Créez d&apos;abord une fiche dans Chantier &amp; CEE → Donneurs d&apos;ordre.
+              </p>
+            )}
           </div>
         </div>
         <Button type="submit">

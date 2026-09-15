@@ -325,6 +325,66 @@ export async function deleteSousTraitant(id: string) {
   revalidatePath("/parametrage/sous-traitants");
 }
 
+// --- Donneurs d'ordre --- P16 : entreprise externe qui envoie des
+// chantiers à exécuter (apport d'affaire), même logique tenant-specific
+// que sous-traitants/délégataires CEE ci-dessus.
+
+async function assertOwnedDonneurOrdre(id: string, organisationId: string) {
+  const row = await prisma.donneurOrdre.findFirst({ where: { id, organisationId }, select: { id: true } });
+  if (!row) throw new Error("Introuvable.");
+}
+
+export async function createDonneurOrdre(formData: FormData) {
+  const ctx = await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  const count = await prisma.donneurOrdre.count({ where: { organisationId: ctx.organisationId } });
+  await prisma.donneurOrdre.create({
+    data: {
+      nom,
+      ordre: count,
+      organisationId: ctx.organisationId,
+      contactEmail: (formData.get("contactEmail") as string) || null,
+      contactTelephone: (formData.get("contactTelephone") as string) || null,
+    },
+  });
+  revalidatePath("/parametrage/donneurs-ordre");
+}
+
+export async function updateDonneurOrdre(id: string, formData: FormData) {
+  const ctx = await requireAdmin();
+  const nom = String(formData.get("nom")).trim();
+  if (!nom) return;
+  await assertOwnedDonneurOrdre(id, ctx.organisationId);
+  await prisma.donneurOrdre.update({
+    where: { id },
+    data: {
+      nom,
+      contactEmail: (formData.get("contactEmail") as string) || null,
+      contactTelephone: (formData.get("contactTelephone") as string) || null,
+    },
+  });
+  revalidatePath("/parametrage/donneurs-ordre");
+}
+
+export async function toggleDonneurOrdre(id: string, actif: boolean) {
+  const ctx = await requireAdmin();
+  await assertOwnedDonneurOrdre(id, ctx.organisationId);
+  await prisma.donneurOrdre.update({ where: { id }, data: { actif } });
+  revalidatePath("/parametrage/donneurs-ordre");
+}
+
+export async function deleteDonneurOrdre(id: string) {
+  const ctx = await requireAdmin();
+  await assertOwnedDonneurOrdre(id, ctx.organisationId);
+  try {
+    await prisma.donneurOrdre.delete({ where: { id } });
+  } catch {
+    await prisma.donneurOrdre.update({ where: { id }, data: { actif: false } });
+  }
+  revalidatePath("/parametrage/donneurs-ordre");
+}
+
 // --- Délégataires CEE --- TENANT_SPECIFIC (P12, section 23) : un tarif
 // négocié par un tenant ne doit jamais s'appliquer/être visible pour un
 // autre (BLOCKER identifié à l'audit go-live).
@@ -584,9 +644,20 @@ export async function createUser(formData: FormData) {
     throw new Error("Nom, email et mot de passe (8 caractères min) requis.");
   }
 
+  // P16 - un compte de rôle DONNEUR_ORDRE doit être rattaché à une fiche
+  // DonneurOrdre du même tenant (jamais d'une autre organisation), sinon
+  // il n'a accès à aucune donnée dans /portail-do (cf. lib/authz.ts).
+  let donneurOrdreId: string | undefined;
+  if (role === "DONNEUR_ORDRE") {
+    const donneurOrdreIdInput = String(formData.get("donneurOrdreId") ?? "").trim();
+    if (!donneurOrdreIdInput) throw new Error("Un compte donneur d'ordre doit être rattaché à une fiche donneur d'ordre.");
+    await assertOwnedDonneurOrdre(donneurOrdreIdInput, ctx.organisationId);
+    donneurOrdreId = donneurOrdreIdInput;
+  }
+
   const hashed = await bcrypt.hash(password, 10);
   await prisma.user.create({
-    data: { name, email, password: hashed, role, organisationId: ctx.organisationId },
+    data: { name, email, password: hashed, role, organisationId: ctx.organisationId, donneurOrdreId },
   });
   revalidatePath("/parametrage/equipe");
 }
