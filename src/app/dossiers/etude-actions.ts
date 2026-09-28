@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, canAccessDossierStudy } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission, canAccessDossierStudy } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { runDossierStudy, buildStudyContext, computeStudyInputHash, isStudyStale } from "@/lib/etude/engine";
 import { sanitizeStudyResultForRole, type RedactedStudyResult } from "@/lib/etude/redact";
@@ -42,7 +42,7 @@ async function loadOwnedDossierForStudy(dossierId: string, organisationId: strin
  */
 export async function simulerEtudeDossier(dossierId: string): Promise<{ ok: true; result: RedactedStudyResult } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const dossier = await loadOwnedDossierForStudy(dossierId, ctx.organisationId);
     if (!hasPermission(ctx, "RUN_STUDY") || !canAccessDossierStudy(ctx, dossier)) {
       throw new Error("Accès refusé : vous ne pouvez pas simuler l'étude de ce dossier.");
@@ -63,7 +63,7 @@ export async function simulerEtudeDossier(dossierId: string): Promise<{ ok: true
  */
 export async function enregistrerEtudeDossier(dossierId: string, mode: StudyMode): Promise<{ ok: true; etudeId: string; version: number } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const dossier = await loadOwnedDossierForStudy(dossierId, ctx.organisationId);
     if (!hasPermission(ctx, "SAVE_STUDY") || !canAccessDossierStudy(ctx, dossier)) {
       throw new Error("Accès refusé : l'enregistrement d'une étude est réservé à la direction/l'administratif.");
@@ -133,7 +133,7 @@ function findScenarioInSnapshot(resultsSnapshot: unknown, scenarioId: string): S
  */
 export async function selectionnerScenarioEtude(etudeId: string, scenarioId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "SAVE_STUDY")) throw new Error("Accès refusé.");
 
     const etude = await loadOwnedEtude(etudeId, ctx.organisationId);
@@ -172,7 +172,7 @@ export async function selectionnerScenarioEtude(etudeId: string, scenarioId: str
  */
 export async function appliquerScenarioEtude(etudeId: string, scenarioId: string): Promise<{ ok: true; calculCree: boolean; mouvementCree: boolean } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "APPLY_STUDY")) throw new Error("Accès refusé : l'application d'un scénario est réservée à la direction/l'administratif.");
 
     const etude = await loadOwnedEtude(etudeId, ctx.organisationId);
@@ -281,7 +281,7 @@ export async function appliquerScenarioEtude(etudeId: string, scenarioId: string
  */
 export async function reconnaitreEtudeObsolete(etudeId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "VIEW_STUDY")) throw new Error("Accès refusé.");
 
     const etude = await loadOwnedEtude(etudeId, ctx.organisationId);

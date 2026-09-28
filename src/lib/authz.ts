@@ -390,6 +390,28 @@ export function isPartnerRole(ctx: UserContext): boolean {
   return ctx.role === "SOUS_TRAITANT" || ctx.role === "DELEGATAIRE_CEE" || ctx.role === "DONNEUR_ORDRE";
 }
 
+// Contexte réservé aux utilisateurs INTERNES du tenant (jamais un compte
+// partenaire SOUS_TRAITANT/DELEGATAIRE_CEE/DONNEUR_ORDRE). Les Server
+// Actions internes (dossiers, facturation, finances, leads, paramétrage...)
+// ne filtraient que par organisationId : un compte partenaire rattaché au
+// même tenant pouvait donc les appeler directement. À utiliser à la place de
+// requireUserContext() dans toute action qui n'est pas explicitement
+// destinée à un partenaire.
+export async function requireInternalUserContext(): Promise<UserContext> {
+  const ctx = await requireUserContext();
+  if (isPartnerRole(ctx)) throw new Error("Accès refusé.");
+  return ctx;
+}
+
+// Écritures d'argent (mouvements, encaissements, règlements) : MANAGE_FINANCES
+// était défini mais jamais vérifié - tout utilisateur connecté pouvait les
+// modifier.
+export async function requireFinanceContext(): Promise<UserContext> {
+  const ctx = await requireInternalUserContext();
+  if (!hasPermission(ctx, "MANAGE_FINANCES")) throw new Error("Action réservée à la direction / comptabilité.");
+  return ctx;
+}
+
 // Un dossier est visible pour un partenaire uniquement s'il a au moins un
 // poste de travaux qui lui est assigné (sous-traitant) - le délégataire
 // CEE, lui, n'est jamais assigné à un poste : son périmètre est uniquement

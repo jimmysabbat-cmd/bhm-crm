@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { parseLeadsCsv, type CsvLeadRow } from "@/lib/leads/csv-import";
@@ -21,7 +21,7 @@ export type LeadCsvPreviewRow = CsvLeadRow & { doublonExistant: boolean };
 
 export async function previewLeadsCsv(csvText: string): Promise<{ ok: true; rows: LeadCsvPreviewRow[]; unknownColumns: string[] } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "IMPORT_LEADS")) throw new Error("Accès refusé.");
 
     const { rows, unknownColumns } = parseLeadsCsv(csvText);
@@ -39,7 +39,7 @@ export async function previewLeadsCsv(csvText: string): Promise<{ ok: true; rows
 
 export async function commitLeadsCsvImport(rows: CsvLeadRow[]): Promise<{ ok: true; imported: number; skipped: number } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "IMPORT_LEADS")) throw new Error("Accès refusé.");
 
     let imported = 0;

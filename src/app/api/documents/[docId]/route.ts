@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { readDocumentFile } from "@/lib/documents";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireUserContext, hasPermission, canAccessDossierAsDonneurOrdre } from "@/lib/authz";
 import { isSensitiveTypeDocumentCode } from "@/lib/documents/sensitive";
 import { logAudit } from "@/lib/audit";
 
@@ -23,17 +23,21 @@ export async function GET(
   const { docId } = await params;
   const doc = await prisma.dossierDocument.findFirst({
     where: { id: docId, dossier: { organisationId: ctx.organisationId } },
-    include: { typeDocumentRef: { select: { code: true } } },
+    include: { typeDocumentRef: { select: { code: true } }, dossier: { select: { donneurOrdreId: true } }, createdBy: { select: { donneurOrdreId: true } } },
   });
   if (!doc) {
     return new NextResponse("Introuvable", { status: 404 });
   }
 
-  if (!hasPermission(ctx, "VIEW_DOCUMENTS")) {
+  // Portail DO : uniquement les pièces que SON organisation a elle-même
+  // fournies, sur SES dossiers (jamais les pièces internes/sensibles).
+  const accesDonneurOrdre =
+    canAccessDossierAsDonneurOrdre(ctx, doc.dossier) && doc.createdBy?.donneurOrdreId === ctx.donneurOrdreId;
+  if (!accesDonneurOrdre && !hasPermission(ctx, "VIEW_DOCUMENTS")) {
     return new NextResponse("Accès refusé", { status: 403 });
   }
   const sensible = isSensitiveTypeDocumentCode(doc.typeDocumentRef?.code ?? null);
-  if (sensible && !hasPermission(ctx, "VIEW_SENSITIVE_DOCUMENTS")) {
+  if (sensible && (accesDonneurOrdre || !hasPermission(ctx, "VIEW_SENSITIVE_DOCUMENTS"))) {
     return new NextResponse("Accès refusé : pièce sensible.", { status: 403 });
   }
   if (sensible) {

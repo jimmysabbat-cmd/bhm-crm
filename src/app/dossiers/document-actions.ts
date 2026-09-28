@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { saveDocumentFile, deleteDocumentFile } from "@/lib/documents";
 import { computeExpirationDate } from "@/lib/documents/expiration";
@@ -42,7 +42,7 @@ function str(formData: FormData, name: string): string | null {
 
 export async function uploadDossierDocument(formData: FormData): Promise<{ ok: true; docId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "UPLOAD_DOCUMENTS")) throw new Error("Accès refusé.");
 
     const dossierId = String(formData.get("dossierId"));
@@ -96,7 +96,7 @@ async function loadOwnedDocument(docId: string, organisationId: string) {
 
 export async function validateDossierDocument(docId: string, comment?: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "VALIDATE_DOCUMENTS")) throw new Error("Accès refusé.");
     const doc = await loadOwnedDocument(docId, ctx.organisationId);
 
@@ -117,7 +117,7 @@ export async function validateDossierDocument(docId: string, comment?: string): 
 
 export async function refuseDossierDocument(docId: string, reason: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "VALIDATE_DOCUMENTS")) throw new Error("Accès refusé.");
     if (!reason || reason.trim() === "") throw new Error("Un motif de refus est obligatoire.");
     const doc = await loadOwnedDocument(docId, ctx.organisationId);
@@ -143,7 +143,7 @@ export async function refuseDossierDocument(docId: string, reason: string): Prom
  */
 export async function replaceDossierDocument(oldDocId: string, formData: FormData): Promise<{ ok: true; docId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "UPLOAD_DOCUMENTS")) throw new Error("Accès refusé.");
     const old = await loadOwnedDocument(oldDocId, ctx.organisationId);
 
@@ -187,7 +187,7 @@ export async function replaceDossierDocument(oldDocId: string, formData: FormDat
 
 export async function deleteDossierDocumentV2(docId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "VALIDATE_DOCUMENTS")) throw new Error("Accès refusé.");
     const doc = await loadOwnedDocument(docId, ctx.organisationId);
     if (doc.statut === "VALIDE") throw new Error("Un document validé ne peut pas être supprimé - le refuser ou le remplacer.");
@@ -211,7 +211,7 @@ export async function deleteDossierDocumentV2(docId: string): Promise<{ ok: true
  */
 export async function getDocumentRelanceData(dossierId: string): Promise<{ ok: true; data: RelanceDocumentaireData } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "VIEW_DOCUMENTS")) throw new Error("Accès refusé.");
     const data = await getMissingDocumentsRelanceData(dossierId, ctx.organisationId);
     return { ok: true, data };
@@ -222,7 +222,7 @@ export async function getDocumentRelanceData(dossierId: string): Promise<{ ok: t
 
 export async function enregistrerRelanceDocuments(dossierId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "UPLOAD_DOCUMENTS")) throw new Error("Accès refusé.");
     const data = await getMissingDocumentsRelanceData(dossierId, ctx.organisationId);
     if (data.documentsManquants.length === 0) throw new Error("Aucune pièce manquante côté client pour ce dossier.");

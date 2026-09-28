@@ -21,9 +21,13 @@ export function NouvelleDemandeForm({ typeTravauxOptions }: { typeTravauxOptions
       action={(formData) =>
         startTransition(async () => {
           setError(null);
-          const res = await envoyerChantierAction(formData);
-          if (!res.ok) setError(res.error);
-          else router.push(`/portail-do/${res.dossierId}`);
+          try {
+            const res = await envoyerChantierAction(formData);
+            if (!res.ok) setError(res.error);
+            else router.push(`/portail-do/${res.dossierId}?envoye=1`);
+          } catch {
+            setError("Envoi impossible (pièces jointes trop lourdes ou connexion interrompue). Réduisez la taille des fichiers et réessayez.");
+          }
         })
       }
     >
@@ -102,7 +106,8 @@ export function NouvelleDemandeForm({ typeTravauxOptions }: { typeTravauxOptions
 
       <div>
         <label className={labelClass}>Documents / photos</label>
-        <input name="documents" type="file" multiple className={`${inputClass} py-1.5`} />
+        <input name="documents" type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" className={`${inputClass} py-1.5`} />
+        <p className="mt-1 text-xs text-slate-500">Photos, PDF, Word, Excel — 10 Mo max par fichier, 25 Mo au total.</p>
       </div>
 
       {error && <div className="text-sm text-red-600">{error}</div>}

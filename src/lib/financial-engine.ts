@@ -63,7 +63,7 @@ const FLUX_CEE_CATEGORIES = new Set<CategorieMouvementFinancier>(["ENCAISSEMENT_
 
 type FluxEntree = "CLIENT" | "MPR" | "CEE" | "AUTRE";
 
-function fluxDe(categorie: CategorieMouvementFinancier): FluxEntree {
+export function fluxDe(categorie: CategorieMouvementFinancier): FluxEntree {
   if (FLUX_CLIENT_BALANCE_CATEGORIES.has(categorie)) return "CLIENT";
   if (FLUX_MPR_CATEGORIES.has(categorie)) return "MPR";
   if (FLUX_CEE_CATEGORIES.has(categorie)) return "CEE";
@@ -95,7 +95,9 @@ type MouvementMontants = {
 
 /** Ce qu'il reste à percevoir/payer sur ce mouvement (jamais négatif). */
 export function getRemainingAmount(m: MouvementMontants): number {
-  if (m.statut === "ANNULE") return 0;
+  // RECU/PAYE posés à la main sans montant réel : considéré soldé (sinon la
+  // ligne restait comptée comme due indéfiniment).
+  if (m.statut === "ANNULE" || m.statut === "RECU" || m.statut === "PAYE") return 0;
   const prevu = m.montantPrevuCts ?? 0;
   const recu = m.montantReelCts ?? 0;
   return Math.max(prevu - recu, 0);
@@ -1125,9 +1127,14 @@ export async function getCashflowForecast(
       sansDate.nombreMouvements += 1;
       continue;
     }
-    if (m.datePrevue < dateDebut || m.datePrevue > dateFin) continue;
+    if (m.datePrevue > dateFin) continue;
 
-    const { key, label, debut, fin } = bucketKey(m.datePrevue, granularite);
+    // Échéance dépassée et non soldée : auparavant simplement ignorée, ce qui
+    // faisait disparaître de la prévision tout ce qui est dû en retard.
+    const { key, label, debut, fin } =
+      m.datePrevue < dateDebut
+        ? { key: "0-retard", label: "En retard (échéance dépassée)", debut: new Date(0), fin: dateDebut }
+        : bucketKey(m.datePrevue, granularite);
     const bucket = buckets.get(key) ?? { periodeLabel: label, periodeDebut: debut, periodeFin: fin, entreesCts: 0, sortiesCts: 0, netCts: 0, cumulNetCts: 0 };
     if (m.type === "ENTREE") bucket.entreesCts += reste;
     else bucket.sortiesCts += reste;

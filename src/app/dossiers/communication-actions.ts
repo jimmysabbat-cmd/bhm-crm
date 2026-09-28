@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, canAccessDossierCommunication } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission, canAccessDossierCommunication } from "@/lib/authz";
 import { buildMissingDocumentsMessage, createEmailDraft, sendEmailDraft, getEmailTemplate } from "@/lib/email/service";
 import { renderTemplate, type TemplateVariables } from "@/lib/automations/templates";
 
@@ -24,7 +24,7 @@ async function loadOwnedDossierForCommunication(dossierId: string, organisationI
 
 export async function prepareDocumentRequestAction(dossierId: string): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const dossier = await loadOwnedDossierForCommunication(dossierId, ctx.organisationId);
     if (!canAccessDossierCommunication(ctx, dossier)) throw new Error("Accès refusé.");
 
@@ -51,7 +51,7 @@ export async function prepareDocumentRequestAction(dossierId: string): Promise<{
 
 export async function prepareTemplateEmailAction(dossierId: string, templateCode: string): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const dossier = await loadOwnedDossierForCommunication(dossierId, ctx.organisationId);
     if (!canAccessDossierCommunication(ctx, dossier)) throw new Error("Accès refusé.");
     if (!dossier.client.email) throw new Error("Aucune adresse email connue pour ce client.");
@@ -82,7 +82,7 @@ export async function prepareTemplateEmailAction(dossierId: string, templateCode
 
 export async function sendDraftAction(draftId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "SEND_EMAIL_ACTION")) throw new Error("Accès refusé.");
     const draft = await prisma.emailDraft.findFirst({ where: { id: draftId, organisationId: ctx.organisationId } });
     if (!draft) throw new Error("Brouillon introuvable.");

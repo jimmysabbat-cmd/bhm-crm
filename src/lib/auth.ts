@@ -43,22 +43,4 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    ...authConfig.callbacks,
-    jwt({ token, user }) {
-      if (user) {
-        token.role = (user as { role: string }).role;
-        token.isPlatformSuperAdmin = (user as { isPlatformSuperAdmin?: boolean }).isPlatformSuperAdmin ?? false;
-      }
-      return token;
-    },
-    session({ session, token }) {
-      if (session.user) {
-        (session.user as { role?: string }).role = token.role as string;
-        (session.user as { id?: string }).id = token.sub;
-        (session.user as { isPlatformSuperAdmin?: boolean }).isPlatformSuperAdmin = Boolean(token.isPlatformSuperAdmin);
-      }
-      return session;
-    },
-  },
 });

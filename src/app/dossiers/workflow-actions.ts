@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext } from "@/lib/authz";
+import { requireInternalUserContext } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { recalculateDossierWorkflow } from "@/lib/workflow";
 import { getBlockingConditions, assertUserCanValidateCondition } from "@/lib/workflow-gates";
@@ -46,7 +46,7 @@ async function applyTransition(
 }
 
 export async function demarrerEtape(dossierEtapeId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   await applyTransition(dossierEtapeId, ctx.organisationId, ctx.userId, "DEMARRER", {
     statut: "EN_COURS",
     dateDebut: new Date(),
@@ -63,7 +63,7 @@ export async function demarrerEtape(dossierEtapeId: string) {
  * séparées à maintenir.
  */
 export async function terminerEtape(dossierEtapeId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
 
   const blocages = await getBlockingConditions(before.dossierId, before.etapeProgrammeId, ctx.organisationId);
@@ -78,7 +78,7 @@ export async function terminerEtape(dossierEtapeId: string) {
 }
 
 export async function bloquerEtape(dossierEtapeId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const raison = (formData.get("raison") as string) || null;
   await applyTransition(dossierEtapeId, ctx.organisationId, ctx.userId, "BLOQUER", {
     statut: "BLOQUE",
@@ -88,7 +88,7 @@ export async function bloquerEtape(dossierEtapeId: string, formData: FormData) {
 }
 
 export async function debloquerEtape(dossierEtapeId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
   const statutRetour = before.dateDebut ? "EN_COURS" : "A_FAIRE";
   await applyTransition(dossierEtapeId, ctx.organisationId, ctx.userId, "DEBLOQUER", {
@@ -99,7 +99,7 @@ export async function debloquerEtape(dossierEtapeId: string) {
 }
 
 export async function ignorerEtape(dossierEtapeId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
   if (before.etapeProgramme.obligatoire) {
     throw new Error("Cette étape est obligatoire et ne peut pas être ignorée.");
@@ -110,7 +110,7 @@ export async function ignorerEtape(dossierEtapeId: string) {
 }
 
 export async function assignerEtape(dossierEtapeId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const userId = (formData.get("userId") as string) || "";
   const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
 
@@ -140,7 +140,7 @@ export async function assignerEtape(dossierEtapeId: string, formData: FormData) 
 }
 
 export async function commenterEtape(dossierEtapeId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const commentaire = (formData.get("commentaire") as string) || null;
   const before = await loadOwnedDossierEtape(dossierEtapeId, ctx.organisationId);
 
@@ -188,7 +188,7 @@ export async function commenterEtape(dossierEtapeId: string, formData: FormData)
  *   la même organisation).
  */
 export async function validerConditionEtape(dossierId: string, etapeConditionId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossier = await prisma.dossier.findFirst({ where: { id: dossierId, organisationId: ctx.organisationId }, select: { id: true } });
   if (!dossier) throw new Error("Dossier introuvable.");
 
@@ -239,7 +239,7 @@ export async function validerConditionEtape(dossierId: string, etapeConditionId:
  * engagé sur une version (la version est figée à l'affectation, cf. schéma).
  */
 export async function affecterProgrammeAuDossier(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   const programmeVersionId = String(formData.get("programmeVersionId"));
   const dossier = await prisma.dossier.findFirst({

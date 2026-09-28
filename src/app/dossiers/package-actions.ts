@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { buildTransmissionPackagePreview, createTransmissionPackage, type TransmissionPackagePreview } from "@/lib/documents/transmission";
 import { emitDomainEvent } from "@/lib/webhooks/service";
@@ -23,7 +23,7 @@ export async function previewTransmissionPackageAction(
   destination: DestinationTransmission
 ): Promise<{ ok: true; preview: TransmissionPackagePreview } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
     await loadOwnedDossier(dossierId, ctx.organisationId);
     const preview = await buildTransmissionPackagePreview({ dossierId, organisationId: ctx.organisationId, destination });
@@ -42,7 +42,7 @@ export async function createTransmissionPackageAction(
   destinationDelegataireCeeId?: string | null
 ): Promise<{ ok: true; packageId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
     await loadOwnedDossier(dossierId, ctx.organisationId);
 
@@ -74,7 +74,7 @@ async function loadOwnedPackage(packageId: string, organisationId: string) {
 
 export async function markTransmissionPackagePret(packageId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
     const pkg = await loadOwnedPackage(packageId, ctx.organisationId);
     if (pkg.status !== "BROUILLON") throw new Error("Seul un package en brouillon peut passer à PRÊT.");
@@ -97,7 +97,7 @@ export async function markTransmissionPackageTransmis(
   comment: string | null
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
     const pkg = await loadOwnedPackage(packageId, ctx.organisationId);
     if (pkg.status === "ANNULE") throw new Error("Un package annulé ne peut pas être marqué transmis.");
@@ -117,7 +117,7 @@ export async function markTransmissionPackageTransmis(
 
 export async function cancelTransmissionPackage(packageId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
     const pkg = await loadOwnedPackage(packageId, ctx.organisationId);
     if (pkg.status === "TRANSMIS") throw new Error("Un package déjà transmis ne peut pas être annulé.");

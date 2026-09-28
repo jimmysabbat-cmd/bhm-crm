@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { validateTemplateVariables } from "@/lib/automations/templates";
 import type { AutomationRuleMode } from "@/generated/prisma/enums";
@@ -16,7 +16,7 @@ import type { AutomationRuleMode } from "@/generated/prisma/enums";
 
 export async function updateRuleConfigAction(ruleId: string, mode: AutomationRuleMode, delayJours: number): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "MANAGE_AUTOMATIONS")) throw new Error("Accès refusé.");
     const rule = await prisma.automationRule.findFirst({ where: { id: ruleId, organisationId: ctx.organisationId } });
     if (!rule) throw new Error("Règle introuvable.");
@@ -34,7 +34,7 @@ export async function updateRuleConfigAction(ruleId: string, mode: AutomationRul
 
 export async function updateEmailTemplateAction(templateId: string, sujetTemplate: string, bodyTemplate: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "MANAGE_AUTOMATIONS")) throw new Error("Accès refusé.");
 
     const sujetCheck = validateTemplateVariables(sujetTemplate);

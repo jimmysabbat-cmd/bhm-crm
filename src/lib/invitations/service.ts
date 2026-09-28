@@ -70,9 +70,9 @@ export async function acceptInvitation(rawToken: string, name: string, password:
   return { ok: true };
 }
 
-export async function createPasswordResetToken(userId: string): Promise<string> {
+export async function createPasswordResetToken(userId: string, ttlMs: number = RESET_TTL_MS): Promise<string> {
   const raw = generateRawToken();
-  await prisma.passwordResetToken.create({ data: { userId, tokenHash: hashToken(raw), expiresAt: new Date(Date.now() + RESET_TTL_MS) } });
+  await prisma.passwordResetToken.create({ data: { userId, tokenHash: hashToken(raw), expiresAt: new Date(Date.now() + ttlMs) } });
   return raw;
 }
 

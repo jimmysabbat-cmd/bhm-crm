@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { calculateCeeCumac, getDossierEngagementDate, validateOverrideReason } from "@/lib/reglementaire/engine";
 import type { Prisma } from "@/generated/prisma/client";
@@ -38,7 +38,7 @@ function inputsFromFormData(formData: FormData): Record<string, unknown> {
  * calcul reste intact dans l'historique - jamais écrasé, section 11).
  */
 export async function calculerReglementaireDossier(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   const dossier = await loadOwnedDossier(dossierId, ctx.organisationId);
 
@@ -103,7 +103,7 @@ export async function calculerReglementaireDossier(formData: FormData) {
  * raison obligatoire (section 23/29). Réservé à MANAGE_REGLEMENTATION.
  */
 export async function overrideCalculReglementaire(calculId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   if (!hasPermission(ctx, "MANAGE_REGLEMENTATION")) {
     throw new Error("Accès refusé : l'override d'un calcul réglementaire est réservé à la direction.");
   }

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -30,7 +30,7 @@ async function loadOwnedChampProvenance(id: string, organisationId: string) {
 
 export async function acceptProposedValue(champProvenanceId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "MANAGE_LEADS")) throw new Error("Accès refusé.");
     const cp = await loadOwnedChampProvenance(champProvenanceId, ctx.organisationId);
     if (!cp.valeurProposee) throw new Error("Aucune proposition en attente pour ce champ.");
@@ -69,7 +69,7 @@ export async function acceptProposedValue(champProvenanceId: string): Promise<{ 
 
 export async function refuseProposedValue(champProvenanceId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "MANAGE_LEADS")) throw new Error("Accès refusé.");
     const cp = await loadOwnedChampProvenance(champProvenanceId, ctx.organisationId);
 

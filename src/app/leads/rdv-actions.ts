@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission, canAccessLead } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { changeLeadStatus } from "@/lib/leads/status";
 
@@ -19,7 +19,7 @@ function str(formData: FormData, name: string): string | null {
 
 export async function createRdv(leadId: string, formData: FormData): Promise<{ ok: true; rdvId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
     if (!lead) throw new Error("Lead introuvable.");
     if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
@@ -58,7 +58,7 @@ export async function createRdv(leadId: string, formData: FormData): Promise<{ o
 
 export async function updateRdvStatut(rdvId: string, statut: "PLANIFIE" | "CONFIRME" | "REALISE" | "ANNULE"): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const rdv = await prisma.rdv.findFirst({ where: { id: rdvId, organisationId: ctx.organisationId } });
     if (!rdv) throw new Error("RDV introuvable.");
     if (!hasPermission(ctx, "MANAGE_LEADS")) throw new Error("Accès refusé.");

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, assertDossierInOrg } from "@/lib/authz";
+import { requireFinanceContext, assertDossierInOrg } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { eurosToCents } from "@/lib/money";
 import { computeMouvementAuditDiff } from "@/lib/financial-engine";
@@ -33,7 +33,7 @@ function optionalEnumValue(value: FormDataEntryValue | null): never {
 }
 
 export async function createMouvementFinancier(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -72,7 +72,7 @@ export async function createMouvementFinancier(formData: FormData) {
 }
 
 export async function updateMouvementFinancier(mouvementId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const before = await loadOwnedMouvement(mouvementId, ctx.organisationId);
 
   const apres = {
@@ -153,17 +153,17 @@ async function marquerStatut(mouvementId: string, organisationId: string, userId
 }
 
 export async function marquerMouvementRecu(mouvementId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   await marquerStatut(mouvementId, ctx.organisationId, ctx.userId, "RECU");
 }
 
 export async function marquerMouvementPaye(mouvementId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   await marquerStatut(mouvementId, ctx.organisationId, ctx.userId, "PAYE");
 }
 
 export async function annulerMouvementFinancier(mouvementId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const before = await loadOwnedMouvement(mouvementId, ctx.organisationId);
 
   await prisma.mouvementFinancier.update({ where: { id: before.id }, data: { statut: "ANNULE" } });

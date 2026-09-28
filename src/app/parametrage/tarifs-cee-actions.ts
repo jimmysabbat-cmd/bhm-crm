@@ -2,12 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { eurosToCents } from "@/lib/money";
 
 async function requireManageReglementation() {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   if (!hasPermission(ctx, "MANAGE_REGLEMENTATION")) {
     throw new Error("Accès réservé à la direction (permission MANAGE_REGLEMENTATION).");
   }

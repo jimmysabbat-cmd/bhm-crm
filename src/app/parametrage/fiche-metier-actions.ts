@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext } from "@/lib/authz";
+import { requireInternalUserContext } from "@/lib/authz";
 import type { FicheMetierCondition } from "@/lib/opportunites/types";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -15,7 +15,7 @@ import type { Prisma } from "@/generated/prisma/client";
 // ============================================================
 
 async function requireAdmin() {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   if ((ctx.effectiveRole ?? ctx.role) !== "ADMIN") {
     throw new Error("Accès réservé aux administrateurs.");
   }
@@ -29,7 +29,7 @@ function str(formData: FormData, name: string): string | null {
 }
 
 export async function listFichesMetier() {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   return prisma.ficheMetier.findMany({
     where: { organisationId: ctx.organisationId },
     orderBy: { ordre: "asc" },

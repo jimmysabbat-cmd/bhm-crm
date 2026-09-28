@@ -54,6 +54,7 @@ export default async function DashboardPage() {
   // P11 (section 23/24) - un compte partenaire n'a jamais accès au
   // tableau de bord interne (marge, finances, tous dossiers...) : il est
   // redirigé vers son espace très restreint.
+  if (ctx.role === "DONNEUR_ORDRE") redirect("/portail-do");
   if (isPartnerRole(ctx)) redirect("/partenaire");
   const dossiers = await prisma.dossier.findMany({
     where: { organisationId: ctx.organisationId, statut: { key: { not: "CLOTURE" } } },
@@ -225,6 +226,9 @@ export default async function DashboardPage() {
   // Dashboard administratif documentaire (P10, section 26).
   const peutVoirDocuments = hasPermission(ctx, "VIEW_DOCUMENTS");
   const documentsAdmin = peutVoirDocuments ? await getDocumentAdminDashboard(ctx.organisationId) : null;
+  const nbDemandesDoATraiter = await prisma.dossier.count({
+    where: { organisationId: ctx.organisationId, donneurOrdreId: { not: null }, statut: { key: "PROSPECT_ETUDE" } },
+  });
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-8 py-10">
@@ -240,6 +244,12 @@ export default async function DashboardPage() {
           </Button>
         </Link>
       </div>
+
+      {nbDemandesDoATraiter > 0 && (
+        <Link href="/dossiers?source=do" className="block rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900 hover:bg-amber-100">
+          <span className="font-semibold">{nbDemandesDoATraiter} nouvelle{nbDemandesDoATraiter > 1 ? "s" : ""} demande{nbDemandesDoATraiter > 1 ? "s" : ""} de donneurs d&apos;ordre</span> à accepter ou refuser →
+        </Link>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

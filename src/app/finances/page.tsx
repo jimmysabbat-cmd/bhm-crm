@@ -199,6 +199,9 @@ export default async function FinancesPage({
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Finances</h1>
           <p className="mt-1 text-sm text-slate-500">Moteur financier central - à encaisser, à payer, créances, trésorerie et marges</p>
         </div>
+        <Link href="/finances/tresorerie" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
+          Pilotage trésorerie →
+        </Link>
       </div>
 
       <form className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission, canAccessLead } from "@/lib/authz";
 import { createEmailDraft, getEmailTemplate, sendEmailDraft } from "@/lib/email/service";
 import { renderTemplate, type TemplateVariables } from "@/lib/automations/templates";
 
@@ -11,7 +11,7 @@ import { renderTemplate, type TemplateVariables } from "@/lib/automations/templa
 // RDV, relance devis. Pas de SMS/WhatsApp en P11 (hors périmètre).
 // ============================================================
 
-async function loadOwnedLeadForCommunication(leadId: string, organisationId: string, ctx: Awaited<ReturnType<typeof requireUserContext>>) {
+async function loadOwnedLeadForCommunication(leadId: string, organisationId: string, ctx: Awaited<ReturnType<typeof requireInternalUserContext>>) {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, organisationId },
     select: { id: true, prenom: true, nom: true, email: true, commercialId: true, teleprospecteurId: true, createdById: true, dossierId: true, organisation: { select: { nom: true } } },
@@ -22,7 +22,7 @@ async function loadOwnedLeadForCommunication(leadId: string, organisationId: str
 
 export async function prepareLeadTemplateEmailAction(leadId: string, templateCode: string): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "PREPARE_COMMUNICATIONS")) throw new Error("Accès refusé.");
     const lead = await loadOwnedLeadForCommunication(leadId, ctx.organisationId, ctx);
     if (!lead.email) throw new Error("Aucune adresse email connue pour ce lead.");
@@ -52,7 +52,7 @@ export async function prepareLeadTemplateEmailAction(leadId: string, templateCod
 
 export async function sendLeadDraftAction(draftId: string, leadId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "SEND_EMAIL_ACTION")) throw new Error("Accès refusé.");
     await loadOwnedLeadForCommunication(leadId, ctx.organisationId, ctx);
     const result = await sendEmailDraft(draftId, ctx.organisationId, ctx.userId);

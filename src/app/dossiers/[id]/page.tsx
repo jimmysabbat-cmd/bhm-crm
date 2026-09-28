@@ -506,6 +506,12 @@ export default async function DossierDetailPage({
         <Badge color={statutColor(dossier.statut.key)}>{dossier.statut.label}</Badge>
       </div>
 
+      {dossier.donneurOrdreId && dossier.statut.key === "PROSPECT_ETUDE" && (
+        <a href="#donneur-ordre" className="block rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
+          Nouvelle demande de {dossier.donneurOrdre?.nom ?? "donneur d'ordre"} à accepter ou refuser →
+        </a>
+      )}
+
       <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-200/50">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
@@ -2099,6 +2105,11 @@ export default async function DossierDetailPage({
             dossierId={dossier.id}
             demande={dossier.complementDemandeMessage && dossier.complementDemandeAt ? { message: dossier.complementDemandeMessage, at: dossier.complementDemandeAt } : null}
             reponse={dossier.complementReponseMessage && dossier.complementReponseAt ? { message: dossier.complementReponseMessage, at: dossier.complementReponseAt } : null}
+            donneurOrdreNom={dossier.donneurOrdre?.nom ?? "—"}
+            statutKey={dossier.statut.key}
+            motifRefus={dossier.motifRefusDonneurOrdre}
+            referenceDonneurOrdre={dossier.referenceDonneurOrdre}
+            infosTechniques={dossier.infosTechniquesDonneurOrdre}
           />
         </div>
       )}

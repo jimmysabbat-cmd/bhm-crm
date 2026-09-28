@@ -160,7 +160,8 @@ async function recomputeFactureStatutAndMouvement(factureId: string): Promise<vo
     where: { id: facture.mouvementFinancierId },
     data: {
       montantReelCts: sommeCts,
-      dateReelle: sommeCts > 0 ? new Date() : null,
+      // Date du dernier règlement réel (et non la date de saisie).
+      dateReelle: sommeCts > 0 ? new Date(Math.max(...facture.reglements.map((r) => r.date.getTime()))) : null,
       statut: sommeCts <= 0 ? (estSortie ? "A_PAYER" : "A_RECEVOIR") : soldee ? (estSortie ? "PAYE" : "RECU") : "PARTIEL",
     },
   });

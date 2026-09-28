@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission, canAccessLead } from "@/lib/authz";
 import { proposerEnrichissementAdresse, reconcilierPropositionChamp, reconcilierPlusieursPropositions, proposerChampsDpeChoisi, type EnrichissementResult } from "@/lib/leads/enrichissement";
 import type { DpeData } from "@/lib/connectors/types";
 
@@ -14,7 +14,7 @@ import type { DpeData } from "@/lib/connectors/types";
 
 export async function lancerEnrichissementAdresse(leadId: string): Promise<{ ok: true; result: EnrichissementResult } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
     if (!lead) throw new Error("Lead introuvable.");
     if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
@@ -42,7 +42,7 @@ export async function confirmerChampPropose(
   valeurCorrigee?: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
     if (!lead) throw new Error("Lead introuvable.");
     if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
@@ -86,7 +86,7 @@ export type PropositionEnAttente = {
 
 export async function getPropositionsEnAttente(leadId: string): Promise<{ ok: true; propositions: PropositionEnAttente[] } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
     if (!lead) throw new Error("Lead introuvable.");
     if (!hasPermission(ctx, "VIEW_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
@@ -116,7 +116,7 @@ export async function getPropositionsEnAttente(leadId: string): Promise<{ ok: tr
 /** Confirmation groupée (audit section 5) - réutilise reconcilierPropositionChamp par champ, provenance conservée individuellement. */
 export async function confirmerPlusieursChamps(leadId: string, champProvenanceIds: string[]): Promise<{ ok: true; accepted: number } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
     if (!lead) throw new Error("Lead introuvable.");
     if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
@@ -152,7 +152,7 @@ export async function choisirDpeCandidat(
   confiance: "LOW" | "MEDIUM" | "HIGH"
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organisationId: ctx.organisationId } });
     if (!lead) throw new Error("Lead introuvable.");
     if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");

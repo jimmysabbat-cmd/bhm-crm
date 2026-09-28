@@ -9,8 +9,9 @@ import { ComplementForm } from "../ComplementForm";
 // client/prestation/statut/documents qu'il a fournis. Jamais de marge,
 // coût interne, sous-traitant assigné ou tout autre détail interne (même
 // discipline que l'espace partenaire sous-traitant/délégataire CEE).
-export default async function DemandeDetailPage({ params }: { params: Promise<{ dossierId: string }> }) {
+export default async function DemandeDetailPage({ params, searchParams }: { params: Promise<{ dossierId: string }>; searchParams: Promise<{ envoye?: string }> }) {
   const { dossierId } = await params;
+  const { envoye } = await searchParams;
   const ctx = await requireUserContext();
   if (ctx.role !== "DONNEUR_ORDRE") redirect("/");
 
@@ -28,8 +29,20 @@ export default async function DemandeDetailPage({ params }: { params: Promise<{ 
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
           {dossier.client.prenom} {dossier.client.nom}
         </h1>
-        <p className="mt-1 text-sm text-slate-500">{dossier.statut.label}</p>
+        <p className="mt-1 text-sm text-slate-500">
+          {dossier.statut.label}
+          {dossier.referenceDonneurOrdre ? ` · Votre réf. ${dossier.referenceDonneurOrdre}` : ""}
+        </p>
       </div>
+
+      {envoye === "1" && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          Demande bien reçue par nos équipes. Vous serez tenu informé ici de son avancement.
+        </div>
+      )}
+      {dossier.motifRefusDonneurOrdre && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">Demande non retenue : {dossier.motifRefusDonneurOrdre}</div>
+      )}
 
       {dossier.complementDemandeMessage && !dossier.complementReponseMessage && (
         <ComplementForm dossierId={dossier.id} message={dossier.complementDemandeMessage} />
@@ -62,6 +75,9 @@ export default async function DemandeDetailPage({ params }: { params: Promise<{ 
               {p.quantite ? ` — quantité ${p.quantite}` : ""}
             </div>
           ))}
+          {dossier.infosTechniquesDonneurOrdre && (
+            <div className="whitespace-pre-line pt-2 text-slate-500">{dossier.infosTechniquesDonneurOrdre}</div>
+          )}
           {(dossier.dateDebutTravaux || dossier.dateFinTravaux) && (
             <div className="pt-2 text-slate-500">
               Dates : {dossier.dateDebutTravaux ? dossier.dateDebutTravaux.toLocaleDateString("fr-FR") : "—"} →{" "}
@@ -73,11 +89,15 @@ export default async function DemandeDetailPage({ params }: { params: Promise<{ 
 
       <Card className="p-5">
         <CardHeader>
-          <CardTitle>Documents ({dossier.documents.length})</CardTitle>
+          <CardTitle>Vos documents ({dossier.documents.length})</CardTitle>
         </CardHeader>
         <div className="mt-3 space-y-1 text-sm text-slate-600">
           {dossier.documents.map((d) => (
-            <div key={d.id}>{d.typeDocumentRef?.nom ?? d.nomFichier}</div>
+            <div key={d.id}>
+              <a href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline">
+                {d.typeDocumentRef?.nom ?? d.nomFichier}
+              </a>
+            </div>
           ))}
           {dossier.documents.length === 0 && <div className="text-slate-400">Aucun document.</div>}
         </div>

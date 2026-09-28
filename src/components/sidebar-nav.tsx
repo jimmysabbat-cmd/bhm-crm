@@ -36,8 +36,9 @@ export function SidebarNav({ links }: { links: SidebarLink[] }) {
     <nav className="flex flex-1 flex-col gap-1 px-3">
       {links.map((link) => {
         const Icon = icons[link.icon];
-        const active =
-          link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+        // Le lien le plus précis gagne (ex. /finances/tresorerie vs /finances).
+        const matches = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+        const active = matches(link.href) && !links.some((o) => o.href.length > link.href.length && o.href.startsWith(link.href) && matches(o.href));
         return (
           <Link
             key={link.href}

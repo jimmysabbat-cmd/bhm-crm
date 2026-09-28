@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, assertDossierInOrg } from "@/lib/authz";
+import { requireInternalUserContext, requireFinanceContext, assertDossierInOrg } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { eurosToCents } from "@/lib/money";
 import { saveDocumentFile, deleteDocumentFile } from "@/lib/documents";
@@ -22,7 +22,7 @@ function generateReference(): string {
 }
 
 export async function createDossier(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
 
   const client = await prisma.client.create({
     data: {
@@ -115,7 +115,7 @@ export async function createDossier(formData: FormData) {
 }
 
 export async function updateClientInfo(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   const dossier = await prisma.dossier.findFirst({
     where: { id: dossierId, organisationId: ctx.organisationId },
@@ -154,7 +154,7 @@ export async function updateClientInfo(formData: FormData) {
 }
 
 export async function updateMontage(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -172,7 +172,7 @@ export async function updateMontage(formData: FormData) {
 }
 
 export async function updateStatut(dossierId: string, statutId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   await assertDossierInOrg(dossierId, ctx.organisationId);
   await prisma.dossier.update({ where: { id: dossierId }, data: { statutId } });
   revalidatePath(`/dossiers/${dossierId}`);
@@ -181,7 +181,7 @@ export async function updateStatut(dossierId: string, statutId: string) {
 }
 
 export async function updateAnahInfo(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -202,7 +202,7 @@ export async function updateAnahInfo(formData: FormData) {
 }
 
 export async function updateCeeInfo(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -216,7 +216,7 @@ export async function updateCeeInfo(formData: FormData) {
 }
 
 export async function updateTravauxInfo(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -230,7 +230,7 @@ export async function updateTravauxInfo(formData: FormData) {
 }
 
 export async function updateEncaissements(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -257,7 +257,7 @@ export async function updateEncaissements(formData: FormData) {
 }
 
 export async function createPosteTravaux(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -280,7 +280,7 @@ export async function createPosteTravaux(formData: FormData) {
 }
 
 export async function updatePosteTravaux(posteId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const existing = await prisma.dossierPosteTravaux.findFirst({
     where: { id: posteId, dossier: { organisationId: ctx.organisationId } },
     select: { dossierId: true },
@@ -306,7 +306,7 @@ export async function updatePosteTravaux(posteId: string, formData: FormData) {
 }
 
 export async function deletePosteTravaux(posteId: string, dossierId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const poste = await prisma.dossierPosteTravaux.findFirst({
     where: { id: posteId, dossierId, dossier: { organisationId: ctx.organisationId } },
     select: { id: true, type: true },
@@ -326,7 +326,7 @@ export async function deletePosteTravaux(posteId: string, dossierId: string) {
 }
 
 export async function uploadDocument(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   const file = formData.get("file") as File;
   if (!file || file.size === 0) return;
@@ -353,7 +353,7 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function deleteDocument(docId: string, dossierId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const doc = await prisma.dossierDocument.findFirst({
     where: { id: docId, dossierId, dossier: { organisationId: ctx.organisationId } },
   });
@@ -373,7 +373,7 @@ export async function deleteDocument(docId: string, dossierId: string) {
 }
 
 export async function createTache(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -390,7 +390,7 @@ export async function createTache(formData: FormData) {
 }
 
 export async function toggleTache(tacheId: string, done: boolean) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const existing = await prisma.tache.findFirst({
     where: { id: tacheId, dossier: { organisationId: ctx.organisationId } },
     select: { dossierId: true },
@@ -407,7 +407,7 @@ export async function toggleTache(tacheId: string, done: boolean) {
 }
 
 export async function updateTache(tacheId: string, formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const existing = await prisma.tache.findFirst({
     where: { id: tacheId, dossier: { organisationId: ctx.organisationId } },
     select: { dossierId: true },
@@ -428,7 +428,7 @@ export async function updateTache(tacheId: string, formData: FormData) {
 }
 
 export async function deleteTache(tacheId: string, dossierId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const tache = await prisma.tache.findFirst({
     where: { id: tacheId, dossierId, dossier: { organisationId: ctx.organisationId } },
     select: { id: true, titre: true },

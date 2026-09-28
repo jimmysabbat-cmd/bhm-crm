@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, isPartnerRole, canAccessPackageAsPartner } from "@/lib/authz";
+import { requireUserContext, requireInternalUserContext, hasPermission, isPartnerRole, canAccessPackageAsPartner } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { createMissionPackage, type ChampsClientPartages } from "@/lib/documents/mission";
 
@@ -12,7 +12,7 @@ import { createMissionPackage, type ChampsClientPartages } from "@/lib/documents
 // ============================================================
 
 export async function getSousTraitantsActifsAction(): Promise<{ id: string; nom: string }[]> {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const list = await prisma.sousTraitant.findMany({
     where: { organisationId: ctx.organisationId, actif: true },
     select: { id: true, nom: true },
@@ -24,7 +24,7 @@ export async function getSousTraitantsActifsAction(): Promise<{ id: string; nom:
 // P16 - équipes internes (régie) pouvant recevoir une mission au même
 // titre qu'un sous-traitant externe (cf. createMissionPackage).
 export async function getRegiesActivesAction(): Promise<{ id: string; nom: string }[]> {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const list = await prisma.regie.findMany({
     where: { organisationId: ctx.organisationId, actif: true },
     select: { id: true, nom: true },
@@ -48,7 +48,7 @@ export type MissionRow = {
 };
 
 export async function getMissionsForDossierAction(dossierId: string): Promise<MissionRow[]> {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossier = await prisma.dossier.findFirst({ where: { id: dossierId, organisationId: ctx.organisationId }, select: { id: true } });
   if (!dossier) throw new Error("Dossier introuvable.");
 
@@ -81,7 +81,7 @@ export async function getMissionsForDossierAction(dossierId: string): Promise<Mi
 }
 
 export async function getDossierDocumentsAction(dossierId: string): Promise<{ id: string; nomFichier: string; typeNom: string | null }[]> {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossier = await prisma.dossier.findFirst({ where: { id: dossierId, organisationId: ctx.organisationId }, select: { id: true } });
   if (!dossier) throw new Error("Dossier introuvable.");
   const docs = await prisma.dossierDocument.findMany({
@@ -105,7 +105,7 @@ export async function envoyerEnMissionAction(input: {
   prixConvenuCts: number | null;
 }): Promise<{ ok: true; packageId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
 
     const packageId = await createMissionPackage({
@@ -152,7 +152,7 @@ export async function updateMissionStatutAction(
   statut: (typeof STATUTS_PILOTABLES)[number]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "CREATE_TRANSMISSION_PACKAGE")) throw new Error("Accès refusé.");
     if (!STATUTS_PILOTABLES.includes(statut)) throw new Error("Statut invalide.");
 
@@ -179,7 +179,7 @@ export async function updateMissionStatutAction(
 }
 
 async function loadOwnedMissionAsPartner(packageId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   if (!isPartnerRole(ctx)) throw new Error("Accès refusé.");
   const pkg = await prisma.transmissionPackage.findFirst({ where: { id: packageId, organisationId: ctx.organisationId } });
   if (!pkg) throw new Error("Mission introuvable.");

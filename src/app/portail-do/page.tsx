@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ClipboardList, CalendarClock, CalendarCheck, Wrench, CheckCircle2, Plus } from "lucide-react";
+import { ClipboardList, CalendarClock, CalendarCheck, Wrench, CheckCircle2, Plus, Hourglass, XCircle } from "lucide-react";
 import { requireUserContext } from "@/lib/authz";
 import { getDashboardCountsForDonneurOrdre } from "@/lib/donneurs-ordre/access";
 import { Card } from "@/components/ui/Card";
@@ -13,10 +13,12 @@ export default async function PortailDoDashboardPage() {
 
   const tiles = [
     { href: "/portail-do/mes-demandes", label: "Mes demandes", value: counts.total, icon: ClipboardList },
+    { href: "/portail-do/en-qualification", label: "En qualification", value: counts.enQualification, icon: Hourglass },
     { href: "/portail-do/a-programmer", label: "À programmer", value: counts.aProgrammer, icon: CalendarClock },
     { href: "/portail-do/programmes", label: "Programmés", value: counts.programmes, icon: CalendarCheck },
     { href: "/portail-do/en-cours", label: "En cours", value: counts.enCours, icon: Wrench },
     { href: "/portail-do/termines", label: "Terminés", value: counts.termines, icon: CheckCircle2 },
+    { href: "/portail-do/refusees", label: "Refusées", value: counts.refusees, icon: XCircle },
   ];
 
   return (
@@ -32,7 +34,7 @@ export default async function PortailDoDashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {tiles.map((t) => (
           <Link key={t.href} href={t.href}>
             <Card className="flex flex-col items-center gap-2 p-5 text-center hover:border-emerald-300">

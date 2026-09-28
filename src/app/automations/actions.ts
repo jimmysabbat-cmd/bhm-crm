@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { previewAutomationRule, runAutomationRuleById } from "@/lib/automations/engine";
 import type { RuleRunSummary } from "@/lib/automations/types";
@@ -13,7 +13,7 @@ import type { RuleRunSummary } from "@/lib/automations/types";
 
 export async function previewRuleAction(ruleId: string): Promise<{ ok: true; summary: RuleRunSummary } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "VIEW_AUTOMATIONS")) throw new Error("Accès refusé.");
     const summary = await previewAutomationRule(ruleId, ctx.organisationId);
     return { ok: true, summary };
@@ -24,7 +24,7 @@ export async function previewRuleAction(ruleId: string): Promise<{ ok: true; sum
 
 export async function runRuleNowAction(ruleId: string): Promise<{ ok: true; summary: RuleRunSummary } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "MANAGE_AUTOMATIONS")) throw new Error("Accès refusé.");
     const summary = await runAutomationRuleById(ruleId, ctx.organisationId, { manual: true });
     await logAudit({ organisationId: ctx.organisationId, userId: ctx.userId, entityType: "AutomationRule", entityId: ruleId, action: "AUTOMATION_EXECUTEE_MANUELLEMENT", metadata: { executed: summary.executed, skipped: summary.skipped, errors: summary.errors } });
@@ -37,7 +37,7 @@ export async function runRuleNowAction(ruleId: string): Promise<{ ok: true; summ
 
 export async function toggleRuleActiveAction(ruleId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "MANAGE_AUTOMATIONS")) throw new Error("Accès refusé.");
     const rule = await prisma.automationRule.findFirst({ where: { id: ruleId, organisationId: ctx.organisationId } });
     if (!rule) throw new Error("Règle introuvable.");

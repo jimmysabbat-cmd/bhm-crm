@@ -16,7 +16,9 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      // 'unsafe-eval' en dev uniquement : React Refresh/webpack dev évaluent
+      // du code, sans quoi aucune page ne s'hydrate en local (boutons inertes).
+      isProduction ? "script-src 'self' 'unsafe-inline'" : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
@@ -38,6 +40,10 @@ const nextConfig: NextConfig = {
   // réellement allouées, ce qui faisait planter "Collecting page data"
   // (SIGABRT) faute de mémoire. On borne donc explicitement la concurrence.
   experimental: {
+    // Portail donneur d'ordre / documents : plusieurs photos + PDF par
+    // envoi. Au-delà de la limite par défaut (1 Mo) la Server Action
+    // levait une exception non rattrapée côté formulaire.
+    serverActions: { bodySizeLimit: "30mb" },
     cpus: 2,
     staticGenerationRetryCount: 1,
     staticGenerationMaxConcurrency: 2,

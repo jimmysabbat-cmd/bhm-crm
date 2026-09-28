@@ -6,20 +6,22 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmit";
 import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
+import { AccesPortailForm } from "./AccesPortailForm";
 
 export default async function DonneursOrdrePage() {
   const ctx = await requireUserContext();
   const donneursOrdre = await prisma.donneurOrdre.findMany({
     where: { organisationId: ctx.organisationId },
     orderBy: { createdAt: "asc" },
+    include: { utilisateurs: { select: { id: true, name: true, email: true, actif: true, lastLoginAt: true } } },
   });
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-slate-500">
-        Entreprises externes qui vous envoient des chantiers à exécuter (apport d&apos;affaire). Un
-        compte de connexion au portail donneur d&apos;ordre se crée ensuite depuis l&apos;onglet
-        Équipe, rattaché à l&apos;une des fiches ci-dessous.
+        Entreprises externes qui vous envoient des chantiers à exécuter (apport d&apos;affaire). Ouvrez
+        une fiche puis « Créer l&apos;accès portail » : un lien s&apos;affiche, à transmettre au donneur
+        d&apos;ordre pour qu&apos;il choisisse son mot de passe et dépose ses demandes.
       </p>
 
       <Card className="overflow-hidden">
@@ -47,10 +49,13 @@ export default async function DonneursOrdrePage() {
                       <Mail className="h-3 w-3" /> {d.contactEmail}
                     </span>
                   )}
+                  <span className={d.utilisateurs.length > 0 ? "text-emerald-700" : "text-amber-700"}>
+                    {d.utilisateurs.length > 0 ? `${d.utilisateurs.length} accès portail` : "Pas encore d'accès portail"}
+                  </span>
                 </div>
               </div>
               <span className="whitespace-nowrap text-xs font-medium text-slate-400 group-hover:text-emerald-600">
-                Modifier
+                Ouvrir
               </span>
               <form action={async () => { "use server"; await toggleDonneurOrdre(d.id, !d.actif); }}>
                 <button
@@ -91,6 +96,7 @@ export default async function DonneursOrdrePage() {
                 </Button>
               </div>
             </form>
+            <AccesPortailForm donneurOrdreId={d.id} defaultEmail={d.contactEmail} comptes={d.utilisateurs} />
           </details>
         ))}
       </Card>

@@ -886,6 +886,12 @@ model Dossier {
   complementDemandeAt      DateTime?
   complementReponseAt      DateTime?
 
+  // Saisies du donneur d'ordre à l'envoi (auparavant seulement dans une
+  // tâche interne, donc invisibles pour lui) + motif de refus communiqué.
+  referenceDonneurOrdre String?
+  infosTechniquesDonneurOrdre String? @db.Text
+  motifRefusDonneurOrdre String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1509,9 +1515,32 @@ model MouvementFinancier {
   // mouvement créé avant P16, ou sans facture associée, garde ce champ nul.
   facture Facture?
 
+  reglements ReglementMouvement[]
+
   @@index([dossierId])
   @@index([organisationId])
   @@index([statut])
+}
+
+// Historique des paiements réellement reçus/versés sur un mouvement
+// (pilotage trésorerie). Un virement groupé (ex. un délégataire CEE qui
+// paie plusieurs dossiers d'un coup) = plusieurs lignes partageant la même
+// `reference`. montantReelCts du mouvement reste le cumul (compatibilité
+// avec tout le moteur existant) ; cette table donne le détail daté.
+model ReglementMouvement {
+  id             String             @id @default(cuid())
+  organisationId String
+  mouvementId    String
+  mouvement      MouvementFinancier @relation(fields: [mouvementId], references: [id], onDelete: Cascade)
+  date           DateTime
+  montantCts     Int
+  mode           ModeReglement      @default(VIREMENT)
+  reference      String?
+  createdById    String?
+  createdAt      DateTime           @default(now())
+
+  @@index([organisationId, date])
+  @@index([mouvementId])
 }
 
 // ============================================================

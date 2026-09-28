@@ -178,6 +178,7 @@ export async function Nav() {
       ...links,
       { href: "/leads", label: "Leads", icon: "leads" },
       { href: "/documents/a-verifier", label: "Documents", icon: "documents" },
+      { href: "/finances/tresorerie", label: "Pilotage trésorerie", icon: "tresorerie" },
       { href: "/finances", label: "Finances", icon: "finances" },
       { href: "/automations", label: "Automatisations", icon: "automations" },
       { href: "/notifications", label: "Notifications", icon: "notifications", badge: unreadCount },
@@ -215,10 +216,12 @@ export async function Nav() {
       { href: "/portail-do", label: "Tableau de bord", icon: "donneurOrdre" },
       { href: "/portail-do/nouvelle-demande", label: "Nouvelle demande", icon: "dossiers" },
       { href: "/portail-do/mes-demandes", label: "Mes demandes", icon: "leads" },
+      { href: "/portail-do/en-qualification", label: "En qualification", icon: "leads" },
       { href: "/portail-do/a-programmer", label: "À programmer", icon: "taches" },
       { href: "/portail-do/programmes", label: "Programmés", icon: "planning" },
       { href: "/portail-do/en-cours", label: "En cours", icon: "automations" },
       { href: "/portail-do/termines", label: "Terminés", icon: "documents" },
+      { href: "/portail-do/refusees", label: "Refusées", icon: "documents" },
       { href: "/portail-do/factures", label: "Factures", icon: "factures" },
     ];
     return <NavShell links={doLinks} userName={userName} userEmail={userEmail} organisationName={organisationName} />;
@@ -245,7 +248,12 @@ export async function Nav() {
     ...links,
     ...(peutVoirLeads ? [{ href: "/leads", label: "Leads", icon: "leads" as const }] : []),
     ...(peutVoirDocuments ? [{ href: "/documents/a-verifier", label: "Documents", icon: "documents" as const }] : []),
-    ...(peutVoirFinances ? [{ href: "/finances", label: "Finances", icon: "finances" as const }] : []),
+    ...(peutVoirFinances
+      ? [
+          { href: "/finances/tresorerie", label: "Pilotage trésorerie", icon: "tresorerie" as const },
+          { href: "/finances", label: "Finances", icon: "finances" as const },
+        ]
+      : []),
     ...(peutVoirAutomations ? [{ href: "/automations", label: "Automatisations", icon: "automations" as const }] : []),
     ...(peutVoirNotifications ? [{ href: "/notifications", label: "Notifications", icon: "notifications" as const, badge: unreadCount }] : []),
     ...(isAdmin ? [{ href: "/parametrage", label: "Paramétrage", icon: "parametrage" as const }] : []),

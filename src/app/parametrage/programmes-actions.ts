@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext } from "@/lib/authz";
+import { requireInternalUserContext } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 
 async function requireAdmin() {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   if ((ctx.effectiveRole ?? ctx.role) !== "ADMIN") {
     throw new Error("Accès réservé aux administrateurs.");
   }

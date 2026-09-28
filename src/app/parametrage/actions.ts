@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, type UserContext } from "@/lib/authz";
+import { requireInternalUserContext, type UserContext } from "@/lib/authz";
 import type { Role } from "@/generated/prisma/enums";
 
 // P12 (section 23) : sous-ensemble de reorder()/deleteItem() dont le
@@ -14,7 +14,7 @@ import type { Role } from "@/generated/prisma/enums";
 const TENANT_SCOPED_PARAM_MODELS = new Set(["mar", "regie", "delegataireCee"]);
 
 async function requireAdmin(): Promise<UserContext> {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   if ((ctx.effectiveRole ?? ctx.role) !== "ADMIN") {
     throw new Error("Accès réservé aux administrateurs.");
   }
@@ -682,6 +682,12 @@ export async function updateUserRoleAction(id: string, role: Role): Promise<{ ok
     const ctx = await requireAdmin();
     const target = await prisma.user.findFirst({ where: { id, organisationId: ctx.organisationId }, select: { id: true } });
     if (!target) throw new Error("Utilisateur introuvable.");
+    const current = await prisma.user.findUnique({ where: { id }, select: { donneurOrdreId: true } });
+    // Un compte DONNEUR_ORDRE sans fiche rattachée faisait tomber tout le
+    // portail en erreur : passer par « Créer l'accès portail » sur la fiche.
+    if (role === "DONNEUR_ORDRE" && !current?.donneurOrdreId) {
+      throw new Error("Pour un donneur d'ordre, créez l'accès depuis Paramétrage → Donneurs d'ordre (rattachement obligatoire).");
+    }
     await prisma.user.update({ where: { id }, data: { role } });
     revalidatePath("/parametrage/equipe");
     return { ok: true };
@@ -728,6 +734,50 @@ export async function adminGeneratePasswordResetLinkAction(userId: string): Prom
     const token = await createPasswordResetToken(target.id);
     const appUrl = process.env.APP_URL || "http://localhost:3000";
     return { ok: true, link: `${appUrl}/reinitialiser/${token}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
+}
+
+// Accès portail donneur d'ordre en un clic depuis sa fiche : crée le compte
+// rattaché (mot de passe aléatoire jamais communiqué) et renvoie un lien
+// valable 7 jours pour que le DO choisisse lui-même son mot de passe. Si le
+// compte existe déjà pour ce DO, renvoie simplement un nouveau lien.
+export async function creerAccesDonneurOrdreAction(
+  donneurOrdreId: string,
+  input: { name: string; email: string }
+): Promise<{ ok: true; link: string; existant: boolean } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireAdmin();
+    await assertOwnedDonneurOrdre(donneurOrdreId, ctx.organisationId);
+    const email = input.email.trim().toLowerCase();
+    const name = input.name.trim();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Email valide requis.");
+
+    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true, organisationId: true, donneurOrdreId: true } });
+    let userId: string;
+    if (existing) {
+      if (existing.organisationId !== ctx.organisationId || existing.donneurOrdreId !== donneurOrdreId) {
+        throw new Error("Cet email est déjà utilisé par un autre compte.");
+      }
+      userId = existing.id;
+      await prisma.user.update({ where: { id: userId }, data: { actif: true } });
+    } else {
+      const { randomBytes } = await import("crypto");
+      const hashed = await bcrypt.hash(randomBytes(24).toString("hex"), 10);
+      const user = await prisma.user.create({
+        data: { name: name || email, email, password: hashed, role: "DONNEUR_ORDRE", organisationId: ctx.organisationId, donneurOrdreId },
+        select: { id: true },
+      });
+      userId = user.id;
+    }
+
+    const { createPasswordResetToken } = await import("@/lib/invitations/service");
+    const token = await createPasswordResetToken(userId, 7 * 24 * 60 * 60 * 1000);
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    revalidatePath("/parametrage/donneurs-ordre");
+    revalidatePath("/parametrage/equipe");
+    return { ok: true, link: `${appUrl}/reinitialiser/${token}`, existant: !!existing };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
   }

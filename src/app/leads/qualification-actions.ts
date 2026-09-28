@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUserContext, hasPermission, canAccessLead } from "@/lib/authz";
+import { requireInternalUserContext, hasPermission, canAccessLead } from "@/lib/authz";
 import { logAudit } from "@/lib/audit";
 import { changeLeadStatus } from "@/lib/leads/status";
 import { ensureDraftDossierForLead } from "@/lib/leads/conversion";
@@ -196,7 +196,7 @@ async function computeOpportunitesForLead(leadId: string, organisationId: string
 /** Phase B/C - calcule et retourne les opportunités détectées pour ce lead. */
 export async function calculerOpportunitesPourLead(leadId: string): Promise<{ ok: true; result: OpportunitesResult } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await loadOwnedLead(leadId, ctx.organisationId);
     if (!hasPermission(ctx, "VIEW_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
 
@@ -210,7 +210,7 @@ export async function calculerOpportunitesPourLead(leadId: string): Promise<{ ok
 /** Next Best Question pour ce lead, compte tenu des opportunités actuellement plausibles. */
 export async function getNextBestQuestionPourLead(leadId: string): Promise<{ ok: true; result: NbqResult } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await loadOwnedLead(leadId, ctx.organisationId);
     if (!hasPermission(ctx, "VIEW_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
 
@@ -233,7 +233,7 @@ export async function getNextBestQuestionPourLead(leadId: string): Promise<{ ok:
 /** Catégorie de ménage estimée (barème ANAH_REVENUS si publié - sinon message honnête, jamais inventé). */
 export async function getCategorieMenagePourLead(leadId: string): Promise<{ ok: true; result: CategorieMenageResult } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await loadOwnedLead(leadId, ctx.organisationId);
     if (!hasPermission(ctx, "VIEW_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
 
@@ -270,7 +270,7 @@ function str(formData: FormData, name: string): string | null {
  */
 export async function confirmerRdvQualification(leadId: string, formData: FormData): Promise<{ ok: true; rdvId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await loadOwnedLead(leadId, ctx.organisationId);
     if (!hasPermission(ctx, "MANAGE_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
 
@@ -342,7 +342,7 @@ export async function confirmerOpportunitesEnPostes(
   typesTravaux: string[]
 ): Promise<{ ok: true; created: number } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     if (!hasPermission(ctx, "RUN_LEAD_STUDY")) throw new Error("Accès refusé.");
 
     const dossier = await prisma.dossier.findFirst({
@@ -383,7 +383,7 @@ export async function confirmerOpportunitesEnPostes(
  */
 export async function getArgumentairePourOpportunite(leadId: string, ficheMetierId: string): Promise<{ ok: true; result: ArgumentaireBlocs | null } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await loadOwnedLead(leadId, ctx.organisationId);
     if (!hasPermission(ctx, "VIEW_LEADS") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
 
@@ -426,7 +426,7 @@ export async function getArgumentairePourOpportunite(leadId: string, ficheMetier
 /** Convertit le lead en dossier préqualifié (réutilise ensureDraftDossierForLead - zéro ressaisie, idempotent). */
 export async function convertirEnDossierPrequalifie(leadId: string): Promise<{ ok: true; dossierId: string } | { ok: false; error: string }> {
   try {
-    const ctx = await requireUserContext();
+    const ctx = await requireInternalUserContext();
     const lead = await loadOwnedLead(leadId, ctx.organisationId);
     if (!hasPermission(ctx, "RUN_LEAD_STUDY") || !canAccessLead(ctx, lead)) throw new Error("Accès refusé.");
 

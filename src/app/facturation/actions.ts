@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUserContext, assertDossierInOrg } from "@/lib/authz";
+import { requireInternalUserContext, requireFinanceContext, assertDossierInOrg } from "@/lib/authz";
 import { eurosToCents } from "@/lib/money";
 import {
   creerFactureDonneurOrdre,
@@ -26,7 +26,7 @@ import type { TypeFacture, StatutFacture, ModeReglement } from "@/generated/pris
 // ============================================================
 
 export async function creerFactureDonneurOrdreAction(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
   const posteIds = formData.getAll("posteIds").map(String);
@@ -39,26 +39,26 @@ export async function creerFactureDonneurOrdreAction(formData: FormData) {
 }
 
 export async function emettreFactureDonneurOrdreAction(factureId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const { dossierId } = await emettreFactureDonneurOrdre({ organisationId: ctx.organisationId, userId: ctx.userId, factureId });
   revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function annulerFactureAction(factureId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const { dossierId } = await annulerFacture({ organisationId: ctx.organisationId, userId: ctx.userId, factureId });
   revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function validerFactureSousTraitantAction(factureId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const { dossierId } = await validerFactureSousTraitant({ organisationId: ctx.organisationId, userId: ctx.userId, factureId });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/finances");
 }
 
 export async function refuserFactureSousTraitantAction(factureId: string, motif: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const { dossierId } = await refuserFactureSousTraitant({ organisationId: ctx.organisationId, userId: ctx.userId, factureId, motif: motif || null });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/finances");
@@ -84,7 +84,7 @@ function optionalDate(formData: FormData, field: string): Date | null {
  * chemin avancé, conservé mais non utilisé par ce formulaire).
  */
 export async function creerFactureManuelleAction(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const dossierId = String(formData.get("dossierId"));
   await assertDossierInOrg(dossierId, ctx.organisationId);
 
@@ -116,20 +116,20 @@ export async function creerFactureManuelleAction(formData: FormData) {
 }
 
 export async function transmettreFactureAction(factureId: string, destinataire: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const { dossierId } = await transmettreFacture({ organisationId: ctx.organisationId, userId: ctx.userId, factureId, destinataire });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/portail-do/factures");
 }
 
 export async function changerStatutFactureAction(factureId: string, statut: StatutFacture) {
-  const ctx = await requireUserContext();
+  const ctx = await requireInternalUserContext();
   const { dossierId } = await changerStatutFacture({ organisationId: ctx.organisationId, userId: ctx.userId, factureId, statut });
   revalidatePath(`/dossiers/${dossierId}`);
 }
 
 export async function ajouterReglementFactureAction(formData: FormData) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const factureId = String(formData.get("factureId"));
 
   const { dossierId } = await ajouterReglementFacture({
@@ -148,7 +148,7 @@ export async function ajouterReglementFactureAction(formData: FormData) {
 }
 
 export async function supprimerReglementFactureAction(reglementId: string) {
-  const ctx = await requireUserContext();
+  const ctx = await requireFinanceContext();
   const { dossierId } = await supprimerReglementFacture({ organisationId: ctx.organisationId, userId: ctx.userId, reglementId });
   revalidatePath(`/dossiers/${dossierId}`);
 }

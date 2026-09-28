@@ -15,10 +15,16 @@ const STATUTS_A_PROGRAMMER = ["DEVIS_SIGNE", "AUDIT_FAIT", "DOSSIER_DEPOSE", "EN
 const STATUTS_PROGRAMMES = ["TRAVAUX_PLANIFIES"];
 const STATUTS_EN_COURS = ["TRAVAUX_EN_COURS"];
 const STATUTS_TERMINES = ["TRAVAUX_TERMINES", "CONTROLE_EN_COURS", "SOLDE_DEMANDE", "SOLDE_RECU", "CLOTURE"];
+// Demande reçue par BHM mais pas encore acceptée : auparavant comptée dans
+// aucune vue, le DO ne voyait donc pas ses nouvelles demandes au tableau de bord.
+const STATUTS_EN_QUALIFICATION = ["PROSPECT_ETUDE"];
+const STATUTS_REFUSES = ["REFUSE"];
 
-export type DemandeVue = "toutes" | "a-programmer" | "programmes" | "en-cours" | "termines";
+export type DemandeVue = "toutes" | "en-qualification" | "a-programmer" | "programmes" | "en-cours" | "termines" | "refusees";
 
 const VUE_STATUTS: Record<Exclude<DemandeVue, "toutes">, string[]> = {
+  "en-qualification": STATUTS_EN_QUALIFICATION,
+  refusees: STATUTS_REFUSES,
   "a-programmer": STATUTS_A_PROGRAMMER,
   programmes: STATUTS_PROGRAMMES,
   "en-cours": STATUTS_EN_COURS,
@@ -92,10 +98,13 @@ export async function getDemandeDetailForDonneurOrdre(ctx: UserContext, dossierI
       complementDemandeAt: true,
       complementReponseMessage: true,
       complementReponseAt: true,
+      referenceDonneurOrdre: true,
+      infosTechniquesDonneurOrdre: true,
+      motifRefusDonneurOrdre: true,
       client: { select: { nom: true, prenom: true, telephone: true, email: true, adresse: true, ville: true, codePostal: true } },
       statut: { select: { label: true } },
       postesTravaux: { select: { id: true, type: true, surfaceM2: true, quantite: true } },
-      documents: { where: { statut: { not: "REMPLACE" } }, select: { id: true, nomFichier: true, typeDocumentRef: { select: { nom: true } } } },
+      documents: { where: { statut: { not: "REMPLACE" }, createdBy: { donneurOrdreId } }, select: { id: true, nomFichier: true, typeDocumentRef: { select: { nom: true } } } },
     },
   });
   if (!dossier) throw new Error("Demande introuvable.");
@@ -143,14 +152,16 @@ export async function getFacturesForDonneurOrdre(ctx: UserContext): Promise<Fact
 
 export async function getDashboardCountsForDonneurOrdre(ctx: UserContext) {
   const donneurOrdreId = requireDonneurOrdre(ctx);
-  const [total, aProgrammer, programmes, enCours, termines] = await Promise.all([
+  const [total, enQualification, refusees, aProgrammer, programmes, enCours, termines] = await Promise.all([
     prisma.dossier.count({ where: { donneurOrdreId, organisationId: ctx.organisationId } }),
+    prisma.dossier.count({ where: { donneurOrdreId, organisationId: ctx.organisationId, statut: { key: { in: STATUTS_EN_QUALIFICATION } } } }),
+    prisma.dossier.count({ where: { donneurOrdreId, organisationId: ctx.organisationId, statut: { key: { in: STATUTS_REFUSES } } } }),
     prisma.dossier.count({ where: { donneurOrdreId, organisationId: ctx.organisationId, statut: { key: { in: STATUTS_A_PROGRAMMER } } } }),
     prisma.dossier.count({ where: { donneurOrdreId, organisationId: ctx.organisationId, statut: { key: { in: STATUTS_PROGRAMMES } } } }),
     prisma.dossier.count({ where: { donneurOrdreId, organisationId: ctx.organisationId, statut: { key: { in: STATUTS_EN_COURS } } } }),
     prisma.dossier.count({ where: { donneurOrdreId, organisationId: ctx.organisationId, statut: { key: { in: STATUTS_TERMINES } } } }),
   ]);
-  return { total, aProgrammer, programmes, enCours, termines };
+  return { total, enQualification, refusees, aProgrammer, programmes, enCours, termines };
 }
 
 // ============================================================
@@ -208,6 +219,8 @@ export async function createDemandeFromDonneurOrdre(
       statutId: statut.id,
       montantDevisTTC: 0,
       donneurOrdreId,
+      referenceDonneurOrdre: input.referenceDonneurOrdre,
+      infosTechniquesDonneurOrdre: input.infosTechniques,
       dateDebutTravaux: input.dateSouhaitee,
       postesTravaux: {
         create: {
