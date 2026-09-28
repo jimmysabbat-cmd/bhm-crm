@@ -103,7 +103,21 @@ export async function getDemandeDetailForDonneurOrdre(ctx: UserContext, dossierI
       motifRefusDonneurOrdre: true,
       client: { select: { nom: true, prenom: true, telephone: true, email: true, adresse: true, ville: true, codePostal: true } },
       statut: { select: { label: true } },
-      postesTravaux: { select: { id: true, type: true, surfaceM2: true, quantite: true } },
+      postesTravaux: {
+        select: {
+          id: true,
+          type: true,
+          surfaceM2: true,
+          quantite: true,
+          materiau: true,
+          marqueReference: true,
+          epaisseurMm: true,
+          resistanceThermique: true,
+          materielFourniPar: true,
+          prixPoseProposeHTCts: true,
+          notesTechniques: true,
+        },
+      },
       documents: { where: { statut: { not: "REMPLACE" }, createdBy: { donneurOrdreId } }, select: { id: true, nomFichier: true, typeDocumentRef: { select: { nom: true } } } },
     },
   });
@@ -164,6 +178,19 @@ export async function getDashboardCountsForDonneurOrdre(ctx: UserContext) {
   return { total, enQualification, refusees, aProgrammer, programmes, enCours, termines };
 }
 
+export type PosteDemandeInput = {
+  type: string;
+  surfaceM2: number | null;
+  quantite: number | null;
+  materiau: string | null;
+  marqueReference: string | null;
+  epaisseurMm: number | null;
+  resistanceThermique: number | null;
+  materielFourniPar: "DONNEUR_ORDRE" | "ENTREPRISE" | null;
+  prixPoseProposeHTCts: number | null;
+  notesTechniques: string | null;
+};
+
 // ============================================================
 // "Envoyer un chantier" - alimente DIRECTEMENT les objets canoniques
 // (Client + Dossier + DossierPosteTravaux), jamais une table "Demande"
@@ -183,9 +210,7 @@ export async function createDemandeFromDonneurOrdre(
     clientAdresse: string | null;
     clientCodePostal: string | null;
     clientVille: string | null;
-    typeTravaux: string;
-    surfaceM2: number | null;
-    quantite: number | null;
+    postes: PosteDemandeInput[];
     infosTechniques: string | null;
     dateSouhaitee: Date | null;
   }
@@ -223,11 +248,18 @@ export async function createDemandeFromDonneurOrdre(
       infosTechniquesDonneurOrdre: input.infosTechniques,
       dateDebutTravaux: input.dateSouhaitee,
       postesTravaux: {
-        create: {
-          type: input.typeTravaux as never,
-          surfaceM2: input.surfaceM2,
-          quantite: input.quantite,
-        },
+        create: input.postes.map((p) => ({
+          type: p.type as never,
+          surfaceM2: p.surfaceM2,
+          quantite: p.quantite,
+          materiau: p.materiau,
+          marqueReference: p.marqueReference,
+          epaisseurMm: p.epaisseurMm,
+          resistanceThermique: p.resistanceThermique,
+          materielFourniPar: p.materielFourniPar,
+          prixPoseProposeHTCts: p.prixPoseProposeHTCts,
+          notesTechniques: p.notesTechniques,
+        })),
       },
     },
     select: { id: true },

@@ -108,6 +108,11 @@ export default async function SousTraitantsPage() {
                   className={smallInputClass}
                 />
               </div>
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input type="hidden" name="reglagesPartenaire" value="1" />
+                <input type="checkbox" name="emailsAuto" defaultChecked={s.emailsAuto} />
+                Emails automatiques vers ce partenaire
+              </label>
               <div className="flex items-end">
                 <Button type="submit" variant="secondary" className="text-xs">
                   Enregistrer

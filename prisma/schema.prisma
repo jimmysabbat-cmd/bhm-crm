@@ -283,6 +283,20 @@ model Organisation {
   email         String?
   telephone     String?
   logoUrl       String?
+  // Paramétrage email PAR SOCIÉTÉ (chaque tenant envoie depuis sa propre
+  // adresse). Vide = repli sur la configuration SMTP globale du serveur.
+  // smtpPasswordChiffre : AES-256-GCM (cf. src/lib/email/org-smtp.ts),
+  // jamais le mot de passe en clair en base.
+  emailsAutoActifs    Boolean @default(false)
+  emailExpediteurNom  String?
+  emailFrom           String?
+  emailReplyTo        String?
+  emailSignature      String? @db.Text
+  smtpHost            String?
+  smtpPort            Int?
+  smtpSecure          Boolean @default(false)
+  smtpUser            String?
+  smtpPasswordChiffre String? @db.Text
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
@@ -605,6 +619,9 @@ model DelegataireCee {
   rachatTresModesteCts Int?
   rachatClassiqueCts   Int?
   delaiPaiementJours   Int?
+  contactEmail         String?
+  contactTelephone     String?
+  emailsAuto           Boolean @default(true)
 
   dossiers Dossier[]
   tarifs   TarifDelegataireCee[]
@@ -954,6 +971,17 @@ model DossierPosteTravaux {
   montantMaterielHTCts  Int? // en centimes
   montantMaterielTTCCts Int? // en centimes
 
+  // Détail technique de la pose (saisi par le donneur d'ordre sur son
+  // portail, ou en interne) - transmis tel quel à l'équipe de pose / au
+  // sous-traitant.
+  materiau              String?
+  marqueReference       String?
+  epaisseurMm           Float?
+  resistanceThermique   Float? // R en m².K/W
+  materielFourniPar     String? // "DONNEUR_ORDRE" | "ENTREPRISE"
+  prixPoseProposeHTCts  Int? // prix de pose proposé par le donneur d'ordre, HT
+  notesTechniques       String? @db.Text
+
   // Rattachement réglementaire (P7) - purement additif, les champs legacy
   // montantCumac/montantPrimeCalculeCts ci-dessus restent la source utilisée
   // par l'UI existante et ne sont jamais supprimés (section 12/33 du prompt
@@ -996,6 +1024,7 @@ model SousTraitant {
   telephone          String?
   email              String?
   delaiPaiementJours Int? // délai de paiement après fin de travaux
+  emailsAuto         Boolean @default(true)
   actif              Boolean       @default(true)
   createdAt          DateTime      @default(now())
 
@@ -1030,6 +1059,10 @@ model DonneurOrdre {
   nom              String
   contactEmail     String?
   contactTelephone String?
+  // Paramétrage partenaire : délai de paiement de nos factures (échéance
+  // calculée à l'émission) et emails automatiques vers ce partenaire.
+  delaiPaiementJours Int?
+  emailsAuto         Boolean @default(true)
   ordre            Int           @default(0)
   actif            Boolean       @default(true)
   createdAt        DateTime      @default(now())
@@ -3007,6 +3040,15 @@ enum AutomationTriggerType {
   REGIE_NOUVEAU_LEAD
   RDV_CREE
   RDV_MODIFIE_OU_ANNULE
+  // Pilotage poses / facturation / délégataires CEE
+  DO_CHANTIER_REFUSE
+  DO_A_FACTURER
+  MISSION_REGIE_A_PLANIFIER
+  MISSION_ST_FACTURE_ATTENDUE
+  FACTURE_ST_A_VALIDER
+  FACTURE_A_PAYER
+  CEE_DEPOT_A_FAIRE
+  CEE_PAIEMENT_RETARD
 }
 
 enum AutomationActionType {

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { getMissingDocumentsRelanceData } from "@/lib/documents/relance";
 import { renderTemplate, formatMissingDocumentsList, type TemplateVariables } from "@/lib/automations/templates";
-import { getEmailProvider } from "./provider";
+import { getEmailProviderForOrganisation, getOrgEmailSettings, avecSignature } from "./org-smtp";
 import type { StatutEmailDraft } from "@/generated/prisma/enums";
 
 // ============================================================
@@ -101,8 +101,8 @@ export async function sendEmailDraft(draftId: string, organisationId: string, se
   if (!draft) throw new Error("Brouillon introuvable.");
   if (draft.statut !== "BROUILLON") throw new Error("Ce brouillon a déjà été envoyé ou annulé.");
 
-  const provider = getEmailProvider();
-  const result = await provider.sendEmail({ to: draft.destinataire, subject: draft.sujet, body: draft.corps });
+  const [provider, settings] = await Promise.all([getEmailProviderForOrganisation(organisationId), getOrgEmailSettings(organisationId)]);
+  const result = await provider.sendEmail({ to: draft.destinataire, subject: draft.sujet, body: avecSignature(draft.corps, settings.signature), replyTo: settings.replyTo });
 
   await prisma.$transaction([
     prisma.emailDraft.update({ where: { id: draft.id }, data: { statut: (result.ok ? "ENVOYE" : "BROUILLON") as StatutEmailDraft } }),

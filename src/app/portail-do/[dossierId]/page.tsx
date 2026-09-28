@@ -4,6 +4,7 @@ import { getDemandeDetailForDonneurOrdre } from "@/lib/donneurs-ordre/access";
 import { typeTravauxLabels } from "@/lib/dossier-labels";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ComplementForm } from "../ComplementForm";
+import { PosteTechnique } from "@/components/dossier/PosteTechnique";
 
 // P16 - vue détail STRICTEMENT restreinte au périmètre du donneur d'ordre :
 // client/prestation/statut/documents qu'il a fournis. Jamais de marge,
@@ -69,10 +70,9 @@ export default async function DemandeDetailPage({ params, searchParams }: { para
         </CardHeader>
         <div className="mt-3 space-y-1 text-sm text-slate-600">
           {dossier.postesTravaux.map((p) => (
-            <div key={p.id}>
-              {typeTravauxLabels[p.type] ?? p.type}
-              {p.surfaceM2 ? ` — ${p.surfaceM2} m²` : ""}
-              {p.quantite ? ` — quantité ${p.quantite}` : ""}
+            <div key={p.id} className="border-b border-slate-100 pb-2 last:border-0">
+              <div className="font-medium text-slate-800">{typeTravauxLabels[p.type] ?? p.type}</div>
+              <PosteTechnique p={p} />
             </div>
           ))}
           {dossier.infosTechniquesDonneurOrdre && (

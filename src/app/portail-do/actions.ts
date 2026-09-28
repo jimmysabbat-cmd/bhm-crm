@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserContext } from "@/lib/authz";
 import { saveDocumentFile } from "@/lib/documents";
-import { createDemandeFromDonneurOrdre } from "@/lib/donneurs-ordre/access";
+import { createDemandeFromDonneurOrdre, type PosteDemandeInput } from "@/lib/donneurs-ordre/access";
+import { typeTravauxLabels } from "@/lib/dossier-labels";
 import { logAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/service";
 
@@ -14,6 +15,48 @@ const MIME_AUTORISES = /^(image\/|application\/pdf$|application\/msword$|applica
 
 // Validé AVANT toute écriture : un fichier refusé ne doit jamais laisser un
 // dossier à moitié créé (le DO réessaierait et créerait un doublon).
+// Postes envoyés en JSON par le formulaire (liste dynamique côté client),
+// revalidés ici un par un : jamais de confiance dans les valeurs du client.
+function parsePostes(raw: FormDataEntryValue | null): PosteDemandeInput[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(String(raw ?? "[]"));
+  } catch {
+    throw new Error("Détail des postes illisible.");
+  }
+  if (!Array.isArray(data) || data.length === 0) throw new Error("Ajoutez au moins une prestation.");
+  if (data.length > 20) throw new Error("20 prestations maximum par demande.");
+  const num = (v: unknown, label: string, max: number): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(String(v).replace(",", "."));
+    if (!Number.isFinite(n) || n < 0 || n > max) throw new Error(`${label} invalide.`);
+    return n;
+  };
+  const txt = (v: unknown, max = 500): string | null => {
+    const t = String(v ?? "").trim();
+    return t ? t.slice(0, max) : null;
+  };
+  return data.map((p: Record<string, unknown>, i) => {
+    const type = String(p.type ?? "");
+    if (!(type in typeTravauxLabels)) throw new Error(`Prestation n°${i + 1} : choisissez un type.`);
+    const quantite = num(p.quantite, "Quantité", 100000);
+    const prix = num(p.prixPoseProposeHT, "Prix de pose", 10_000_000);
+    const fourni = p.materielFourniPar === "DONNEUR_ORDRE" || p.materielFourniPar === "ENTREPRISE" ? p.materielFourniPar : null;
+    return {
+      type,
+      surfaceM2: num(p.surfaceM2, "Surface", 100000),
+      quantite: quantite == null ? null : Math.round(quantite),
+      materiau: txt(p.materiau, 200),
+      marqueReference: txt(p.marqueReference, 200),
+      epaisseurMm: num(p.epaisseurMm, "Épaisseur", 2000),
+      resistanceThermique: num(p.resistanceThermique, "Résistance thermique", 100),
+      materielFourniPar: fourni,
+      prixPoseProposeHTCts: prix == null ? null : Math.round(prix * 100),
+      notesTechniques: txt(p.notesTechniques, 2000),
+    };
+  });
+}
+
 function validerFichiers(files: File[]): void {
   let total = 0;
   for (const f of files) {
@@ -38,21 +81,13 @@ export async function envoyerChantierAction(formData: FormData): Promise<{ ok: t
 
     const clientNom = String(formData.get("clientNom") ?? "").trim();
     const clientPrenom = String(formData.get("clientPrenom") ?? "").trim();
-    const typeTravaux = String(formData.get("typeTravaux") ?? "").trim();
     if (!clientNom || !clientPrenom) throw new Error("Nom et prénom du client requis.");
-    if (!typeTravaux) throw new Error("Type de prestation requis.");
+    const postes = parsePostes(formData.get("postes"));
 
     const files = formData.getAll("documents").filter((f): f is File => f instanceof File && f.size > 0);
     validerFichiers(files);
 
-    const surfaceRaw = formData.get("surfaceM2");
-    const quantiteRaw = formData.get("quantite");
     const dateRaw = formData.get("dateSouhaitee");
-    const surfaceM2 = surfaceRaw ? Number(surfaceRaw) : null;
-    const quantite = quantiteRaw ? Number(quantiteRaw) : null;
-    if ((surfaceM2 != null && (!Number.isFinite(surfaceM2) || surfaceM2 < 0)) || (quantite != null && (!Number.isFinite(quantite) || quantite < 0))) {
-      throw new Error("Surface ou quantité invalide.");
-    }
 
     const { dossierId } = await createDemandeFromDonneurOrdre(ctx, {
       referenceDonneurOrdre: (formData.get("referenceDonneurOrdre") as string) || null,
@@ -63,9 +98,7 @@ export async function envoyerChantierAction(formData: FormData): Promise<{ ok: t
       clientAdresse: (formData.get("clientAdresse") as string) || null,
       clientCodePostal: (formData.get("clientCodePostal") as string) || null,
       clientVille: (formData.get("clientVille") as string) || null,
-      typeTravaux,
-      surfaceM2,
-      quantite,
+      postes,
       infosTechniques: (formData.get("infosTechniques") as string) || null,
       dateSouhaitee: dateRaw ? new Date(String(dateRaw)) : null,
     });

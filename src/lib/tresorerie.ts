@@ -608,3 +608,149 @@ export async function pointerPaiement(params: {
   ]);
   return { dossierId: m.dossierId, mouvementId: m.id };
 }
+
+// --- Délégataires CEE : suivi des primes par délégataire ------------------
+
+export type DossierCeeSuivi = {
+  dossierId: string;
+  reference: string;
+  clientLabel: string;
+  etape: "A_DEPOSER" | "DEPOSE" | "EN_RETARD" | "PAYE_PARTIEL";
+  primeCts: number;
+  encaisseCts: number;
+  resteCts: number;
+  dateDepot: Date | null;
+  echeance: Date | null;
+  joursRetard: number;
+};
+
+export type SuiviDelegataire = {
+  delegataireId: string | null;
+  nom: string;
+  delaiPaiementJours: number | null;
+  contactEmail: string | null;
+  primeAttendueCts: number;
+  aDeposerCts: number;
+  deposeCts: number;
+  enRetardCts: number;
+  dossiers: DossierCeeSuivi[];
+};
+
+const STATUTS_TRAVAUX_FAITS = new Set(["TRAVAUX_TERMINES", "CONTROLE_EN_COURS", "SOLDE_DEMANDE", "SOLDE_RECU"]);
+
+/** Primes CEE non encaissées, regroupées par délégataire : à déposer / déposées / en retard. */
+export async function getSuiviDelegataires(organisationId: string): Promise<SuiviDelegataire[]> {
+  const dossiers = await prisma.dossier.findMany({
+    where: { organisationId, montantAideCEE: { gt: 0 }, statut: { key: { notIn: ["CLOTURE", "REFUSE"] } } },
+    select: {
+      id: true,
+      reference: true,
+      montantAideCEE: true,
+      montantEncaisseCEE: true,
+      dateDepotDelegataireCee: true,
+      statut: { select: { key: true } },
+      client: { select: { prenom: true, nom: true } },
+      delegataireCee: { select: { id: true, nom: true, delaiPaiementJours: true, contactEmail: true } },
+      mouvementsFinanciers: { where: { categorie: "ENCAISSEMENT_CEE", statut: { not: "ANNULE" } }, select: { montantPrevuCts: true, montantReelCts: true, statut: true } },
+    },
+  });
+  const map = new Map<string, SuiviDelegataire>();
+  for (const d of dossiers) {
+    const ms = d.mouvementsFinanciers;
+    const primeCts = ms.length > 0 ? ms.reduce((s, m) => s + (m.montantPrevuCts ?? 0), 0) : d.montantAideCEE;
+    const encaisseCts = ms.length > 0 ? ms.reduce((s, m) => s + (m.statut === "RECU" ? Math.max(m.montantReelCts ?? 0, m.montantPrevuCts ?? 0) : m.montantReelCts ?? 0), 0) : d.montantEncaisseCEE;
+    const resteCts = Math.max(primeCts - encaisseCts, 0);
+    if (resteCts <= 0) continue;
+    const delai = d.delegataireCee?.delaiPaiementJours ?? null;
+    const echeance = d.dateDepotDelegataireCee && delai != null ? addDays(d.dateDepotDelegataireCee, delai) : null;
+    const enRetard = echeance != null && echeance.getTime() < Date.now();
+    const etape: DossierCeeSuivi["etape"] = !d.dateDepotDelegataireCee ? "A_DEPOSER" : enRetard ? "EN_RETARD" : encaisseCts > 0 ? "PAYE_PARTIEL" : "DEPOSE";
+    // "À déposer" n'a de sens qu'une fois les travaux faits : avant, c'est
+    // une prime future, comptée dans la prime attendue seulement.
+    const key = d.delegataireCee?.id ?? "__aucun__";
+    const s =
+      map.get(key) ??
+      {
+        delegataireId: d.delegataireCee?.id ?? null,
+        nom: d.delegataireCee?.nom ?? "Délégataire non renseigné",
+        delaiPaiementJours: delai,
+        contactEmail: d.delegataireCee?.contactEmail ?? null,
+        primeAttendueCts: 0,
+        aDeposerCts: 0,
+        deposeCts: 0,
+        enRetardCts: 0,
+        dossiers: [],
+      };
+    s.primeAttendueCts += resteCts;
+    if (etape === "A_DEPOSER" && STATUTS_TRAVAUX_FAITS.has(d.statut.key)) s.aDeposerCts += resteCts;
+    if (etape !== "A_DEPOSER") s.deposeCts += resteCts;
+    if (etape === "EN_RETARD") s.enRetardCts += resteCts;
+    s.dossiers.push({
+      dossierId: d.id,
+      reference: d.reference,
+      clientLabel: `${d.client.prenom} ${d.client.nom}`,
+      etape,
+      primeCts,
+      encaisseCts,
+      resteCts,
+      dateDepot: d.dateDepotDelegataireCee,
+      echeance,
+      joursRetard: enRetard && echeance ? Math.floor((Date.now() - echeance.getTime()) / 86_400_000) : 0,
+    });
+    map.set(key, s);
+  }
+  return Array.from(map.values()).sort((a, b) => b.enRetardCts - a.enRetardCts || b.primeAttendueCts - a.primeAttendueCts);
+}
+
+// --- Factures à payer (sous-traitants) ------------------------------------
+
+export type FactureAPayer = {
+  id: string;
+  numero: string;
+  fournisseur: string;
+  dossierId: string;
+  dossierReference: string;
+  statut: string;
+  montantTTCCts: number;
+  resteCts: number;
+  dateEcheance: Date | null;
+  enRetard: boolean;
+  aValider: boolean;
+};
+
+export async function getFacturesAPayer(organisationId: string): Promise<FactureAPayer[]> {
+  const factures = await prisma.facture.findMany({
+    where: { organisationId, type: "SOUS_TRAITANT", statut: { in: ["RECUE", "A_CONTROLER", "VALIDEE", "A_PAYER", "PARTIELLEMENT_PAYEE", "EN_RETARD"] } },
+    select: {
+      id: true,
+      numero: true,
+      statut: true,
+      montantTTCCts: true,
+      dateEcheance: true,
+      dossierId: true,
+      dossier: { select: { reference: true } },
+      sousTraitant: { select: { nom: true } },
+      reglements: { select: { montantCts: true } },
+    },
+    orderBy: [{ dateEcheance: "asc" }],
+  });
+  const now = Date.now();
+  return factures
+    .map((f) => {
+      const reste = Math.max(f.montantTTCCts - f.reglements.reduce((s, r) => s + r.montantCts, 0), 0);
+      return {
+        id: f.id,
+        numero: f.numero,
+        fournisseur: f.sousTraitant?.nom ?? "Sous-traitant",
+        dossierId: f.dossierId,
+        dossierReference: f.dossier.reference,
+        statut: f.statut,
+        montantTTCCts: f.montantTTCCts,
+        resteCts: reste,
+        dateEcheance: f.dateEcheance,
+        enRetard: f.dateEcheance != null && f.dateEcheance.getTime() < now,
+        aValider: f.statut === "RECUE" || f.statut === "A_CONTROLER",
+      };
+    })
+    .filter((f) => f.resteCts > 0);
+}

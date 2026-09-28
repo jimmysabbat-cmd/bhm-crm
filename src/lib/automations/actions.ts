@@ -12,8 +12,9 @@ import type { Role, TypeTache, DestinationTransmission } from "@/generated/prism
 
 // P16 - triggers dont l'email va au partenaire/donneur d'ordre (lien +
 // destinataire déjà résolu par le trigger, jamais dossier.client.email).
-const MISSION_TRIGGER_TYPES = new Set(["MISSION_ST_CREEE", "MISSION_ST_ACCEPTEE", "MISSION_ST_REFUSEE", "MISSION_CHANTIER_PROGRAMME", "MISSION_DATE_MODIFIEE", "MISSION_TERMINEE"]);
-const DO_TRIGGER_TYPES = new Set(["DO_DEMANDE_RECUE", "DO_COMPLEMENT_REQUIS", "DO_COMPLEMENT_RECU", "DO_CHANTIER_ACCEPTE", "DO_CHANTIER_PROGRAMME", "DO_CHANTIER_TERMINE", "DO_FACTURE_DISPONIBLE", "DO_FACTURE_ECHUE"]);
+const MISSION_TRIGGER_TYPES = new Set(["MISSION_ST_CREEE", "MISSION_ST_ACCEPTEE", "MISSION_ST_REFUSEE", "MISSION_CHANTIER_PROGRAMME", "MISSION_DATE_MODIFIEE", "MISSION_TERMINEE", "MISSION_ST_FACTURE_ATTENDUE"]);
+const CEE_TRIGGER_TYPES = new Set(["CEE_PAIEMENT_RETARD"]);
+const DO_TRIGGER_TYPES = new Set(["DO_CHANTIER_REFUSE", "DO_DEMANDE_RECUE", "DO_COMPLEMENT_REQUIS", "DO_COMPLEMENT_RECU", "DO_CHANTIER_ACCEPTE", "DO_CHANTIER_PROGRAMME", "DO_CHANTIER_TERMINE", "DO_FACTURE_DISPONIBLE", "DO_FACTURE_ECHUE"]);
 const DO_FACTURE_TRIGGER_TYPES = new Set(["DO_FACTURE_DISPONIBLE", "DO_FACTURE_ECHUE"]);
 const RDV_TRIGGER_TYPES = new Set(["RDV_CREE", "RDV_MODIFIE_OU_ANNULE"]);
 
@@ -21,7 +22,15 @@ async function buildMissionEmailVariables(rule: AutomationRuleData, match: Trigg
   const missionId = match.context.missionId as string;
   const mission = await prisma.transmissionPackage.findFirst({
     where: { id: missionId, organisationId: rule.organisationId },
-    select: { dossierId: true, dateDebutSouhaitee: true, dateFinSouhaitee: true, comment: true, snapshot: true, dossier: { select: { reference: true } }, posteTravaux: { select: { type: true } } },
+    select: {
+      dossierId: true,
+      dateDebutSouhaitee: true,
+      dateFinSouhaitee: true,
+      comment: true,
+      snapshot: true,
+      dossier: { select: { reference: true } },
+      posteTravaux: { select: { type: true, surfaceM2: true, quantite: true, materiau: true, marqueReference: true, epaisseurMm: true, resistanceThermique: true, materielFourniPar: true, notesTechniques: true } },
+    },
   });
   if (!mission) return { variables: {}, destinataire: null };
   const snapshot = (mission.snapshot ?? {}) as { client?: Record<string, string>; travaux?: { surfaceM2?: number | null; quantite?: number | null } };
@@ -38,7 +47,67 @@ async function buildMissionEmailVariables(rule: AutomationRuleData, match: Trigg
       "mission.dateFin": mission.dateFinSouhaitee ? mission.dateFinSouhaitee.toLocaleDateString("fr-FR") : undefined,
       "mission.instructions": mission.comment ?? undefined,
       "mission.motifRefus": (match.context.motif as string | null) ?? undefined,
+      "mission.detailTechnique": mission.posteTravaux ? detailTechniqueTexte(mission.posteTravaux) : undefined,
       "dossier.adresse": client.adresse ?? undefined,
+    },
+  };
+}
+
+function detailTechniqueTexte(p: {
+  surfaceM2: number | null;
+  quantite: number | null;
+  materiau: string | null;
+  marqueReference: string | null;
+  epaisseurMm: number | null;
+  resistanceThermique: number | null;
+  materielFourniPar: string | null;
+  notesTechniques: string | null;
+}): string {
+  const l: string[] = [];
+  if (p.surfaceM2) l.push(`Surface : ${p.surfaceM2} m²`);
+  if (p.quantite) l.push(`Quantité : ${p.quantite}`);
+  if (p.materiau) l.push(`Matériau : ${p.materiau}`);
+  if (p.marqueReference) l.push(`Marque / référence : ${p.marqueReference}`);
+  if (p.epaisseurMm) l.push(`Épaisseur : ${p.epaisseurMm} mm`);
+  if (p.resistanceThermique) l.push(`Résistance R : ${p.resistanceThermique} m².K/W`);
+  if (p.materielFourniPar) l.push(`Matériel fourni par : ${p.materielFourniPar === "DONNEUR_ORDRE" ? "le donneur d'ordre" : "l'entreprise de pose"}`);
+  if (p.notesTechniques) l.push(`Détails : ${p.notesTechniques}`);
+  return l.join("\n");
+}
+
+async function buildCeeEmailVariables(rule: AutomationRuleData, match: TriggerMatch): Promise<{ variables: TemplateVariables; destinataire: string | null }> {
+  const dossier = await prisma.dossier.findFirst({
+    where: { id: match.context.dossierId as string, organisationId: rule.organisationId },
+    select: {
+      reference: true,
+      montantAideCEE: true,
+      montantEncaisseCEE: true,
+      dateDepotDelegataireCee: true,
+      client: { select: { prenom: true, nom: true } },
+      delegataireCee: { select: { nom: true } },
+      organisation: { select: { nom: true } },
+      mouvementsFinanciers: { where: { categorie: "ENCAISSEMENT_CEE", statut: { not: "ANNULE" } }, select: { montantPrevuCts: true, montantReelCts: true } },
+    },
+  });
+  if (!dossier) return { variables: {}, destinataire: null };
+  // Montant réclamé = reste dû (déduction des versements déjà reçus).
+  const ms = dossier.mouvementsFinanciers;
+  const resteCee =
+    ms.length > 0
+      ? ms.reduce((t, m) => t + Math.max((m.montantPrevuCts ?? 0) - (m.montantReelCts ?? 0), 0), 0)
+      : Math.max(dossier.montantAideCEE - dossier.montantEncaisseCEE, 0);
+  const echeance = match.context.echeance ? new Date(match.context.echeance as string) : null;
+  return {
+    destinataire: (match.context.destinataireEmail as string | null) ?? null,
+    variables: {
+      "dossier.reference": dossier.reference,
+      "client.prenom": dossier.client.prenom,
+      "client.nom": dossier.client.nom,
+      "organisation.nom": dossier.organisation.nom,
+      "delegataire.nom": dossier.delegataireCee?.nom,
+      "cee.montant": formatCents(resteCee),
+      "cee.dateDepot": dossier.dateDepotDelegataireCee?.toLocaleDateString("fr-FR"),
+      "cee.echeance": echeance?.toLocaleDateString("fr-FR"),
     },
   };
 }
@@ -47,7 +116,7 @@ async function buildDoEmailVariables(rule: AutomationRuleData, match: TriggerMat
   const dossierId = match.context.dossierId as string;
   const dossier = await prisma.dossier.findFirst({
     where: { id: dossierId, organisationId: rule.organisationId },
-    select: { reference: true, complementDemandeMessage: true, complementReponseMessage: true, donneurOrdre: { select: { nom: true } } },
+    select: { reference: true, complementDemandeMessage: true, complementReponseMessage: true, motifRefusDonneurOrdre: true, donneurOrdre: { select: { nom: true } } },
   });
   if (!dossier) return { variables: {}, destinataire: null };
 
@@ -70,7 +139,8 @@ async function buildDoEmailVariables(rule: AutomationRuleData, match: TriggerMat
       "lien.url": demandeLinkForDonneurOrdre(dossierId),
       "demande.reference": dossier.reference,
       "donneurOrdre.nom": dossier.donneurOrdre?.nom,
-      "demande.message": dossier.complementDemandeMessage ?? dossier.complementReponseMessage ?? undefined,
+      "demande.message":
+        (rule.triggerType === "DO_CHANTIER_REFUSE" ? dossier.motifRefusDonneurOrdre : null) ?? dossier.complementDemandeMessage ?? dossier.complementReponseMessage ?? undefined,
       ...factureVars,
     },
   };
@@ -182,6 +252,8 @@ async function buildEmailFromMatch(rule: AutomationRuleData, match: TriggerMatch
 
   if (!templateCode) throw new Error("actionConfig.templateCode requis pour préparer cet email.");
   const template = await getEmailTemplate(templateCode, rule.organisationId);
+  const orgNom = (await prisma.organisation.findUnique({ where: { id: rule.organisationId }, select: { nom: true } }))?.nom;
+  const renderTemplateOrg = (tpl: string, vars: TemplateVariables) => renderTemplate(tpl, { "organisation.nom": orgNom, ...vars });
 
   // P16 - missions ST/régie et portail donneur d'ordre/RDV : destinataire et
   // variables résolus par un constructeur dédié (jamais dossier.client.email,
@@ -189,15 +261,19 @@ async function buildEmailFromMatch(rule: AutomationRuleData, match: TriggerMatch
   // commercial).
   if (MISSION_TRIGGER_TYPES.has(rule.triggerType)) {
     const built = await buildMissionEmailVariables(rule, match);
-    return { sujet: renderTemplate(template.sujetTemplate, built.variables), corps: renderTemplate(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
+    return { sujet: renderTemplateOrg(template.sujetTemplate, built.variables), corps: renderTemplateOrg(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
   }
   if (DO_TRIGGER_TYPES.has(rule.triggerType)) {
     const built = await buildDoEmailVariables(rule, match);
-    return { sujet: renderTemplate(template.sujetTemplate, built.variables), corps: renderTemplate(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
+    return { sujet: renderTemplateOrg(template.sujetTemplate, built.variables), corps: renderTemplateOrg(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
+  }
+  if (CEE_TRIGGER_TYPES.has(rule.triggerType)) {
+    const built = await buildCeeEmailVariables(rule, match);
+    return { sujet: renderTemplateOrg(template.sujetTemplate, built.variables), corps: renderTemplateOrg(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
   }
   if (RDV_TRIGGER_TYPES.has(rule.triggerType)) {
     const built = await buildRdvEmailVariables(rule, match);
-    return { sujet: renderTemplate(template.sujetTemplate, built.variables), corps: renderTemplate(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
+    return { sujet: renderTemplateOrg(template.sujetTemplate, built.variables), corps: renderTemplateOrg(template.bodyTemplate, built.variables), destinataire: built.destinataire, templateId: template.id };
   }
 
   const dossier = dossierId
@@ -235,6 +311,11 @@ async function actionPrepareOrSendEmail(rule: AutomationRuleData, match: Trigger
   });
 
   if (!allowSend) return { status: "SUCCESS", result: { draftId, sent: false } };
+
+  // Interrupteur PAR SOCIÉTÉ (Paramétrage → Société) : tant qu'il est
+  // coupé, l'email reste en brouillon, jamais envoyé.
+  const org = await prisma.organisation.findUnique({ where: { id: rule.organisationId }, select: { emailsAutoActifs: true } });
+  if (!org?.emailsAutoActifs) return { status: "SUCCESS", result: { draftId, sent: false, reason: "Emails automatiques désactivés pour cette société." } };
 
   const { sendEmailDraft } = await import("@/lib/email/service");
   const sendResult = await sendEmailDraft(draftId, rule.organisationId, null);

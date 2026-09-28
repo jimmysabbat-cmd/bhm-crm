@@ -8,6 +8,8 @@ import {
   echeancierMensuel,
   getRealiseParMois,
   getReglementsRecents,
+  getSuiviDelegataires,
+  getFacturesAPayer,
   contrepartieTypeLabels,
   type ContrepartieType,
   type LigneTreso,
@@ -16,8 +18,9 @@ import {
 import { formatCents } from "@/lib/money";
 import { Card } from "@/components/ui/Card";
 import { PointageForm, type LignePointable } from "./PointageForm";
+import { validerFactureSousTraitantAction, ajouterReglementFactureAction } from "@/app/facturation/actions";
 
-type Vue = "contreparties" | "echeancier" | "realise";
+type Vue = "contreparties" | "echeancier" | "realise" | "delegataires" | "factures";
 
 const TYPES_ENTREE: ContrepartieType[] = ["ANAH", "CEE", "CLIENT", "DONNEUR_ORDRE", "AUTRE"];
 const TYPES_SORTIE: ContrepartieType[] = ["SOUS_TRAITANT", "FOURNISSEUR", "REGIE", "AUTRE"];
@@ -111,7 +114,7 @@ export default async function TresoreriePage({ searchParams }: { searchParams: P
   const peutPointer = hasPermission(ctx, "MANAGE_FINANCES");
 
   const { vue: vueRaw, cp, type } = await searchParams;
-  const vue: Vue = vueRaw === "echeancier" || vueRaw === "realise" ? vueRaw : "contreparties";
+  const vue: Vue = vueRaw === "echeancier" || vueRaw === "realise" || vueRaw === "delegataires" || vueRaw === "factures" ? vueRaw : "contreparties";
 
   const toutes = await getLignesTresorerie(ctx.organisationId);
   const lignes = voitSorties ? toutes : toutes.filter((l) => l.sens === "ENTREE");
@@ -166,6 +169,8 @@ export default async function TresoreriePage({ searchParams }: { searchParams: P
   const [realise, recents] = vue === "realise" ? await Promise.all([getRealiseParMois(ctx.organisationId, 6), getReglementsRecents(ctx.organisationId, 30)]) : [null, null];
   const colonnes = vue === "echeancier" ? echeancierMensuel(filtrees, 6) : null;
   const synthese = vue === "contreparties" ? syntheseParContrepartie(filtrees) : null;
+  const delegataires = vue === "delegataires" ? await getSuiviDelegataires(ctx.organisationId) : null;
+  const facturesAPayer = vue === "factures" && voitSorties ? await getFacturesAPayer(ctx.organisationId) : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-8 py-10">
@@ -204,6 +209,8 @@ export default async function TresoreriePage({ searchParams }: { searchParams: P
         {nav("contreparties", "Par contrepartie")}
         {nav("echeancier", "Échéancier mensuel")}
         {nav("realise", "Encaissé / décaissé")}
+        {nav("delegataires", "Délégataires CEE")}
+        {voitSorties && nav("factures", "Factures à payer")}
         <span className="mx-2 h-5 w-px bg-slate-200" />
         <form className="flex items-center gap-2">
           <input type="hidden" name="vue" value={vue} />
@@ -231,6 +238,119 @@ export default async function TresoreriePage({ searchParams }: { searchParams: P
             sous-traitant ; solde client = fin de travaux. L&apos;ANAH reste « à dater ».
           </p>
         </>
+      )}
+
+      {delegataires && (
+        <div className="space-y-4">
+          {delegataires.length === 0 && <p className="text-sm text-slate-400">Aucune prime CEE en attente.</p>}
+          {delegataires.map((dl) => (
+            <Card key={dl.delegataireId ?? "aucun"} className="overflow-x-auto">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 px-4 py-3">
+                <div>
+                  <span className="font-semibold text-slate-900">{dl.nom}</span>
+                  <span className="ml-2 text-xs text-slate-500">
+                    {dl.delaiPaiementJours != null ? `paie à ${dl.delaiPaiementJours} j après dépôt` : "délai de paiement non renseigné"}
+                    {dl.contactEmail ? ` · ${dl.contactEmail}` : " · pas d'email de relance"}
+                  </span>
+                </div>
+                <div className="flex gap-4 text-sm">
+                  <span className="text-slate-500">Attendu <b className="text-slate-900">{formatCents(dl.primeAttendueCts)}</b></span>
+                  <span className="text-slate-500">Déposé <b className="text-slate-900">{formatCents(dl.deposeCts)}</b></span>
+                  {dl.aDeposerCts > 0 && <span className="text-amber-700">À déposer <b>{formatCents(dl.aDeposerCts)}</b></span>}
+                  {dl.enRetardCts > 0 && <span className="text-red-600">En retard <b>{formatCents(dl.enRetardCts)}</b></span>}
+                </div>
+              </div>
+              <table className="w-full text-sm">
+                <tbody>
+                  {dl.dossiers
+                    .sort((a, b) => b.joursRetard - a.joursRetard)
+                    .map((x) => (
+                      <tr key={x.dossierId} className="border-t border-slate-100 first:border-0">
+                        <td className="px-4 py-2">
+                          <Link href={`/dossiers/${x.dossierId}`} className="font-medium text-slate-900 hover:text-emerald-700">
+                            {x.clientLabel}
+                          </Link>
+                          <span className="ml-2 text-xs text-slate-400">{x.reference}</span>
+                        </td>
+                        <td className="px-4 py-2 text-xs">
+                          {x.etape === "A_DEPOSER" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">À déposer</span>}
+                          {x.etape === "DEPOSE" && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-700">Déposé le {x.dateDepot?.toLocaleDateString("fr-FR")}</span>}
+                          {x.etape === "PAYE_PARTIEL" && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800">Payé en partie</span>}
+                          {x.etape === "EN_RETARD" && <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-700">En retard de {x.joursRetard} j</span>}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-slate-500">{x.echeance ? `échéance ${x.echeance.toLocaleDateString("fr-FR")}` : ""}</td>
+                        <td className="px-4 py-2 text-right font-medium text-slate-900">{formatCents(x.resteCts)}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </Card>
+          ))}
+          <p className="text-xs text-slate-500">
+            Les relances par email aux délégataires en retard partent automatiquement (J0, J+7, J+15) si les emails automatiques sont activés dans Paramétrage → Société et
+            qu&apos;un email est renseigné sur la fiche du délégataire. Pour enregistrer un paiement reçu, utilisez l&apos;onglet « Par contrepartie ».
+          </p>
+        </div>
+      )}
+
+      {facturesAPayer && (
+        <Card className="overflow-x-auto">
+          {facturesAPayer.length === 0 ? (
+            <p className="p-5 text-sm text-slate-400">Aucune facture à payer.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-2.5">Facture</th>
+                  <th className="px-4 py-2.5">Échéance</th>
+                  <th className="px-4 py-2.5 text-right">Reste à payer</th>
+                  <th className="px-4 py-2.5">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facturesAPayer.map((f) => (
+                  <tr key={f.id} className="border-t border-slate-100 align-top">
+                    <td className="px-4 py-2.5">
+                      <div className="font-medium text-slate-900">{f.fournisseur}</div>
+                      <div className="text-xs text-slate-400">
+                        n° {f.numero} ·{" "}
+                        <Link href={`/dossiers/${f.dossierId}#factures`} className="hover:text-emerald-700">
+                          {f.dossierReference}
+                        </Link>
+                      </div>
+                    </td>
+                    <td className={`px-4 py-2.5 ${f.enRetard ? "font-medium text-red-600" : "text-slate-600"}`}>
+                      {f.dateEcheance ? f.dateEcheance.toLocaleDateString("fr-FR") : <span className="text-slate-400">non renseignée</span>}
+                      {f.enRetard && <span className="ml-1 text-xs">échue</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-medium text-slate-900">{formatCents(f.resteCts)}</td>
+                    <td className="px-4 py-2.5">
+                      {!peutPointer ? (
+                        <span className="text-xs text-slate-400">—</span>
+                      ) : f.aValider ? (
+                        <form action={validerFactureSousTraitantAction.bind(null, f.id)}>
+                          <button type="submit" className="rounded-md border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50">
+                            Valider la facture
+                          </button>
+                        </form>
+                      ) : (
+                        <form action={ajouterReglementFactureAction} className="flex flex-wrap items-center gap-1.5">
+                          <input type="hidden" name="factureId" value={f.id} />
+                          <input type="hidden" name="mode" value="VIREMENT" />
+                          <input name="montant" defaultValue={(f.resteCts / 100).toFixed(2)} className="w-24 rounded-md border border-slate-300 px-2 py-1 text-right text-xs" />
+                          <input name="date" type="date" required className="rounded-md border border-slate-300 px-2 py-1 text-xs" />
+                          <button type="submit" className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800">
+                            Payée
+                          </button>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
       )}
 
       {colonnes && (

@@ -268,6 +268,18 @@ async function assertOwnedSousTraitant(id: string, organisationId: string) {
   if (!row) throw new Error("Introuvable.");
 }
 
+
+// Réglages partenaire communs (paramétrage partenaire par partenaire). Un
+// formulaire qui n'envoie pas "reglagesPartenaire" ne touche à rien.
+function reglagesPartenaire(formData: FormData) {
+  if (!formData.get("reglagesPartenaire")) return {};
+  const delai = String(formData.get("delaiPaiementJours") ?? "").trim();
+  return {
+    emailsAuto: formData.get("emailsAuto") === "on",
+    ...(formData.has("delaiPaiementJours") ? { delaiPaiementJours: delai ? Math.max(0, Math.round(Number(delai))) : null } : {}),
+  };
+}
+
 export async function createSousTraitant(formData: FormData) {
   const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
@@ -302,6 +314,7 @@ export async function updateSousTraitant(id: string, formData: FormData) {
       delaiPaiementJours: formData.get("delaiPaiementJours")
         ? Number(formData.get("delaiPaiementJours"))
         : null,
+      ...(formData.get("reglagesPartenaire") ? { emailsAuto: formData.get("emailsAuto") === "on" } : {}),
     },
   });
   revalidatePath("/parametrage/sous-traitants");
@@ -362,6 +375,7 @@ export async function updateDonneurOrdre(id: string, formData: FormData) {
       nom,
       contactEmail: (formData.get("contactEmail") as string) || null,
       contactTelephone: (formData.get("contactTelephone") as string) || null,
+      ...reglagesPartenaire(formData),
     },
   });
   revalidatePath("/parametrage/donneurs-ordre");
@@ -433,6 +447,9 @@ export async function updateDelegataireCee(id: string, formData: FormData) {
       delaiPaiementJours: formData.get("delaiPaiementJours")
         ? Number(formData.get("delaiPaiementJours"))
         : null,
+      ...(formData.has("contactEmail") ? { contactEmail: String(formData.get("contactEmail") ?? "").trim() || null } : {}),
+      ...(formData.has("contactTelephone") ? { contactTelephone: String(formData.get("contactTelephone") ?? "").trim() || null } : {}),
+      ...(formData.get("reglagesPartenaire") ? { emailsAuto: formData.get("emailsAuto") === "on" } : {}),
     },
   });
   revalidatePath("/parametrage/delegataires-cee");

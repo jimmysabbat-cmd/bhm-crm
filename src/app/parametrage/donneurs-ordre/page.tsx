@@ -90,6 +90,15 @@ export default async function DonneursOrdrePage() {
                 <label className={labelClass}>Email</label>
                 <input name="contactEmail" type="email" defaultValue={d.contactEmail ?? ""} className={smallInputClass} />
               </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Délai de paiement de nos factures (j)</label>
+                <input name="delaiPaiementJours" type="number" min={0} defaultValue={d.delaiPaiementJours ?? ""} className={smallInputClass} />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input type="hidden" name="reglagesPartenaire" value="1" />
+                <input type="checkbox" name="emailsAuto" defaultChecked={d.emailsAuto} />
+                Emails automatiques vers ce partenaire
+              </label>
               <div className="flex items-end">
                 <Button type="submit" variant="secondary" className="text-xs">
                   Enregistrer

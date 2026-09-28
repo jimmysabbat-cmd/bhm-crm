@@ -32,12 +32,15 @@ const STATUTS_AVEC_MOUVEMENT = new Set<StatutFacture>(["TRANSMISE", "VALIDEE", "
 const TVA_DEFAUT = 0.2;
 
 export async function creerFactureDonneurOrdre(params: { organisationId: string; userId: string; dossierId: string; posteIds: string[]; dateEcheance: Date | null }) {
-  const { organisationId, userId, dossierId, posteIds, dateEcheance } = params;
+  const { organisationId, userId, dossierId, posteIds } = params;
   if (posteIds.length === 0) throw new Error("Sélectionnez au moins un poste à facturer.");
 
-  const dossier = await prisma.dossier.findFirst({ where: { id: dossierId, organisationId }, select: { donneurOrdreId: true } });
+  const dossier = await prisma.dossier.findFirst({ where: { id: dossierId, organisationId }, select: { donneurOrdreId: true, donneurOrdre: { select: { delaiPaiementJours: true } } } });
   if (!dossier) throw new Error("Dossier introuvable.");
   if (!dossier.donneurOrdreId) throw new Error("Ce dossier n'est rattaché à aucun donneur d'ordre.");
+  // Échéance par défaut : délai de paiement paramétré sur ce donneur d'ordre.
+  const delaiDo = dossier.donneurOrdre?.delaiPaiementJours;
+  const dateEcheance = params.dateEcheance ?? (delaiDo != null ? new Date(Date.now() + delaiDo * 86_400_000) : null);
 
   const postes = await prisma.dossierPosteTravaux.findMany({
     where: { id: { in: posteIds }, dossierId },
@@ -47,6 +50,7 @@ export async function creerFactureDonneurOrdre(params: { organisationId: string;
       surfaceM2: true,
       montantDevisHTCts: true,
       montantDevisTTCCts: true,
+      prixPoseProposeHTCts: true,
       factureLignes: { select: { facture: { select: { statut: true } } } },
     },
   });
@@ -54,14 +58,16 @@ export async function creerFactureDonneurOrdre(params: { organisationId: string;
   if (postes.some((p) => p.factureLignes.some((l) => l.facture.statut !== "ANNULEE"))) {
     throw new Error("Un des postes sélectionnés est déjà facturé sur une facture active.");
   }
-  if (postes.some((p) => !p.montantDevisHTCts)) {
-    throw new Error("Un des postes sélectionnés n'a pas de montant devis HT renseigné.");
+  // Pose réalisée pour un donneur d'ordre : à défaut de montant devis, on
+  // facture le prix de pose qu'il a proposé sur sa demande.
+  if (postes.some((p) => !p.montantDevisHTCts && !p.prixPoseProposeHTCts)) {
+    throw new Error("Un des postes sélectionnés n'a ni montant devis HT ni prix de pose renseigné.");
   }
 
   let montantHTCts = 0;
   let montantTVACts = 0;
   const lignesData = postes.map((p, i) => {
-    const ht = p.montantDevisHTCts!;
+    const ht = p.montantDevisHTCts ?? p.prixPoseProposeHTCts!;
     const tauxTVA = p.montantDevisTTCCts && p.montantDevisTTCCts > ht ? Math.round(((p.montantDevisTTCCts - ht) / ht) * 1000) / 1000 : TVA_DEFAUT;
     const tva = Math.round(ht * tauxTVA);
     montantHTCts += ht;
@@ -514,6 +520,10 @@ export async function deposerFactureSousTraitant(params: {
 
   const montantTVACts = Math.round(montantHTCts * tauxTVA);
   const montantTTCCts = montantHTCts + montantTVACts;
+  // Échéance = dépôt + délai de paiement paramétré sur ce sous-traitant
+  // (sans échéance, la facture n'apparaissait jamais « à payer bientôt »).
+  const st = await prisma.sousTraitant.findUnique({ where: { id: sousTraitantId }, select: { delaiPaiementJours: true } });
+  const dateEcheance = st?.delaiPaiementJours != null ? new Date(Date.now() + st.delaiPaiementJours * 86_400_000) : null;
 
   let fichierPdfPath: string | null = null;
   if (file && file.size > 0) {
@@ -533,6 +543,7 @@ export async function deposerFactureSousTraitant(params: {
       montantTVACts,
       montantTTCCts,
       statut: "RECUE",
+      dateEcheance,
       fichierPdfPath,
       createdById: userId,
       lignes: {

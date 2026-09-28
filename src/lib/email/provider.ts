@@ -9,6 +9,7 @@ export type SendEmailParams = {
   to: string;
   subject: string;
   body: string;
+  replyTo?: string | null;
 };
 
 export type SendEmailResult = {
@@ -27,8 +28,11 @@ export interface EmailProvider {
 export class NoopEmailProvider implements EmailProvider {
   readonly name = "noop";
 
+  // Aucun envoi réseau : on ne prétend JAMAIS que l'email est parti
+  // (auparavant ok:true => brouillon marqué ENVOYE alors que rien n'était
+  // envoyé). Le brouillon reste consultable et envoyable plus tard.
   async sendEmail(_params: SendEmailParams): Promise<SendEmailResult> {
-    return { ok: true, providerMessageId: `noop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, error: undefined };
+    return { ok: false, error: "Aucun serveur d'envoi configuré (SMTP de la société ou du serveur) - email non envoyé, conservé en brouillon." };
   }
 
   validateConfiguration(): { valid: boolean; reason?: string } {
@@ -62,7 +66,10 @@ export class SMTPEmailProvider implements EmailProvider {
       pass: string | undefined;
       from: string | undefined;
       secure: boolean;
-    }
+    },
+    // SMTP propre à une société (configuré dans le CRM) : l'activation est
+    // portée par Organisation.emailsAutoActifs, pas par EMAIL_SEND_ENABLED.
+    private readonly options: { alwaysEnabled?: boolean } = {}
   ) {}
 
   validateConfiguration(): { valid: boolean; reason?: string } {
@@ -75,7 +82,7 @@ export class SMTPEmailProvider implements EmailProvider {
   async sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
     const check = this.validateConfiguration();
     if (!check.valid) return { ok: false, error: check.reason };
-    if (!isEmailSendEnabled()) {
+    if (!this.options.alwaysEnabled && !isEmailSendEnabled()) {
       return { ok: false, error: "EMAIL_SEND_ENABLED=false - envoi réel désactivé (dev/test/QA)." };
     }
 
@@ -94,6 +101,7 @@ export class SMTPEmailProvider implements EmailProvider {
         to: params.to,
         subject: params.subject,
         text: params.body,
+        ...(params.replyTo ? { replyTo: params.replyTo } : {}),
       });
       return { ok: true, providerMessageId: info.messageId };
     } catch (e) {

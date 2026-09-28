@@ -51,6 +51,12 @@ export const ALLOWED_VARIABLES = [
   "facture.numero",
   "facture.montantTTC",
   "facture.echeance",
+  // Pilotage poses / délégataires CEE
+  "mission.detailTechnique",
+  "delegataire.nom",
+  "cee.montant",
+  "cee.echeance",
+  "cee.dateDepot",
 ] as const;
 
 export type AllowedVariable = (typeof ALLOWED_VARIABLES)[number];

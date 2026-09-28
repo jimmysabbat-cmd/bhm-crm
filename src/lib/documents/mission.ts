@@ -34,6 +34,14 @@ export type MissionSnapshot = {
     surfaceM2: number | null;
     quantite: number | null;
     ficheReglementaireCode: string | null;
+    // Détail technique de la pose (jamais le prix proposé par le donneur
+    // d'ordre, qui ne regarde pas le sous-traitant).
+    materiau?: string | null;
+    marqueReference?: string | null;
+    epaisseurMm?: number | null;
+    resistanceThermique?: number | null;
+    materielFourniPar?: string | null;
+    notesTechniques?: string | null;
   };
 };
 
@@ -91,6 +99,12 @@ export async function createMissionPackage(params: {
       surfaceM2: poste.surfaceM2,
       quantite: poste.quantite,
       ficheReglementaireCode: poste.ficheReglementaireCode,
+      materiau: poste.materiau,
+      marqueReference: poste.marqueReference,
+      epaisseurMm: poste.epaisseurMm,
+      resistanceThermique: poste.resistanceThermique,
+      materielFourniPar: poste.materielFourniPar,
+      notesTechniques: poste.notesTechniques,
     },
   };
 

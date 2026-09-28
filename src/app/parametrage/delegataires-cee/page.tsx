@@ -111,6 +111,19 @@ export default async function DelegatairesCeePage() {
                   className={smallInputClass}
                 />
               </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Email (relances de paiement)</label>
+                <input name="contactEmail" type="email" defaultValue={d.contactEmail ?? ""} className={smallInputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Téléphone</label>
+                <input name="contactTelephone" defaultValue={d.contactTelephone ?? ""} className={smallInputClass} />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input type="hidden" name="reglagesPartenaire" value="1" />
+                <input type="checkbox" name="emailsAuto" defaultChecked={d.emailsAuto} />
+                Emails automatiques vers ce partenaire
+              </label>
               <div className="flex items-end">
                 <Button type="submit" variant="secondary" className="text-xs">
                   Enregistrer

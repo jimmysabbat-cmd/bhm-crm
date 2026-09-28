@@ -70,6 +70,7 @@ import { MissionsPanel } from "../MissionsPanel";
 import { getMissionsForDossierAction } from "../mission-actions";
 import { ComplementDonneurOrdrePanel } from "../ComplementDonneurOrdrePanel";
 import { FacturesPanel } from "../FacturesPanel";
+import { hasPosteTechnique } from "@/components/dossier/PosteTechnique";
 import { getFacturesForDossier, getPostesFacturablesDonneurOrdre, getFacturationSummaryForDossier } from "@/lib/facturation/access";
 import {
   affecterProgrammeAuDossier,
@@ -1788,6 +1789,46 @@ export default async function DossierDetailPage({
                     />
                   </div>
                 </div>
+                <details className="rounded-lg border border-slate-200 bg-white px-3 py-2" open={hasPosteTechnique(poste)}>
+                  <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                    Détail technique de la pose{poste.prixPoseProposeHTCts ? ` · prix proposé par le DO : ${formatCents(poste.prixPoseProposeHTCts)} HT` : ""}
+                  </summary>
+                  <input type="hidden" name="avecDetailTechnique" value="1" />
+                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="space-y-1">
+                      <label className={labelClass}>Quantité</label>
+                      <input name="quantite" type="number" defaultValue={poste.quantite ?? ""} className={inputClass} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className={labelClass}>Épaisseur (mm)</label>
+                      <input name="epaisseurMm" type="number" step="any" defaultValue={poste.epaisseurMm ?? ""} className={inputClass} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className={labelClass}>R (m².K/W)</label>
+                      <input name="resistanceThermique" type="number" step="any" defaultValue={poste.resistanceThermique ?? ""} className={inputClass} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className={labelClass}>Matériel fourni par</label>
+                      <select name="materielFourniPar" defaultValue={poste.materielFourniPar ?? ""} className={inputClass}>
+                        <option value="">Non précisé</option>
+                        <option value="DONNEUR_ORDRE">Donneur d&apos;ordre</option>
+                        <option value="ENTREPRISE">Nous / l&apos;entreprise de pose</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <label className={labelClass}>Matériau / isolant</label>
+                      <input name="materiau" defaultValue={poste.materiau ?? ""} className={inputClass} />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <label className={labelClass}>Marque / référence</label>
+                      <input name="marqueReference" defaultValue={poste.marqueReference ?? ""} className={inputClass} />
+                    </div>
+                    <div className="col-span-2 space-y-1 sm:col-span-4">
+                      <label className={labelClass}>Détails de pose</label>
+                      <textarea name="notesTechniques" rows={2} defaultValue={poste.notesTechniques ?? ""} className={inputClass} />
+                    </div>
+                  </div>
+                </details>
                 <div className="flex gap-2">
                   <Button type="submit" variant="secondary" className="text-xs">
                     Enregistrer

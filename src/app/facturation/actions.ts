@@ -55,6 +55,7 @@ export async function validerFactureSousTraitantAction(factureId: string) {
   const { dossierId } = await validerFactureSousTraitant({ organisationId: ctx.organisationId, userId: ctx.userId, factureId });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/finances");
+  revalidatePath("/finances/tresorerie");
 }
 
 export async function refuserFactureSousTraitantAction(factureId: string, motif: string) {
@@ -120,6 +121,7 @@ export async function transmettreFactureAction(factureId: string, destinataire: 
   const { dossierId } = await transmettreFacture({ organisationId: ctx.organisationId, userId: ctx.userId, factureId, destinataire });
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/portail-do/factures");
+  revalidatePath("/finances/tresorerie");
 }
 
 export async function changerStatutFactureAction(factureId: string, statut: StatutFacture) {
@@ -145,6 +147,7 @@ export async function ajouterReglementFactureAction(formData: FormData) {
 
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/portail-do/factures");
+  revalidatePath("/finances/tresorerie");
 }
 
 export async function supprimerReglementFactureAction(reglementId: string) {

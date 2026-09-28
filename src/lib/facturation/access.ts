@@ -50,13 +50,14 @@ export async function getPostesFacturablesDonneurOrdre(dossierId: string, organi
   if (!dossier) throw new Error("Dossier introuvable.");
 
   const postes = await prisma.dossierPosteTravaux.findMany({
-    where: { dossierId, montantDevisHTCts: { not: null } },
+    where: { dossierId, OR: [{ montantDevisHTCts: { not: null } }, { prixPoseProposeHTCts: { not: null } }] },
     select: {
       id: true,
       type: true,
       surfaceM2: true,
       quantite: true,
       montantDevisHTCts: true,
+      prixPoseProposeHTCts: true,
       montantDevisTTCCts: true,
       factureLignes: { select: { id: true, facture: { select: { statut: true } } } },
     },
@@ -67,7 +68,8 @@ export async function getPostesFacturablesDonneurOrdre(dossierId: string, organi
     type: p.type,
     surfaceM2: p.surfaceM2,
     quantite: p.quantite,
-    montantDevisHTCts: p.montantDevisHTCts!,
+    // À défaut de devis : prix de pose proposé par le donneur d'ordre.
+    montantDevisHTCts: (p.montantDevisHTCts ?? p.prixPoseProposeHTCts)!,
     montantDevisTTCCts: p.montantDevisTTCCts,
     dejaFacture: p.factureLignes.some((l) => l.facture.statut !== "ANNULEE" && l.facture.statut !== "REFUSEE"),
   }));

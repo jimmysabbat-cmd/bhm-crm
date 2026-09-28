@@ -42,6 +42,8 @@ const FACTURE_STATUT_COLORS: Record<string, "emerald" | "blue" | "red" | "amber"
 // donnée du CRM interne.
 // ============================================================
 
+import { PosteTechnique } from "@/components/dossier/PosteTechnique";
+
 export default async function PartenairePage() {
   const ctx = await requireUserContext();
   if (!isPartnerRole(ctx)) redirect("/");
@@ -100,8 +102,22 @@ export default async function PartenairePage() {
                   )}
                   {m.client.telephone && <div>Téléphone : {m.client.telephone}</div>}
                   {m.client.adresse && <div>Adresse : {m.client.adresse}</div>}
-                  {m.travaux.surfaceM2 != null && <div>Surface : {m.travaux.surfaceM2} m²</div>}
-                  {m.travaux.quantite != null && <div>Quantité : {m.travaux.quantite}</div>}
+                  <div className="col-span-2">
+                    <PosteTechnique
+                      showPrix={false}
+                      p={{
+                        surfaceM2: m.travaux.surfaceM2 ?? null,
+                        quantite: m.travaux.quantite ?? null,
+                        materiau: m.travaux.materiau ?? null,
+                        marqueReference: m.travaux.marqueReference ?? null,
+                        epaisseurMm: m.travaux.epaisseurMm ?? null,
+                        resistanceThermique: m.travaux.resistanceThermique ?? null,
+                        materielFourniPar: m.travaux.materielFourniPar ?? null,
+                        prixPoseProposeHTCts: null,
+                        notesTechniques: m.travaux.notesTechniques ?? null,
+                      }}
+                    />
+                  </div>
                   {(m.dateDebutSouhaitee || m.dateFinSouhaitee) && (
                     <div>
                       Dates souhaitées : {m.dateDebutSouhaitee ? new Date(m.dateDebutSouhaitee).toLocaleDateString("fr-FR") : "—"} →{" "}

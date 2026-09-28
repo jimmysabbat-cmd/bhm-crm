@@ -97,7 +97,18 @@ export type PartnerMissionRow = {
   posteType: string | null;
   status: string;
   client: Record<string, string>;
-  travaux: { type?: string; surfaceM2?: number | null; quantite?: number | null; ficheReglementaireCode?: string | null };
+  travaux: {
+    type?: string;
+    surfaceM2?: number | null;
+    quantite?: number | null;
+    ficheReglementaireCode?: string | null;
+    materiau?: string | null;
+    marqueReference?: string | null;
+    epaisseurMm?: number | null;
+    resistanceThermique?: number | null;
+    materielFourniPar?: string | null;
+    notesTechniques?: string | null;
+  };
   instructions: string | null;
   prixConvenuCts: number | null;
   dateDebutSouhaitee: Date | null;

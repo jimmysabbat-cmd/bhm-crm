@@ -109,7 +109,7 @@ const TEMPLATES: { code: string; nom: string; sujetTemplate: string; bodyTemplat
     nom: "Nouvelle mission sous-traitant",
     sujetTemplate: "Nouvelle mission - dossier {{dossier.reference}}",
     bodyTemplate:
-      "Bonjour,\n\nUne nouvelle mission vous a été confiée pour le dossier {{dossier.reference}} :\n- Prestation : {{mission.prestation}}\n- Client : {{mission.destinataire}}\n- Adresse : {{dossier.adresse}}\n- Dates souhaitées : {{mission.dateDebut}} → {{mission.dateFin}}\n- Instructions : {{mission.instructions}}\n\nVoir / accepter la mission : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+      "Bonjour,\n\nUne nouvelle mission vous a été confiée pour le dossier {{dossier.reference}} :\n- Prestation : {{mission.prestation}}\n- Client : {{mission.destinataire}}\n- Adresse : {{dossier.adresse}}\n- Dates souhaitées : {{mission.dateDebut}} → {{mission.dateFin}}\n- Instructions : {{mission.instructions}}\n\nDétail technique de la pose :\n{{mission.detailTechnique}}\n\nVoir / accepter la mission : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
   },
   {
     code: "MISSION_ST_ACCEPTEE",
@@ -143,9 +143,10 @@ const TEMPLATES: { code: string; nom: string; sujetTemplate: string; bodyTemplat
   },
   {
     code: "DO_NOUVELLE_DEMANDE",
-    nom: "Nouvelle demande donneur d'ordre",
-    sujetTemplate: "Nouvelle demande reçue - {{demande.reference}}",
-    bodyTemplate: "Bonjour,\n\nUne nouvelle demande a été reçue de {{donneurOrdre.nom}} : {{demande.reference}}.\n\nVoir la demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+    nom: "Accusé de réception d'une demande (donneur d'ordre)",
+    sujetTemplate: "Nous avons bien reçu votre chantier {{demande.reference}}",
+    bodyTemplate:
+      "Bonjour,\n\nNous avons bien reçu votre demande de chantier {{demande.reference}}. Notre équipe l'étudie et revient vers vous rapidement.\n\nSuivre votre demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
   },
   {
     code: "DO_COMPLEMENT_REQUIS",
@@ -189,6 +190,28 @@ const TEMPLATES: { code: string; nom: string; sujetTemplate: string; bodyTemplat
     nom: "Facture échue",
     sujetTemplate: "Facture {{facture.numero}} échue",
     bodyTemplate: "Bonjour,\n\nLa facture {{facture.numero}} ({{facture.montantTTC}}) est échue depuis le {{facture.echeance}} et reste impayée.\n\nVoir la facture : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  // Pilotage poses / facturation / délégataires CEE
+  {
+    code: "DO_CHANTIER_REFUSE",
+    nom: "Chantier non retenu (donneur d'ordre)",
+    sujetTemplate: "Votre demande {{demande.reference}}",
+    bodyTemplate:
+      "Bonjour,\n\nNous ne sommes malheureusement pas en mesure de réaliser le chantier {{demande.reference}}.\nMotif : {{demande.message}}\n\nVoir la demande : {{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "ST_FACTURE_ATTENDUE",
+    nom: "Facture attendue (sous-traitant)",
+    sujetTemplate: "Facture à déposer - dossier {{dossier.reference}}",
+    bodyTemplate:
+      "Bonjour,\n\nLe chantier {{mission.prestation}} du dossier {{dossier.reference}} est terminé. Merci de déposer votre facture depuis votre espace partenaire pour que nous puissions la régler :\n{{lien.url}}\n\nCordialement,\n{{organisation.nom}}",
+  },
+  {
+    code: "CEE_RELANCE_PAIEMENT",
+    nom: "Relance paiement prime CEE (délégataire)",
+    sujetTemplate: "Prime CEE en attente - dossier {{dossier.reference}}",
+    bodyTemplate:
+      "Bonjour,\n\nSauf erreur de notre part, la prime CEE du dossier {{dossier.reference}} ({{client.prenom}} {{client.nom}}), déposée le {{cee.dateDepot}} (reste à percevoir : {{cee.montant}}), était attendue au plus tard le {{cee.echeance}} et ne nous est pas encore parvenue.\n\nPouvez-vous nous indiquer la date de versement prévue ?\n\nCordialement,\n{{organisation.nom}}",
   },
   {
     code: "REGIE_NOUVEAU_LEAD",
@@ -262,10 +285,27 @@ function defaultRules(organisationId: string) {
     { code: "DO_FACTURE_ECHUE_J7", nom: "Facture échue - relance DO (J+7)", triggerType: "DO_FACTURE_ECHUE", triggerConfig: { stepIndex: 1 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "FACTURE_ECHUE" }, delayJours: 7 },
     { code: "DO_FACTURE_ECHUE_J15", nom: "Facture échue - relance DO (J+15)", triggerType: "DO_FACTURE_ECHUE", triggerConfig: { stepIndex: 2 }, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "FACTURE_ECHUE" }, delayJours: 15 },
 
+    // Pilotage poses / facturation / délégataires CEE. Emails vers les
+    // partenaires en SEND_EMAIL/AUTO : l'envoi réel reste bloqué tant que
+    // l'interrupteur de la société (Paramétrage → Société) est coupé.
+    { code: "DO_CHANTIER_REFUSE_EMAIL", nom: "Chantier refusé - email DO (motif)", triggerType: "DO_CHANTIER_REFUSE", triggerConfig: {}, actionType: "SEND_EMAIL", actionConfig: { templateCode: "DO_CHANTIER_REFUSE" }, delayJours: 0, mode: "AUTO" },
+    { code: "DO_A_FACTURER_TACHE", nom: "Chantier DO terminé non facturé - tâche", triggerType: "DO_A_FACTURER", triggerConfig: {}, actionType: "CREATE_TASK", actionConfig: { titre: "Facturer le donneur d'ordre (chantier terminé)", assigneRole: "ADMINISTRATIF", typeTache: "AUTRE" }, delayJours: 1 },
+    { code: "REGIE_A_PLANIFIER_TACHE", nom: "Pose en régie sans date - tâche planning", triggerType: "MISSION_REGIE_A_PLANIFIER", triggerConfig: {}, actionType: "CREATE_TASK", actionConfig: { titre: "Planifier la pose de l'équipe interne", assigneRole: "ADMINISTRATIF", typeTache: "AUTRE" }, delayJours: 0 },
+    { code: "REGIE_A_PLANIFIER_NOTIF", nom: "Pose en régie sans date - notif", triggerType: "MISSION_REGIE_A_PLANIFIER", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMIN", title: "Pose interne à planifier", message: "Une pose confiée à l'équipe interne n'a pas encore de date." }, delayJours: 0 },
+    { code: "ST_FACTURE_ATTENDUE_J3", nom: "Mission terminée sans facture - email ST (J+3)", triggerType: "MISSION_ST_FACTURE_ATTENDUE", triggerConfig: { stepIndex: 0 }, actionType: "SEND_EMAIL", actionConfig: { templateCode: "ST_FACTURE_ATTENDUE" }, delayJours: 3, mode: "AUTO" },
+    { code: "ST_FACTURE_ATTENDUE_J10", nom: "Mission terminée sans facture - relance ST (J+10)", triggerType: "MISSION_ST_FACTURE_ATTENDUE", triggerConfig: { stepIndex: 1 }, actionType: "SEND_EMAIL", actionConfig: { templateCode: "ST_FACTURE_ATTENDUE" }, delayJours: 10, mode: "AUTO" },
+    { code: "FACTURE_ST_A_VALIDER_TACHE", nom: "Facture sous-traitant reçue - à valider", triggerType: "FACTURE_ST_A_VALIDER", triggerConfig: {}, actionType: "CREATE_TASK", actionConfig: { titre: "Contrôler et valider la facture sous-traitant", assigneRole: "COMPTABILITE", typeTache: "AUTRE" }, delayJours: 0 },
+    { code: "FACTURE_A_PAYER_NOTIF", nom: "Facture sous-traitant à payer (échéance proche/dépassée)", triggerType: "FACTURE_A_PAYER", triggerConfig: { withinDays: 3 }, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "ADMIN", title: "Facture à payer", message: "Une facture sous-traitant arrive à échéance ou est échue." }, delayJours: 0 },
+    { code: "CEE_DEPOT_A_FAIRE_TACHE", nom: "Travaux terminés - dossier CEE à déposer", triggerType: "CEE_DEPOT_A_FAIRE", triggerConfig: {}, actionType: "CREATE_TASK", actionConfig: { titre: "Déposer le dossier CEE chez le délégataire", assigneRole: "ADMINISTRATIF", typeTache: "RELANCE_CEE" }, delayJours: 3 },
+    { code: "CEE_RETARD_J0", nom: "Prime CEE en retard - relance délégataire (J0)", triggerType: "CEE_PAIEMENT_RETARD", triggerConfig: { stepIndex: 0 }, actionType: "SEND_EMAIL", actionConfig: { templateCode: "CEE_RELANCE_PAIEMENT" }, delayJours: 0, mode: "AUTO" },
+    { code: "CEE_RETARD_J7", nom: "Prime CEE en retard - relance délégataire (J+7)", triggerType: "CEE_PAIEMENT_RETARD", triggerConfig: { stepIndex: 1 }, actionType: "SEND_EMAIL", actionConfig: { templateCode: "CEE_RELANCE_PAIEMENT" }, delayJours: 7, mode: "AUTO" },
+    { code: "CEE_RETARD_J15", nom: "Prime CEE en retard - relance délégataire (J+15)", triggerType: "CEE_PAIEMENT_RETARD", triggerConfig: { stepIndex: 2 }, actionType: "SEND_EMAIL", actionConfig: { templateCode: "CEE_RELANCE_PAIEMENT" }, delayJours: 15, mode: "AUTO" },
+    { code: "CEE_RETARD_TACHE", nom: "Prime CEE en retard - tâche compta", triggerType: "CEE_PAIEMENT_RETARD", triggerConfig: { stepIndex: 0 }, actionType: "CREATE_TASK", actionConfig: { titre: "Prime CEE en retard : relancer le délégataire", assigneRole: "COMPTABILITE", typeTache: "RELANCE_CEE" }, delayJours: 0 },
+
     { code: "REGIE_NOUVEAU_LEAD_NOTIF", nom: "Nouveau lead - notif tenant", triggerType: "REGIE_NOUVEAU_LEAD", triggerConfig: {}, actionType: "CREATE_NOTIFICATION", actionConfig: { targetRole: "COMMERCIAL", title: "Nouveau lead", message: "Un nouveau lead a été enregistré." }, delayJours: 0 },
     { code: "RDV_CREE_EMAIL", nom: "RDV créé - email commercial", triggerType: "RDV_CREE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "RDV_CREE" }, delayJours: 0 },
     { code: "RDV_MODIFIE_EMAIL", nom: "RDV modifié/annulé - email commercial", triggerType: "RDV_MODIFIE_OU_ANNULE", triggerConfig: {}, actionType: "PREPARE_EMAIL", actionConfig: { templateCode: "RDV_MODIFIE" }, delayJours: 0 },
-  ].map((r) => ({ ...r, organisationId, mode: "PREPARE_ONLY" as const, actif: true }));
+  ].map((r) => ({ organisationId, actif: true, ...r, mode: ("mode" in r ? r.mode : "PREPARE_ONLY") as "AUTO" | "PREPARE_ONLY" }));
 }
 
 export async function seedAutomations(prisma: PrismaClient, organisationId: string) {

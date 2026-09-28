@@ -300,6 +300,7 @@ export async function updatePosteTravaux(posteId: string, formData: FormData) {
       montantRegieCts: optionalEurosToCents(formData.get("montantRegie")),
       montantMaterielHTCts: optionalEurosToCents(formData.get("montantMaterielHT")),
       montantMaterielTTCCts: optionalEurosToCents(formData.get("montantMaterielTTC")),
+      ...(formData.get("avecDetailTechnique") ? detailTechniqueFromForm(formData) : {}),
     },
   });
   revalidatePath(`/dossiers/${poste.dossierId}`);
@@ -447,4 +448,25 @@ export async function deleteTache(tacheId: string, dossierId: string) {
   revalidatePath(`/dossiers/${dossierId}`);
   revalidatePath("/taches");
   revalidatePath("/");
+}
+
+function detailTechniqueFromForm(formData: FormData) {
+  const num = (k: string) => {
+    const v = String(formData.get(k) ?? "").replace(",", ".").trim();
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const txt = (k: string) => String(formData.get(k) ?? "").trim() || null;
+  const fourni = formData.get("materielFourniPar");
+  const quantite = num("quantite");
+  return {
+    quantite: quantite == null ? null : Math.round(quantite),
+    epaisseurMm: num("epaisseurMm"),
+    resistanceThermique: num("resistanceThermique"),
+    materielFourniPar: fourni === "DONNEUR_ORDRE" || fourni === "ENTREPRISE" ? fourni : null,
+    materiau: txt("materiau"),
+    marqueReference: txt("marqueReference"),
+    notesTechniques: txt("notesTechniques"),
+  };
 }

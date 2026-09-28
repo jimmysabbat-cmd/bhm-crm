@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { envoyerChantierAction } from "../actions";
+import { PostesEditor } from "./PostesEditor";
 
 const inputClass = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm";
 const labelClass = "text-xs font-medium uppercase tracking-wide text-slate-500";
@@ -73,26 +74,7 @@ export function NouvelleDemandeForm({ typeTravauxOptions }: { typeTravauxOptions
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelClass}>Prestation</label>
-          <select name="typeTravaux" required className={inputClass}>
-            <option value="">Choisir...</option>
-            {typeTravauxOptions.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>Surface (m²) / Quantité</label>
-          <div className="mt-1 flex gap-2">
-            <input name="surfaceM2" type="number" step="0.1" placeholder="Surface" className="w-1/2 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-            <input name="quantite" type="number" placeholder="Quantité" className="w-1/2 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-        </div>
-      </div>
+      <PostesEditor typeTravauxOptions={typeTravauxOptions} />
 
       <div>
         <label className={labelClass}>Date souhaitée</label>
@@ -100,7 +82,7 @@ export function NouvelleDemandeForm({ typeTravauxOptions }: { typeTravauxOptions
       </div>
 
       <div>
-        <label className={labelClass}>Informations techniques / commentaires</label>
+        <label className={labelClass}>Informations générales du chantier (accès, hauteur, contraintes, contact sur place...)</label>
         <textarea name="infosTechniques" rows={3} className={inputClass} />
       </div>
 

@@ -264,6 +264,29 @@ async function firstActiveUserEmail(where: Record<string, unknown>): Promise<str
   return user?.email ?? null;
 }
 
+// Email d'un partenaire : compte portail s'il existe, sinon l'email de
+// contact saisi sur sa fiche (auparavant un partenaire SANS compte portail
+// n'était jamais contacté). null si les emails automatiques sont coupés
+// pour ce partenaire (paramétrage partenaire par partenaire).
+export async function emailSousTraitant(id: string | null): Promise<string | null> {
+  if (!id) return null;
+  const st = await prisma.sousTraitant.findUnique({ where: { id }, select: { email: true, emailsAuto: true } });
+  if (!st || !st.emailsAuto) return null;
+  return (await firstActiveUserEmail({ sousTraitantId: id, role: "SOUS_TRAITANT" })) ?? st.email ?? null;
+}
+export async function emailDonneurOrdre(id: string | null): Promise<string | null> {
+  if (!id) return null;
+  const d = await prisma.donneurOrdre.findUnique({ where: { id }, select: { contactEmail: true, emailsAuto: true } });
+  if (!d || !d.emailsAuto) return null;
+  return (await firstActiveUserEmail({ donneurOrdreId: id, role: "DONNEUR_ORDRE" })) ?? d.contactEmail ?? null;
+}
+export async function emailDelegataireCee(id: string | null): Promise<string | null> {
+  if (!id) return null;
+  const d = await prisma.delegataireCee.findUnique({ where: { id }, select: { contactEmail: true, emailsAuto: true } });
+  if (!d || !d.emailsAuto) return null;
+  return d.contactEmail ?? (await firstActiveUserEmail({ delegataireCeeId: id, role: "DELEGATAIRE_CEE" }));
+}
+
 // P16 - cadence de relance idempotente (J0/J+3/J+7...) pour une "action
 // requise" en attente : chaque palier est une règle distincte avec son
 // propre stepIndex/delayJours (même principe que DOCUMENT_MISSING), gaté
@@ -294,7 +317,7 @@ export async function detectMissionStCreee(rule: Rule, now: Date): Promise<Trigg
   for (const m of missions) {
     const anchor = m.transmittedAt ?? m.createdAt;
     if (!stepWindowMatches(anchor, now, delayJours, nextDelayJours)) continue;
-    const destinataireEmail = await firstActiveUserEmail({ sousTraitantId: m.destinationSousTraitantId, role: "SOUS_TRAITANT" });
+    const destinataireEmail = await emailSousTraitant(m.destinationSousTraitantId);
     if (!destinataireEmail) continue;
     matches.push({ entityType: "TransmissionPackage", entityId: m.id, triggerKey: `step-${stepIndex}`, context: { missionId: m.id, dossierId: m.dossierId, destinataireEmail } });
   }
@@ -324,7 +347,7 @@ export async function detectMissionChantierProgramme(rule: Rule): Promise<Trigge
   });
   const matches: TriggerMatch[] = [];
   for (const m of missions) {
-    const destinataireEmail = m.destinationSousTraitantId ? await firstActiveUserEmail({ sousTraitantId: m.destinationSousTraitantId, role: "SOUS_TRAITANT" }) : null;
+    const destinataireEmail = m.destinationSousTraitantId ? await emailSousTraitant(m.destinationSousTraitantId) : null;
     matches.push({ entityType: "TransmissionPackage", entityId: m.id, triggerKey: "programmed", context: { missionId: m.id, dossierId: m.dossierId, destinataireEmail } });
   }
   return matches;
@@ -344,7 +367,7 @@ export async function detectMissionDateModifiee(rule: Rule): Promise<TriggerMatc
   const matches: TriggerMatch[] = [];
   for (const m of missions) {
     const key = `date-${m.dateDebutSouhaitee?.toISOString() ?? "x"}-${m.dateFinSouhaitee?.toISOString() ?? "x"}`;
-    const destinataireEmail = m.destinationSousTraitantId ? await firstActiveUserEmail({ sousTraitantId: m.destinationSousTraitantId, role: "SOUS_TRAITANT" }) : null;
+    const destinataireEmail = m.destinationSousTraitantId ? await emailSousTraitant(m.destinationSousTraitantId) : null;
     matches.push({ entityType: "TransmissionPackage", entityId: m.id, triggerKey: key, context: { missionId: m.id, dossierId: m.dossierId, destinataireEmail } });
   }
   return matches;
@@ -361,9 +384,15 @@ export async function detectMissionTerminee(rule: Rule): Promise<TriggerMatch[]>
 export async function detectDoDemandeRecue(rule: Rule): Promise<TriggerMatch[]> {
   const dossiers = await prisma.dossier.findMany({
     where: { organisationId: rule.organisationId, donneurOrdreId: { not: null } },
-    select: { id: true },
+    select: { id: true, donneurOrdreId: true },
   });
-  return dossiers.map((d) => ({ entityType: "Dossier", entityId: d.id, triggerKey: "received", context: { dossierId: d.id } }));
+  const matches: TriggerMatch[] = [];
+  for (const d of dossiers) {
+    // destinataireEmail = le donneur d'ordre lui-même (accusé de réception).
+    const destinataireEmail = await emailDonneurOrdre(d.donneurOrdreId);
+    matches.push({ entityType: "Dossier", entityId: d.id, triggerKey: "received", context: { dossierId: d.id, destinataireEmail } });
+  }
+  return matches;
 }
 
 const DO_COMPLEMENT_STEPS = [0, 1, 3]; // J0 (demande), J+1 (urgent - info bloquante), J+3
@@ -374,13 +403,13 @@ export async function detectDoComplementRequis(rule: Rule, now: Date): Promise<T
   const nextDelayJours = DO_COMPLEMENT_STEPS[stepIndex + 1] ?? null;
 
   const dossiers = await prisma.dossier.findMany({
-    where: { organisationId: rule.organisationId, donneurOrdreId: { not: null }, complementDemandeMessage: { not: null }, complementDemandeAt: { not: null } },
+    where: { organisationId: rule.organisationId, donneurOrdreId: { not: null }, complementDemandeMessage: { not: null }, complementDemandeAt: { not: null }, complementReponseMessage: null },
     select: { id: true, donneurOrdreId: true, complementDemandeAt: true },
   });
   const matches: TriggerMatch[] = [];
   for (const d of dossiers) {
     if (!stepWindowMatches(d.complementDemandeAt!, now, delayJours, nextDelayJours)) continue;
-    const destinataireEmail = await firstActiveUserEmail({ donneurOrdreId: d.donneurOrdreId, role: "DONNEUR_ORDRE" });
+    const destinataireEmail = await emailDonneurOrdre(d.donneurOrdreId);
     if (!destinataireEmail) continue;
     // triggerKey inclut complementDemandeAt : une NOUVELLE demande (après une
     // réponse précédente) relance la cadence à zéro, jamais confondue avec
@@ -405,7 +434,7 @@ async function detectDoDossierStatusKeys(rule: Rule, statusKeys: string[], keyPr
   });
   const matches: TriggerMatch[] = [];
   for (const d of dossiers) {
-    const destinataireEmail = await firstActiveUserEmail({ donneurOrdreId: d.donneurOrdreId, role: "DONNEUR_ORDRE" });
+    const destinataireEmail = await emailDonneurOrdre(d.donneurOrdreId);
     if (!destinataireEmail) continue;
     matches.push({ entityType: "Dossier", entityId: d.id, triggerKey: `${keyPrefix}-${d.statutId}`, context: { dossierId: d.id, destinataireEmail } });
   }
@@ -421,6 +450,149 @@ export async function detectDoChantierProgramme(rule: Rule): Promise<TriggerMatc
 export async function detectDoChantierTermine(rule: Rule): Promise<TriggerMatch[]> {
   return detectDoDossierStatusKeys(rule, ["TRAVAUX_TERMINES"], "status");
 }
+export async function detectDoChantierRefuse(rule: Rule): Promise<TriggerMatch[]> {
+  return detectDoDossierStatusKeys(rule, ["REFUSE"], "status");
+}
+
+// ============================================================
+// Pilotage poses / facturation / délégataires (circuits "on pose pour un
+// partenaire" et "on confie nos poses"). Mêmes principes : lecture seule,
+// triggerKey stable, arrêt automatique dès que la situation est réglée.
+// ============================================================
+
+function joursDepuis(d: Date, now: Date): number {
+  return Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+}
+
+// Pose confiée à la régie interne sans date de chantier : à planifier.
+export async function detectMissionRegieAPlanifier(rule: Rule, now: Date): Promise<TriggerMatch[]> {
+  const missions = await prisma.transmissionPackage.findMany({
+    where: { organisationId: rule.organisationId, posteTravauxId: { not: null }, destinationRegieId: { not: null }, status: { in: ["ENVOYEE", "ACCEPTEE"] }, dateDebutSouhaitee: null },
+    select: { id: true, dossierId: true, createdAt: true },
+  });
+  return missions
+    .filter((m) => joursDepuis(m.createdAt, now) >= (rule.delayJours ?? 0))
+    .map((m) => ({ entityType: "TransmissionPackage", entityId: m.id, triggerKey: "a-planifier", context: { missionId: m.id, dossierId: m.dossierId } }));
+}
+
+// Mission sous-traitant terminée sans facture déposée : relance du ST
+// (J+3, J+10), s'arrête dès qu'une facture active existe pour le poste.
+const ST_FACTURE_STEPS = [3, 10];
+export async function detectMissionStFactureAttendue(rule: Rule, now: Date): Promise<TriggerMatch[]> {
+  const stepIndex = cfgNumber(rule.triggerConfig, "stepIndex") ?? 0;
+  const delay = ST_FACTURE_STEPS[stepIndex] ?? 3;
+  const next = ST_FACTURE_STEPS[stepIndex + 1] ?? null;
+  const missions = await prisma.transmissionPackage.findMany({
+    where: { organisationId: rule.organisationId, posteTravauxId: { not: null }, destinationSousTraitantId: { not: null }, status: "TERMINEE" },
+    select: { id: true, dossierId: true, updatedAt: true, destinationSousTraitantId: true, posteTravauxId: true },
+  });
+  const matches: TriggerMatch[] = [];
+  for (const m of missions) {
+    if (!stepWindowMatches(m.updatedAt, now, delay, next)) continue;
+    const facture = await prisma.facture.findFirst({
+      where: { type: "SOUS_TRAITANT", dossierId: m.dossierId, sousTraitantId: m.destinationSousTraitantId, statut: { notIn: ["ANNULEE", "REFUSEE"] } },
+      select: { id: true },
+    });
+    if (facture) continue;
+    const destinataireEmail = await emailSousTraitant(m.destinationSousTraitantId);
+    matches.push({ entityType: "TransmissionPackage", entityId: m.id, triggerKey: `facture-attendue-${stepIndex}`, context: { missionId: m.id, dossierId: m.dossierId, destinataireEmail } });
+  }
+  return matches;
+}
+
+// Facture sous-traitant reçue, à contrôler / valider par la compta.
+export async function detectFactureStAValider(rule: Rule): Promise<TriggerMatch[]> {
+  const factures = await prisma.facture.findMany({
+    where: { organisationId: rule.organisationId, type: "SOUS_TRAITANT", statut: { in: ["RECUE", "A_CONTROLER"] } },
+    select: { id: true, dossierId: true },
+  });
+  return factures.map((f) => ({ entityType: "Facture", entityId: f.id, triggerKey: "a-valider", context: { factureId: f.id, dossierId: f.dossierId } }));
+}
+
+// Facture à payer (sous-traitant) : échéance dans les N jours puis échue.
+export async function detectFactureAPayer(rule: Rule, now: Date): Promise<TriggerMatch[]> {
+  const withinDays = cfgNumber(rule.triggerConfig, "withinDays") ?? 3;
+  const limite = new Date(now.getTime() + withinDays * 86_400_000);
+  const factures = await prisma.facture.findMany({
+    where: { organisationId: rule.organisationId, type: "SOUS_TRAITANT", statut: { in: ["A_PAYER", "PARTIELLEMENT_PAYEE", "VALIDEE"] }, dateEcheance: { not: null, lte: limite } },
+    select: { id: true, dossierId: true, dateEcheance: true },
+  });
+  return factures.map((f) => ({
+    entityType: "Facture",
+    entityId: f.id,
+    triggerKey: f.dateEcheance! < now ? "echue" : "bientot",
+    context: { factureId: f.id, dossierId: f.dossierId },
+  }));
+}
+
+// Chantier d'un donneur d'ordre terminé sans facture DO émise.
+export async function detectDoAFacturer(rule: Rule, now: Date): Promise<TriggerMatch[]> {
+  const dossiers = await prisma.dossier.findMany({
+    where: {
+      organisationId: rule.organisationId,
+      donneurOrdreId: { not: null },
+      statut: { key: { in: ["TRAVAUX_TERMINES", "CONTROLE_EN_COURS", "SOLDE_DEMANDE"] } },
+      factures: { none: { type: "DONNEUR_ORDRE", statut: { notIn: ["ANNULEE"] } } },
+    },
+    select: { id: true, dateFinTravaux: true, updatedAt: true },
+  });
+  return dossiers
+    .filter((d) => joursDepuis(d.dateFinTravaux ?? d.updatedAt, now) >= (rule.delayJours ?? 0))
+    .map((d) => ({ entityType: "Dossier", entityId: d.id, triggerKey: "a-facturer", context: { dossierId: d.id } }));
+}
+
+// Dossier CEE : travaux terminés, délégataire choisi, pas encore déposé.
+export async function detectCeeDepotAFaire(rule: Rule, now: Date): Promise<TriggerMatch[]> {
+  const dossiers = await prisma.dossier.findMany({
+    where: {
+      organisationId: rule.organisationId,
+      delegataireCeeId: { not: null },
+      montantAideCEE: { gt: 0 },
+      dateDepotDelegataireCee: null,
+      statut: { key: { in: ["TRAVAUX_TERMINES", "CONTROLE_EN_COURS", "SOLDE_DEMANDE"] } },
+    },
+    select: { id: true, dateFinTravaux: true, updatedAt: true },
+  });
+  return dossiers
+    .filter((d) => joursDepuis(d.dateFinTravaux ?? d.updatedAt, now) >= (rule.delayJours ?? 0))
+    .map((d) => ({ entityType: "Dossier", entityId: d.id, triggerKey: "depot-a-faire", context: { dossierId: d.id } }));
+}
+
+// Prime CEE non versée à l'échéance (dépôt + délai du délégataire) :
+// relance du délégataire J0/J+7/J+15, arrêt dès que la prime est encaissée
+// (agrégat dossier OU mouvement ENCAISSEMENT_CEE soldé).
+const CEE_RETARD_STEPS = [0, 7, 15];
+export async function detectCeePaiementRetard(rule: Rule, now: Date): Promise<TriggerMatch[]> {
+  const stepIndex = cfgNumber(rule.triggerConfig, "stepIndex") ?? 0;
+  const delay = CEE_RETARD_STEPS[stepIndex] ?? 0;
+  const next = CEE_RETARD_STEPS[stepIndex + 1] ?? null;
+  const dossiers = await prisma.dossier.findMany({
+    where: { organisationId: rule.organisationId, delegataireCeeId: { not: null }, montantAideCEE: { gt: 0 }, dateDepotDelegataireCee: { not: null }, statut: { key: { not: "CLOTURE" } } },
+    select: {
+      id: true,
+      delegataireCeeId: true,
+      montantAideCEE: true,
+      montantEncaisseCEE: true,
+      dateDepotDelegataireCee: true,
+      delegataireCee: { select: { delaiPaiementJours: true } },
+      mouvementsFinanciers: { where: { categorie: "ENCAISSEMENT_CEE", statut: { not: "ANNULE" } }, select: { montantPrevuCts: true, montantReelCts: true, statut: true } },
+    },
+  });
+  const matches: TriggerMatch[] = [];
+  for (const d of dossiers) {
+    const delai = d.delegataireCee?.delaiPaiementJours;
+    if (delai == null) continue;
+    const echeance = new Date(d.dateDepotDelegataireCee!.getTime() + delai * 86_400_000);
+    if (echeance > now) continue;
+    const ms = d.mouvementsFinanciers;
+    const solde = ms.length > 0 ? ms.every((m) => m.statut === "RECU" || (m.montantReelCts ?? 0) >= (m.montantPrevuCts ?? 0)) : d.montantEncaisseCEE >= d.montantAideCEE;
+    if (solde) continue;
+    if (!stepWindowMatches(echeance, now, delay, next)) continue;
+    const destinataireEmail = await emailDelegataireCee(d.delegataireCeeId);
+    matches.push({ entityType: "Dossier", entityId: d.id, triggerKey: `cee-retard-${stepIndex}`, context: { dossierId: d.id, destinataireEmail, echeance: echeance.toISOString() } });
+  }
+  return matches;
+}
 
 export async function detectDoFactureDisponible(rule: Rule): Promise<TriggerMatch[]> {
   const factures = await prisma.facture.findMany({
@@ -429,7 +601,7 @@ export async function detectDoFactureDisponible(rule: Rule): Promise<TriggerMatc
   });
   const matches: TriggerMatch[] = [];
   for (const f of factures) {
-    const destinataireEmail = await firstActiveUserEmail({ donneurOrdreId: f.donneurOrdreId, role: "DONNEUR_ORDRE" });
+    const destinataireEmail = await emailDonneurOrdre(f.donneurOrdreId);
     if (!destinataireEmail) continue;
     matches.push({ entityType: "Facture", entityId: f.id, triggerKey: "available", context: { factureId: f.id, dossierId: f.dossierId, destinataireEmail } });
   }
@@ -450,7 +622,7 @@ export async function detectDoFactureEchue(rule: Rule, now: Date): Promise<Trigg
   const nextDelayJours = DO_FACTURE_ECHUE_STEPS[stepIndex + 1] ?? null;
 
   const factures = await prisma.facture.findMany({
-    where: { organisationId: rule.organisationId, type: "DONNEUR_ORDRE", statut: "EMISE", donneurOrdreId: { not: null }, dateEcheance: { not: null, lte: now } },
+    where: { organisationId: rule.organisationId, type: "DONNEUR_ORDRE", statut: { in: ["EMISE", "TRANSMISE", "PARTIELLEMENT_PAYEE", "EN_RETARD"] }, donneurOrdreId: { not: null }, dateEcheance: { not: null, lte: now } },
     select: { id: true, dossierId: true, donneurOrdreId: true, dateEcheance: true, mouvementFinancier: { select: { statut: true } } },
   });
 
@@ -458,7 +630,7 @@ export async function detectDoFactureEchue(rule: Rule, now: Date): Promise<Trigg
   for (const f of factures) {
     if (f.mouvementFinancier && (f.mouvementFinancier.statut === "RECU" || f.mouvementFinancier.statut === "PAYE")) continue;
     if (!stepWindowMatches(f.dateEcheance!, now, delayJours, nextDelayJours)) continue;
-    const destinataireEmail = await firstActiveUserEmail({ donneurOrdreId: f.donneurOrdreId, role: "DONNEUR_ORDRE" });
+    const destinataireEmail = await emailDonneurOrdre(f.donneurOrdreId);
     if (!destinataireEmail) continue;
     matches.push({ entityType: "Facture", entityId: f.id, triggerKey: `step-${stepIndex}`, context: { factureId: f.id, dossierId: f.dossierId, destinataireEmail } });
   }
@@ -567,6 +739,22 @@ export async function detectTriggerMatches(rule: Rule & { triggerType: string },
       return detectDoFactureDisponible(rule);
     case "DO_FACTURE_ECHUE":
       return detectDoFactureEchue(rule, now);
+    case "DO_CHANTIER_REFUSE":
+      return detectDoChantierRefuse(rule);
+    case "DO_A_FACTURER":
+      return detectDoAFacturer(rule, now);
+    case "MISSION_REGIE_A_PLANIFIER":
+      return detectMissionRegieAPlanifier(rule, now);
+    case "MISSION_ST_FACTURE_ATTENDUE":
+      return detectMissionStFactureAttendue(rule, now);
+    case "FACTURE_ST_A_VALIDER":
+      return detectFactureStAValider(rule);
+    case "FACTURE_A_PAYER":
+      return detectFactureAPayer(rule, now);
+    case "CEE_DEPOT_A_FAIRE":
+      return detectCeeDepotAFaire(rule, now);
+    case "CEE_PAIEMENT_RETARD":
+      return detectCeePaiementRetard(rule, now);
     case "REGIE_NOUVEAU_LEAD":
       return detectRegieNouveauLead(rule);
     case "RDV_CREE":

@@ -24,6 +24,7 @@ function findLogo(): { src: string; isSvg: boolean } | null {
 const links: SidebarLink[] = [
   { href: "/", label: "Trésorerie", icon: "tresorerie" },
   { href: "/dossiers", label: "Dossiers", icon: "dossiers" },
+  { href: "/poses", label: "Pilotage des poses", icon: "taches" },
   { href: "/planning", label: "Planning", icon: "planning" },
   { href: "/taches", label: "Tâches & relances", icon: "taches" },
 ];

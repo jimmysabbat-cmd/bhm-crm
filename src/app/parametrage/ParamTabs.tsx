@@ -5,6 +5,10 @@ import { usePathname } from "next/navigation";
 
 const groups = [
   {
+    label: "Société",
+    items: [{ href: "/parametrage/societe", label: "Société & emails" }],
+  },
+  {
     label: "Programmes",
     items: [{ href: "/parametrage/programmes", label: "Programmes" }],
   },
