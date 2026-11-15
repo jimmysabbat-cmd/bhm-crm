@@ -96,7 +96,9 @@ import { Button } from "@/components/ui/Button";
 import { MprAmpleurCalculator } from "@/components/ui/MprAmpleurCalculator";
 import { MonogesteCalculator } from "@/components/ui/MonogesteCalculator";
 import { CeeCumacCalculator } from "@/components/ui/CeeCumacCalculator";
+import { SousTraitantTarifFields } from "@/components/ui/SousTraitantTarifFields";
 import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
+import { estCodePostalIdf } from "@/lib/ile-de-france";
 
 function dateInputValue(d: Date | null): string {
   if (!d) return "";
@@ -303,6 +305,7 @@ export default async function DossierDetailPage({
   const peutSimulerReglementaire = hasPermission(ctx, "SIMULATE_REGLEMENTATION");
   const peutGererReglementaire = hasPermission(ctx, "MANAGE_REGLEMENTATION");
   const categorieCeeDossier = dossier.client.precarite === "TRES_MODESTE" ? "TRES_MODESTE" : "CLASSIQUE";
+  const estIdf = estCodePostalIdf(dossier.client.codePostal);
   const comparatifCeeParPoste = new Map<string, Awaited<ReturnType<typeof compareCeeDelegates>>>();
   if (peutSimulerReglementaire) {
     for (const poste of dossier.postesTravaux) {
@@ -1696,16 +1699,6 @@ export default async function DossierDetailPage({
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelClass}>Surface (m²)</label>
-                    <input
-                      name="surfaceM2"
-                      type="number"
-                      step="0.01"
-                      defaultValue={poste.surfaceM2 ?? ""}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div className="space-y-1">
                     <label className={labelClass}>CUMAC (kWh)</label>
                     <input
                       name="montantCumac"
@@ -1724,29 +1717,13 @@ export default async function DossierDetailPage({
                       className={inputClass}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelClass}>Sous-traitant</label>
-                    <select name="sousTraitantId" defaultValue={poste.sousTraitantId ?? ""} className={inputClass}>
-                      <option value="">—</option>
-                      {sousTraitants.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.nom}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className={labelClass}>Montant pose sous-traitance (€)</label>
-                    <input
-                      name="montantPoseSousTraitance"
-                      type="number"
-                      step="0.01"
-                      defaultValue={
-                        poste.montantPoseSousTraitanceCts ? poste.montantPoseSousTraitanceCts / 100 : ""
-                      }
-                      className={inputClass}
-                    />
-                  </div>
+                  <SousTraitantTarifFields
+                    sousTraitants={sousTraitants}
+                    estIdf={estIdf}
+                    defaultSurfaceM2={poste.surfaceM2}
+                    defaultSousTraitantId={poste.sousTraitantId}
+                    defaultMontant={poste.montantPoseSousTraitanceCts ? poste.montantPoseSousTraitanceCts / 100 : null}
+                  />
                   <div className="space-y-1">
                     <label className={labelClass}>Régie</label>
                     <select name="regieId" defaultValue={poste.regieId ?? ""} className={inputClass}>
@@ -2034,10 +2011,6 @@ export default async function DossierDetailPage({
                 </select>
               </div>
               <div className="space-y-1">
-                <label className={labelClass}>Surface (m²)</label>
-                <input name="surfaceM2" type="number" step="0.01" className={inputClass} />
-              </div>
-              <div className="space-y-1">
                 <label className={labelClass}>CUMAC (kWh)</label>
                 <input id="createPosteCumac" name="montantCumac" type="number" className={inputClass} />
               </div>
@@ -2064,21 +2037,7 @@ export default async function DossierDetailPage({
                     : undefined
                 }
               />
-              <div className="space-y-1">
-                <label className={labelClass}>Sous-traitant</label>
-                <select name="sousTraitantId" className={inputClass} defaultValue="">
-                  <option value="">—</option>
-                  {sousTraitants.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nom}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className={labelClass}>Montant pose sous-traitance (€)</label>
-                <input name="montantPoseSousTraitance" type="number" step="0.01" className={inputClass} />
-              </div>
+              <SousTraitantTarifFields sousTraitants={sousTraitants} estIdf={estIdf} />
               <div className="space-y-1">
                 <label className={labelClass}>Régie</label>
                 <select name="regieId" className={inputClass} defaultValue="">
