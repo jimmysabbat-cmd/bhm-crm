@@ -1018,8 +1018,14 @@ model SousTraitant {
   organisation       Organisation? @relation(fields: [organisationId], references: [id])
   nom                String
   typeTravaux        TypeTravaux?
-  tarifM2Cts         Int? // tarif au m2, en centimes
-  tarifFixeCts       Int? // tarif fixe, en centimes
+  // Tarifs négociés par zone (Jimmy, 2026-11-15) : un sous-traitant peut
+  // avoir un prix différent en Île-de-France et hors Île-de-France — jamais
+  // un seul tarif global ni un département en dur ici, c'est la logique
+  // d'appartenance IDF (ile-de-france.ts) qui reste la seule source.
+  tarifM2CtsIdf      Int? // tarif au m2 en Île-de-France, en centimes
+  tarifM2CtsHorsIdf  Int? // tarif au m2 hors Île-de-France, en centimes
+  tarifFixeCtsIdf    Int? // tarif fixe en Île-de-France, en centimes
+  tarifFixeCtsHorsIdf Int? // tarif fixe hors Île-de-France, en centimes
   fourniPose         Boolean       @default(false)
   telephone          String?
   email              String?

@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireInternalUserContext, type UserContext } from "@/lib/authz";
 import type { Role } from "@/generated/prisma/enums";
+import { eurosToCents } from "@/lib/money";
 
 // P12 (section 23) : sous-ensemble de reorder()/deleteItem() dont le
 // modèle est TENANT_SPECIFIC (les autres - dossierType/dossierStatus/
@@ -280,6 +281,11 @@ function reglagesPartenaire(formData: FormData) {
   };
 }
 
+function optionalEurosToCents(value: FormDataEntryValue | null): number | undefined {
+  if (!value || String(value).trim() === "") return undefined;
+  return eurosToCents(Number(value));
+}
+
 export async function createSousTraitant(formData: FormData) {
   const ctx = await requireAdmin();
   const nom = String(formData.get("nom")).trim();
@@ -294,6 +300,10 @@ export async function createSousTraitant(formData: FormData) {
       delaiPaiementJours: formData.get("delaiPaiementJours")
         ? Number(formData.get("delaiPaiementJours"))
         : null,
+      tarifM2CtsIdf: optionalEurosToCents(formData.get("tarifM2CtsIdf")),
+      tarifM2CtsHorsIdf: optionalEurosToCents(formData.get("tarifM2CtsHorsIdf")),
+      tarifFixeCtsIdf: optionalEurosToCents(formData.get("tarifFixeCtsIdf")),
+      tarifFixeCtsHorsIdf: optionalEurosToCents(formData.get("tarifFixeCtsHorsIdf")),
     },
   });
   revalidatePath("/parametrage/sous-traitants");
@@ -314,6 +324,10 @@ export async function updateSousTraitant(id: string, formData: FormData) {
       delaiPaiementJours: formData.get("delaiPaiementJours")
         ? Number(formData.get("delaiPaiementJours"))
         : null,
+      tarifM2CtsIdf: optionalEurosToCents(formData.get("tarifM2CtsIdf")) ?? null,
+      tarifM2CtsHorsIdf: optionalEurosToCents(formData.get("tarifM2CtsHorsIdf")) ?? null,
+      tarifFixeCtsIdf: optionalEurosToCents(formData.get("tarifFixeCtsIdf")) ?? null,
+      tarifFixeCtsHorsIdf: optionalEurosToCents(formData.get("tarifFixeCtsHorsIdf")) ?? null,
       ...(formData.get("reglagesPartenaire") ? { emailsAuto: formData.get("emailsAuto") === "on" } : {}),
     },
   });

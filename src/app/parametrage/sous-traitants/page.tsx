@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmit";
 import { inputClass, labelClass, smallInputClass } from "@/components/ui/field";
+import { centsToEuros, formatCents } from "@/lib/money";
 
 export default async function SousTraitantsPage() {
   const ctx = await requireUserContext();
@@ -48,6 +49,18 @@ export default async function SousTraitantsPage() {
                   {s.delaiPaiementJours && (
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" /> {s.delaiPaiementJours} j
+                    </span>
+                  )}
+                  {(s.tarifM2CtsIdf !== null || s.tarifM2CtsHorsIdf !== null) && (
+                    <span>
+                      /m² — IDF {s.tarifM2CtsIdf !== null ? formatCents(s.tarifM2CtsIdf) : "—"} · hors IDF{" "}
+                      {s.tarifM2CtsHorsIdf !== null ? formatCents(s.tarifM2CtsHorsIdf) : "—"}
+                    </span>
+                  )}
+                  {(s.tarifFixeCtsIdf !== null || s.tarifFixeCtsHorsIdf !== null) && (
+                    <span>
+                      fixe — IDF {s.tarifFixeCtsIdf !== null ? formatCents(s.tarifFixeCtsIdf) : "—"} · hors IDF{" "}
+                      {s.tarifFixeCtsHorsIdf !== null ? formatCents(s.tarifFixeCtsHorsIdf) : "—"}
                     </span>
                   )}
                 </div>
@@ -108,6 +121,46 @@ export default async function SousTraitantsPage() {
                   className={smallInputClass}
                 />
               </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Tarif/m² IDF (€)</label>
+                <input
+                  name="tarifM2CtsIdf"
+                  type="number"
+                  step="0.01"
+                  defaultValue={s.tarifM2CtsIdf !== null ? centsToEuros(s.tarifM2CtsIdf) : ""}
+                  className={smallInputClass}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Tarif/m² hors IDF (€)</label>
+                <input
+                  name="tarifM2CtsHorsIdf"
+                  type="number"
+                  step="0.01"
+                  defaultValue={s.tarifM2CtsHorsIdf !== null ? centsToEuros(s.tarifM2CtsHorsIdf) : ""}
+                  className={smallInputClass}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Tarif fixe IDF (€)</label>
+                <input
+                  name="tarifFixeCtsIdf"
+                  type="number"
+                  step="0.01"
+                  defaultValue={s.tarifFixeCtsIdf !== null ? centsToEuros(s.tarifFixeCtsIdf) : ""}
+                  className={smallInputClass}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className={labelClass}>Tarif fixe hors IDF (€)</label>
+                <input
+                  name="tarifFixeCtsHorsIdf"
+                  type="number"
+                  step="0.01"
+                  defaultValue={s.tarifFixeCtsHorsIdf !== null ? centsToEuros(s.tarifFixeCtsHorsIdf) : ""}
+                  className={smallInputClass}
+                />
+              </div>
               <label className="flex items-center gap-2 text-xs text-slate-600">
                 <input type="hidden" name="reglagesPartenaire" value="1" />
                 <input type="checkbox" name="emailsAuto" defaultChecked={s.emailsAuto} />
@@ -152,6 +205,22 @@ export default async function SousTraitantsPage() {
           <div className="space-y-1">
             <label className={labelClass}>Délai de paiement (jours après fin travaux)</label>
             <input name="delaiPaiementJours" type="number" className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Tarif/m² IDF (€)</label>
+            <input name="tarifM2CtsIdf" type="number" step="0.01" className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Tarif/m² hors IDF (€)</label>
+            <input name="tarifM2CtsHorsIdf" type="number" step="0.01" className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Tarif fixe IDF (€)</label>
+            <input name="tarifFixeCtsIdf" type="number" step="0.01" className={inputClass} />
+          </div>
+          <div className="space-y-1">
+            <label className={labelClass}>Tarif fixe hors IDF (€)</label>
+            <input name="tarifFixeCtsHorsIdf" type="number" step="0.01" className={inputClass} />
           </div>
         </div>
         <Button type="submit">
